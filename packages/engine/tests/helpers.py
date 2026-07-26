@@ -44,6 +44,7 @@ def make_player(
     cash: int = 1500,
     bot: bool = False,
     gender: Literal["m", "f", "n"] = "n",
+    position: int = 0,
     in_jail: bool = False,
     jail_turns: int = 0,
     jail_cards: tuple[Deck, ...] = (),
@@ -56,6 +57,7 @@ def make_player(
         token=f"token.{player_id}",
         cash=cash,
         grammatical_gender=gender,
+        position=position,
         in_jail=in_jail,
         jail_turns=jail_turns,
         jail_cards=jail_cards,
@@ -71,13 +73,22 @@ def make_state(
     seed: int = 42,
     ruleset: Ruleset | None = None,
     properties: dict[int, PropertyState] | None = None,
+    seats: tuple[PlayerState, ...] | None = None,
+    phase: Phase = Phase.AWAITING_ROLL,
+    interrupts: tuple[InterruptFrame, ...] = (),
+    current: int | None = None,
+    winner: int | None = None,
 ) -> GameState:
     """A minimal, valid game state.
 
     ``properties`` patches individual tiles; ``ids`` supplies non-contiguous player ids,
     which the state model must tolerate (seat order and player identity are separate).
+    ``seats`` takes full ``PlayerState`` values when a test needs jail flags, cash or
+    positions; ``phase`` + ``interrupts`` must agree (the state validator enforces it).
     """
-    seats = ids if ids is not None else tuple(range(players))
+    if seats is None:
+        seat_ids = ids if ids is not None else tuple(range(players))
+        seats = tuple(make_player(seat) for seat in seat_ids)
     tiles = [PropertyState() for _ in range(BOARD_SIZE)]
     for index, prop in (properties or {}).items():
         tiles[index] = prop
@@ -86,9 +97,12 @@ def make_state(
         board_id=board_id,
         ruleset=ruleset or Ruleset.universal(),
         rng=Rng(seed=seed),
-        players=tuple(make_player(seat) for seat in seats),
+        players=seats,
         properties=tuple(tiles),
-        current_player_id=seats[0],
+        phase=phase,
+        interrupts=interrupts,
+        current_player_id=current if current is not None else seats[0].id,
+        winner=winner,
     )
 
 
