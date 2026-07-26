@@ -57,18 +57,23 @@ export async function initI18n(locale: Locale = "en"): Promise<void> {
     lng: locale,
     fallbackLng: "en",
     defaultNS: "common",
-    ns: ["common", "board-classic", "board-israel"],
+    // "board-israel" stays out of this array until MON-503 supplies its catalogue —
+    // a declared namespace with no resources would let the picker select an unreadable
+    // board (GAP G-46).
+    ns: ["common", "board-classic"],
     resources: {
       en: { common: commonEn, "board-classic": boardClassicEn },
       he: { common: commonHe, "board-classic": boardClassicHe },
     },
     interpolation: { escapeValue: false },
-    // Surface a missing key loudly in development instead of rendering the raw key
-    // into the UI and hoping someone notices.
-    saveMissing: import.meta.env.DEV,
+    // A missing key must be loud, not a `console.error` nobody watches (GAP G-F17). Both
+    // the Vite dev server and a Vitest run should fail hard on it — `import.meta.env.DEV`
+    // covers `npm run dev`, `MODE === "test"` covers the test runner, where DEV alone
+    // cannot be relied on.
+    saveMissing: import.meta.env.DEV || import.meta.env.MODE === "test",
     missingKeyHandler: (_lngs, ns, key) => {
-      if (import.meta.env.DEV) {
-        console.error(`[i18n] missing key: ${ns}:${key}`);
+      if (import.meta.env.DEV || import.meta.env.MODE === "test") {
+        throw new Error(`[i18n] missing key: ${ns}:${key}`);
       }
     },
   });
