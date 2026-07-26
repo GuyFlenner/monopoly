@@ -105,8 +105,14 @@ GameState
 ├─ properties: tuple[PropertyState, ...]  ← always 40, index-aligned with the board
 │                                           owner | houses (0-4, 5=hotel) | mortgaged
 ├─ phase: Phase                      ← the turn state machine (§3.3)
-├─ current_player_index, dice, turn_number
+├─ current_player_id, dice(first, second, purpose), doubles_streak, turn_number
+│    (Amended 2026-07-26 / MON-100: an *id*, not an index — every command and event names
+│    players by id, and ids need not be contiguous. `doubles_streak` belongs to the turn,
+│    not to a roll, so a card-driven rent roll cannot reset it. GAP G-10, G-19.)
 ├─ houses_remaining / hotels_remaining    ← the building shortage is a real rule
+│    (Amended 2026-07-26 / MON-100: DERIVED from `ruleset.houses_available` minus the
+│    buildings on the board, not stored. A stored copy could contradict a custom
+│    ruleset, and the conservation invariant then had nothing to catch. GAP G-19.)
 ├─ interrupts: tuple[InterruptFrame, ...] ← a STACK: interrupts nest and queue (ADR-007).
 │    AuctionFrame | DebtFrame | TradeFrame | CardFrame, each with its own resume phase.
 │    (Amended 2026-07-26: the original "at most one interrupt is live at a time" was false
