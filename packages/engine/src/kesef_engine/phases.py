@@ -15,6 +15,12 @@ Normal flow::
 Three phases are *interrupts*: they can be entered from several places and, when they
 finish, return control to where the game was. ``DEBT_SETTLEMENT`` (you owe more than you
 hold in cash and must raise it or go bankrupt), ``AUCTION``, and ``TRADE_REVIEW``.
+
+Where control returns to is **not** stored here. Per ADR-007 an interrupt is a frame on
+:attr:`kesef_engine.state.GameState.interrupts`, and the frame carries its own resume
+phase — a scalar phase has nowhere to record a continuation, so a game saved mid-interrupt
+could not be resumed. ``phase`` remains the single "what is happening now" signal, and a
+validator on ``GameState`` keeps it in step with the live frame.
 """
 
 from __future__ import annotations
@@ -63,5 +69,16 @@ TRANSIENT_PHASES = frozenset({Phase.MOVING, Phase.RESOLVING_TILE, Phase.CARD_RES
 INTERRUPT_PHASES = frozenset({Phase.AUCTION, Phase.DEBT_SETTLEMENT, Phase.TRADE_REVIEW})
 """Phases in which the acting player may not be the player whose turn it is."""
 
-PORTFOLIO_PHASES = frozenset({Phase.AWAITING_ROLL, Phase.AWAITING_END_TURN})
-"""Phases in which building, mortgaging and trading are permitted."""
+PORTFOLIO_PHASES = frozenset({Phase.AWAITING_ROLL, Phase.JAIL_DECISION, Phase.AWAITING_END_TURN})
+"""Phases in which the full portfolio is open: build, sell, mortgage, unmortgage, trade.
+
+``JAIL_DECISION`` belongs here because a jailed player still owns an estate and still
+takes a turn — the rules let them collect rent, build and trade from the cell (GAP G-5).
+"""
+
+RAISING_PHASES = frozenset({Phase.DEBT_SETTLEMENT, Phase.AUCTION})
+"""Phases in which a player may *raise cash but not spend it*: sell buildings, mortgage,
+trade. Building and unmortgaging are not offered here — a player who owes money may not
+tie more of it up (GAP G-5). ``AUCTION`` is included for the bidder who needs to fund a
+bid; MON-101 additionally restricts it to a player still active in the auction.
+"""

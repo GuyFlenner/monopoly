@@ -18,9 +18,9 @@ from typing import Self
 from pydantic import BaseModel, model_validator
 
 from kesef_engine.errors import BoardDataError
+from kesef_engine.primitives import BOARD_SIZE
 
-BOARD_SIZE = 40
-"""Tiles on a board. The universal rules assume 40; the validator enforces it."""
+__all__ = ["BOARD_SIZE", "OWNABLE_KINDS", "Board", "ColorGroup", "Tile", "TileKind"]
 
 
 class TileKind(StrEnum):
