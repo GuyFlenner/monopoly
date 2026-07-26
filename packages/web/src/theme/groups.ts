@@ -12,14 +12,7 @@
  */
 
 export type ColorGroup =
-  | "brown"
-  | "light_blue"
-  | "pink"
-  | "orange"
-  | "red"
-  | "yellow"
-  | "green"
-  | "dark_blue";
+  "brown" | "light_blue" | "pink" | "orange" | "red" | "yellow" | "green" | "dark_blue";
 
 export interface GroupTheme {
   /** Fill for the tile's colour band. Contrast ≥ 3:1 against the board surface. */
@@ -28,14 +21,7 @@ export interface GroupTheme {
   readonly onColor: string;
   /** SVG pattern id from `src/theme/patterns.tsx`, for the colourblind channel. */
   readonly pattern:
-    | "dots"
-    | "diagonal"
-    | "grid"
-    | "waves"
-    | "chevron"
-    | "cross"
-    | "rings"
-    | "solid";
+    "dots" | "diagonal" | "grid" | "waves" | "chevron" | "cross" | "rings" | "solid";
   /** A single glyph a pre-reader can recognise and point at. */
   readonly icon: string;
   /** i18n key. Never a literal — the group name is spoken aloud in Hebrew too. */

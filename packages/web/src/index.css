@@ -7,8 +7,7 @@
  * Both themes are required — families play in the evening.
  */
 @theme {
-  --font-sans:
-    "Rubik", "Heebo", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Rubik", "Heebo", ui-sans-serif, system-ui, sans-serif;
 
   --color-table: oklch(45% 0.09 155); /* the felt-green playing surface */
   --color-tile: oklch(97% 0.01 95);

@@ -7,9 +7,13 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   { ignores: ["dist", "src/api/generated.ts"] },
   js.configs.recommended,
-  ...tseslint.configs.strictTypeChecked,
   {
+    // Type-aware rules need `parserOptions.project`, which only covers the files in
+    // tsconfig.json's `include`. Scoping the whole type-checked preset to ts/tsx here
+    // (rather than spreading it top-level) keeps eslint.config.js itself lintable as
+    // plain JS instead of erroring for lack of type information.
     files: ["**/*.{ts,tsx}"],
+    extends: [...tseslint.configs.strictTypeChecked],
     languageOptions: {
       globals: globals.browser,
       parserOptions: { project: ["./tsconfig.json"], tsconfigRootDir: import.meta.dirname },
