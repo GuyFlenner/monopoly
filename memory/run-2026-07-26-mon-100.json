@@ -1,0 +1,22 @@
+{
+  "run": "mon-100-state-rework",
+  "date": "2026-07-26",
+  "tier": "3-tdd",
+  "branch": "feature/mon-100-state-rework",
+  "phases": {
+    "po_tl_architect": {"mode": "lightweight", "reason": "AC + ADR-007/008 + plan merged via PR #1 same day"},
+    "developer": {"status": "COMPLETE", "tests_before": 89, "tests_after": 220, "tdd_confirmed": true},
+    "test_reviewer": {"verdict": "WARN", "findings": 3, "critical_fixed_pre_pr": 1},
+    "security": {"status": "APPROVED", "critical": 0, "conditional": 0, "advisories": 5},
+    "code_review": {"verdict": "PROCEED", "critical": 0, "major": 0, "minor": 11},
+    "tests": {"exit": 0, "passed": 220, "coverage_pct": 94}
+  },
+  "repair_attempts_used": 0,
+  "hitl_items": [],
+  "advisories_carried_forward": {
+    "MON-301": ["BoardDataError escapes ValidationError contract on save-load", "map any load ValidationError to error.save_schema_mismatch", "max_length caps on decks/interrupts/strings", "server stamps elapsed_seconds, never the client", "test_games_list_starts_empty vacuity"],
+    "MON-101": ["promote a public validated-copy method before rule modules reach for model_copy", "DicePurpose alias + DIE_FACES/HOTEL_LEVEL into primitives.py"],
+    "MON-209": ["bankrupt-owns-nothing as hypothesis invariant", "interior resume-chain validation", "free_parking_pot vs enabled flag validator"],
+    "tooling": ["pydantic-mypy init_typed=true (constructor calls effectively unchecked)"]
+  }
+}
