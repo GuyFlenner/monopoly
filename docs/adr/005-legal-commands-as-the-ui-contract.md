@@ -24,14 +24,25 @@ The UI renders the commands it is handed. It contains no rule logic of any kind.
 the identical tuple, so a bot cannot cheat — it has no path to the state except the one a
 human uses.
 
-Two invariants, enforced as property tests rather than spot-checks:
+Three properties, enforced as property tests rather than spot-checks *(amended 2026-07-26 —
+the original two-way statement was false against its own exceptions; a test written from it
+would fail on a correct implementation and be weakened under pressure)*:
 
-1. Every command `legal_commands` returns is accepted by `apply`.
-2. Every command it omits is rejected by `apply`.
+1. **Soundness** — every command `legal_commands` returns is accepted by `apply`.
+2. **Completeness over enumerable kinds** — for the 15 command kinds that `legal_commands`
+   enumerates exhaustively, every omitted command is rejected by `apply`, and the rejection
+   is specifically `IllegalCommandError` with a populated `reason_key` — a crash does not
+   count as a rejection.
+3. **`is_legal` is the oracle for the rest** — for commands drawn from the full parameter
+   space (all bids, all trade drafts), `is_legal(state, command)` agrees with whether
+   `apply` accepts. This runs over an *unconstrained* structural state generator, not only
+   replayed games: both sides see the same state, so reachability does not matter, and the
+   property is not blind to states a buggy `legal_commands` cannot reach.
 
-Two parameter spaces are unbounded and get an explicit exception: `PlaceBid` is returned at
-the minimum legal bid, and `ProposeTrade` is not enumerated at all — the trade builder
-validates its draft through `is_legal(state, command)`.
+The two unbounded parameter spaces keep their explicit exception: `PlaceBid` is returned at
+the minimum legal bid (with the legal range shipped on the auction view), and `ProposeTrade`
+is not enumerated at all — the trade builder validates its draft through `is_legal`, exposed
+over HTTP by the `validate` route (ADR-008).
 
 ## Alternatives considered
 
