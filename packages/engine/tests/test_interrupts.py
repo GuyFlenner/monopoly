@@ -281,9 +281,28 @@ def test_the_bank_is_a_named_creditor_not_a_none_sentinel() -> None:
 
 
 def test_a_debt_records_where_it_came_from() -> None:
-    frame = _debt_frame().model_copy(update={"source_tile": 39, "reason": CashReason.RENT})
+    # Constructed directly, not via model_copy(update=): the copy path skips
+    # validation, so it cannot prove the field exists or that its bounds bite.
+    frame = DebtFrame(
+        resume=Phase.RESOLVING_TILE,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=10),),
+        reason=CashReason.RENT,
+        source_tile=39,
+    )
     assert frame.source_tile == 39
     assert frame.reason is CashReason.RENT
+
+
+def test_a_debt_source_tile_must_be_on_the_board() -> None:
+    with pytest.raises(ValidationError):
+        DebtFrame(
+            resume=Phase.RESOLVING_TILE,
+            debtor=0,
+            obligations=(Obligation(creditor=1, amount=10),),
+            reason=CashReason.RENT,
+            source_tile=40,
+        )
 
 
 # --- CardFrame --------------------------------------------------------------

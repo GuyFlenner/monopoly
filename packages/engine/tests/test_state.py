@@ -111,8 +111,13 @@ def test_the_current_schema_version_is_two() -> None:
 
 
 def test_a_building_on_an_unbuildable_tile_is_rejected() -> None:
-    """G-19: a hotel on GO used to validate. So did a hotel on a railroad."""
-    with pytest.raises(ValidationError):
+    """G-19: a hotel on GO used to validate. So did a hotel on a railroad.
+
+    The GO payload is caught by the *ownership* check (it fires first); the
+    railroad half is what proves the buildings check, since railroads are
+    ownable but unbuildable.
+    """
+    with pytest.raises(ValidationError, match="cannot be owned"):
         make_state(properties={GO_TILE: PropertyState(owner=0, houses=5)})
     with pytest.raises(ValidationError, match="cannot hold buildings"):
         make_state(properties={RAILROAD_TILE: PropertyState(owner=0, houses=5)})

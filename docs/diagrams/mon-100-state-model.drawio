@@ -1,0 +1,265 @@
+<mxfile host="app.diagrams.net" modified="2026-07-26T00:00:00.000Z" version="24.0.0">
+  <diagram name="MON-100 State Model" id="mon100state">
+    <mxGraphModel dx="1400" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1650" pageHeight="1060" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- ================= GameState ================= -->
+        <mxCell id="c2" value="GameState" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="90" width="340" height="234" as="geometry" />
+        </mxCell>
+        <mxCell id="c2a" value="schema_version: int = 2" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="26" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2b" value="phase: Phase" style="text;strokeColor=none;fillColor=#ffe6cc;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="52" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2c" value="interrupts: tuple[InterruptFrame, ...]" style="text;strokeColor=none;fillColor=#e1d5e7;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="78" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2d" value="current_player_index / turn_number: int" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="104" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2e" value="players / properties: tuple[...]" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="130" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2f" value="dice: DiceState | None" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="156" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2g" value="houses_remaining / hotels_remaining: int" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="182" width="340" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c2h" value="winner: PlayerId | None" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c2">
+          <mxGeometry y="208" width="340" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- Annotation badge: derived read-only properties -->
+        <mxCell id="c3" value="Derived, read-only: .auction / .pending_debt / .pending_trade&#10;computed from interrupts[-1] (the top frame) so call sites stay readable" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0f0;strokeColor=#cc0000;dashed=1;dashPattern=6 3;fontColor=#000000;fontSize=10;align=left;spacingLeft=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="334" width="340" height="54" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Interrupt stack (worked example) ================= -->
+        <mxCell id="c4" value="interrupts — example stack (depth 2)" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#dae8fc;strokeColor=#6c8ebf;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="420" y="90" width="300" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="c4a" value="[0] CardFrame   resume=RESOLVING_TILE" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c4">
+          <mxGeometry y="26" width="300" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c4b" value="[1] DebtFrame   resume=CARD_RESOLUTION   ▲ TOP" style="text;strokeColor=none;fillColor=#e1d5e7;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c4">
+          <mxGeometry y="52" width="300" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c5" value="top of stack = the live interrupt -&gt; drives GameState.phase" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=none;fontColor=#000000;fontSize=9;fontStyle=2;align=center;" vertex="1" parent="1">
+          <mxGeometry x="420" y="176" width="300" height="30" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Validator ================= -->
+        <mxCell id="c6" value="Validator&#10;phase &#8660; top-frame kind&#10;(no frame &#8658; ordinary / transient phase)" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="420" y="420" width="300" height="110" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Row B: the four InterruptFrame kinds ================= -->
+        <mxCell id="c7" value="AuctionFrame" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="580" width="320" height="182" as="geometry" />
+        </mxCell>
+        <mxCell id="c7a" value="lot: TileLot | BuildingLot" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c7">
+          <mxGeometry y="26" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c7b" value="reason: declined | bankruptcy | shortage" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c7">
+          <mxGeometry y="52" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c7c" value="eligible / withdrawn: tuple[PlayerId, ...]" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c7">
+          <mxGeometry y="78" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c7d" value="min_bid / max_bid: int" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c7">
+          <mxGeometry y="104" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c7e" value="queue: tuple[lot, ...]  (estate liquidation)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c7">
+          <mxGeometry y="130" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c7f" value="resume: Phase" style="text;strokeColor=none;fillColor=#f3e9f6;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c7">
+          <mxGeometry y="156" width="320" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c8" value="DebtFrame" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="390" y="580" width="320" height="156" as="geometry" />
+        </mxCell>
+        <mxCell id="c8a" value="obligations: tuple[Obligation, ...]  -- N creditors" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c8">
+          <mxGeometry y="26" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c8b" value="Obligation = (creditor: PlayerId | &quot;bank&quot;, amount)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c8">
+          <mxGeometry y="52" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c8c" value="reason: CashReason" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c8">
+          <mxGeometry y="78" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c8d" value="source_tile: TileIndex | None" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c8">
+          <mxGeometry y="104" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c8e" value="resume: Phase" style="text;strokeColor=none;fillColor=#f3e9f6;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c8">
+          <mxGeometry y="130" width="320" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c9" value="TradeFrame" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="740" y="580" width="320" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c9a" value="proposer / recipient: PlayerId" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c9">
+          <mxGeometry y="26" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c9b" value="offer: TradeOffer (cash + properties + jail_cards)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c9">
+          <mxGeometry y="52" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c9c" value="status: pending" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c9">
+          <mxGeometry y="78" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c9d" value="resume: Phase" style="text;strokeColor=none;fillColor=#f3e9f6;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c9">
+          <mxGeometry y="104" width="320" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c10" value="CardFrame" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="580" width="320" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="c10a" value="card_id: str" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c10">
+          <mxGeometry y="26" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c10b" value="deck: Deck (chance | community_chest)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c10">
+          <mxGeometry y="52" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c10c" value="step: int  (which effect step is suspended)" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c10">
+          <mxGeometry y="78" width="320" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c10d" value="resume: Phase" style="text;strokeColor=none;fillColor=#f3e9f6;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c10">
+          <mxGeometry y="104" width="320" height="26" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Row C: Phase enum groups ================= -->
+        <mxCell id="c12" value="Ordinary phases&#10;AWAITING_ROLL&#10;JAIL_DECISION&#10;AWAITING_PURCHASE_DECISION&#10;AWAITING_END_TURN&#10;GAME_OVER&#10;(no interrupt frame -- phase alone is enough)" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#d5e8d4;strokeColor=#82b366;fontColor=#000000;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="40" y="840" width="300" height="170" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c13" value="Transient phases (pass-through)" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#f0f4ff;strokeColor=#4a6fa5;strokeWidth=2;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="400" y="840" width="300" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="c13a" value="MOVING -- never rests, no frame" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c13">
+          <mxGeometry y="26" width="300" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c13b" value="RESOLVING_TILE -- never rests, no frame" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c13">
+          <mxGeometry y="52" width="300" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c13c" value="CARD_RESOLUTION -- resume target of a live CardFrame" style="text;strokeColor=none;fillColor=#dfe8ff;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;fontStyle=1;" vertex="1" parent="c13">
+          <mxGeometry y="78" width="300" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c14" value="Interrupt phases (frame-bearing)" style="swimlane;fontStyle=1;align=center;startSize=26;container=1;collapsible=0;expand=0;fillColor=#e1d5e7;strokeColor=#9673a6;fontColor=#000000;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="740" y="840" width="300" height="104" as="geometry" />
+        </mxCell>
+        <mxCell id="c14a" value="AUCTION" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c14">
+          <mxGeometry y="26" width="300" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c14b" value="DEBT_SETTLEMENT" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c14">
+          <mxGeometry y="52" width="300" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="c14c" value="TRADE_REVIEW" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;fontColor=#000000;fontSize=10;" vertex="1" parent="c14">
+          <mxGeometry y="78" width="300" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c15" value="Capability sets (overlap the phases above -- not a partition)&#10;&#10;PORTFOLIO_PHASES = {AWAITING_ROLL, AWAITING_END_TURN, JAIL_DECISION}&#10;build / mortgage / trade allowed&#10;&#10;RAISING_PHASES = {DEBT_SETTLEMENT, AUCTION}&#10;sell buildings / mortgage to raise cash; build &amp; unmortgage stay forbidden while insolvent" style="rounded=1;whiteSpace=wrap;html=0;fillColor=#fff2cc;strokeColor=#d6b656;fontColor=#000000;fontSize=10;align=left;verticalAlign=top;spacingLeft=8;spacingTop=8;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="840" width="440" height="170" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Legend ================= -->
+        <mxCell id="c16" value="&lt;b&gt;Legend&lt;/b&gt;&lt;br&gt;&lt;font color='#6c8ebf'&gt;&#9632;&lt;/font&gt; GameState / example stack instance&lt;br&gt;&lt;font color='#9673a6'&gt;&#9632;&lt;/font&gt; InterruptFrame kind (Row B) / frame-bearing Phase (Row C)&lt;br&gt;&lt;font color='#d79b00'&gt;&#9670;&lt;/font&gt; Validator -- phase &amp;#8660; top-frame check&lt;br&gt;&lt;font color='#82b366'&gt;&#9632;&lt;/font&gt; Ordinary phase -- no frame needed&lt;br&gt;&lt;font color='#4a6fa5'&gt;&#9632;&lt;/font&gt; Transient phase -- pass-through&lt;br&gt;&lt;font color='#d6b656'&gt;&#9632;&lt;/font&gt; Capability set -- cross-cutting flag, not a phase identity&lt;br&gt;&lt;font color='#cc0000'&gt;- -&lt;/font&gt; Derived, read-only convenience property&lt;br&gt;&lt;i&gt;Solid arrow = always true &#183; dashed = only while a card is suspended&lt;/i&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#999999;fontColor=#000000;fontSize=11;align=left;verticalAlign=top;spacingLeft=10;spacingTop=10;" vertex="1" parent="1">
+          <mxGeometry x="1150" y="90" width="440" height="280" as="geometry" />
+        </mxCell>
+
+        <!-- ================= Edges ================= -->
+
+        <mxCell id="e1" value="e.g." style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.2;" edge="1" source="c2c" target="c4" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e2" value="" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;strokeColor=#999999;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.5;entryY=1;endArrow=classic;" edge="1" source="c5" target="c4b" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e3" value="phase" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.3;" edge="1" source="c2b" target="c6" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="400" y="155" />
+              <mxPoint x="400" y="453" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e4" value="top frame" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.5;exitY=1;entryX=0.5;entryY=0;" edge="1" source="c4b" target="c6" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e5" value="no live frame" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.05;exitY=1;entryX=0;entryY=0.4;" edge="1" source="c6" target="c12" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="435" y="577" />
+              <mxPoint x="20" y="577" />
+              <mxPoint x="20" y="900" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e6" value="&#8660; CardFrame (if a card is suspended)" style="edgeStyle=orthogonalEdgeStyle;html=1;dashed=1;strokeColor=#999999;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.3;exitY=1;entryX=0;entryY=0.5;" edge="1" source="c6" target="c13c" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="577" />
+              <mxPoint x="370" y="577" />
+              <mxPoint x="370" y="905" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e7" value="&#8660; AuctionFrame" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.55;exitY=1;entryX=0;entryY=0.5;" edge="1" source="c6" target="c14a" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="585" y="577" />
+              <mxPoint x="718" y="577" />
+              <mxPoint x="718" y="860" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e8" value="&#8660; DebtFrame" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.7;exitY=1;entryX=0;entryY=0.5;" edge="1" source="c6" target="c14b" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="630" y="577" />
+              <mxPoint x="726" y="577" />
+              <mxPoint x="726" y="886" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="e9" value="&#8660; TradeFrame" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeColor=#555555;fontColor=#000000;fontSize=10;labelBackgroundColor=#ffffff;exitX=0.85;exitY=1;entryX=0;entryY=0.5;" edge="1" source="c6" target="c14c" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="675" y="577" />
+              <mxPoint x="734" y="577" />
+              <mxPoint x="734" y="912" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+
+        <!-- ================= Title / group banner / footnote (drawn last: rule 2, z-order) ================= -->
+        <mxCell id="c1" value="Kesef Street -- Engine State Model after MON-100 (ADR-007): Interrupt Frames, Phase Groups, and the Validator" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=none;fontColor=#000000;fontSize=16;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="1550" height="40" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c11" value="InterruptFrame -- tagged union (each member carries its own resume: Phase)" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=none;fontColor=#000000;fontSize=12;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="548" width="1370" height="26" as="geometry" />
+        </mxCell>
+
+        <mxCell id="c17" value="Status: ADR-007 is Proposed and MON-100 is not yet implemented -- this diagram illustrates the target shape from docs/adr/007-interrupt-frames-not-a-scalar-phase.md and _drafts/plan-mon-100.md." style="rounded=0;whiteSpace=wrap;html=1;fillColor=#eef2f7;strokeColor=none;fontColor=#000000;fontSize=10;fontStyle=2;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1020" width="1550" height="26" as="geometry" />
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
