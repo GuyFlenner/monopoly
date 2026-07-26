@@ -27,7 +27,8 @@ def _print_boards() -> None:
 
 def _show_board(board_id: str) -> None:
     board = load_board(board_id)
-    print(f"{board.id} — {board.name_key}")
+    # ASCII only in CLI output: the Windows console defaults to cp1252 and mangles the rest.
+    print(f"{board.id} :: {board.name_key}")
     print(f"{'#':>3}  {'kind':<16} {'group':<11} {'price':>6} {'rent':>6}  name_key")
     for tile in board.tiles:
         group = tile.group.value if tile.group else ""
