@@ -9,12 +9,11 @@ type error rather than a runtime surprise.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-PlayerId = int
-TileIndex = int
+from kesef_engine.primitives import BOARD_SIZE, Deck, PlayerId, TileIndex
 
 
 class _CommandBase(BaseModel):
@@ -32,6 +31,14 @@ class RollDice(_CommandBase):
 
 class EndTurn(_CommandBase):
     kind: Literal["end_turn"] = "end_turn"
+    elapsed_seconds: Annotated[int, Field(ge=0)] | None = None
+    """Wall-clock seconds since the game began, stamped by the *caller*.
+
+    The engine owns no clock (rule 3), but Kids Mode ends a game after
+    ``Ruleset.target_duration_minutes``. Passing the time in with the one command that
+    always closes a turn keeps the rule inside the engine and the clock outside it
+    (GAP G-6). ``None`` means the caller is not keeping time.
+    """
 
 
 # --- Buying ----------------------------------------------------------------
@@ -68,24 +75,24 @@ class BuildHouse(_CommandBase):
     """Build one house (or the hotel, on the fifth) on ``tile``."""
 
     kind: Literal["build_house"] = "build_house"
-    tile: TileIndex
+    tile: TileIndex = Field(ge=0, lt=BOARD_SIZE)
 
 
 class SellHouse(_CommandBase):
     """Sell one house back to the bank at half the build cost."""
 
     kind: Literal["sell_house"] = "sell_house"
-    tile: TileIndex
+    tile: TileIndex = Field(ge=0, lt=BOARD_SIZE)
 
 
 class MortgageProperty(_CommandBase):
     kind: Literal["mortgage_property"] = "mortgage_property"
-    tile: TileIndex
+    tile: TileIndex = Field(ge=0, lt=BOARD_SIZE)
 
 
 class UnmortgageProperty(_CommandBase):
     kind: Literal["unmortgage_property"] = "unmortgage_property"
-    tile: TileIndex
+    tile: TileIndex = Field(ge=0, lt=BOARD_SIZE)
 
 
 # --- Trading ---------------------------------------------------------------
@@ -96,7 +103,19 @@ class TradeSide(BaseModel, frozen=True):
 
     cash: int = Field(default=0, ge=0)
     tiles: tuple[TileIndex, ...] = ()
-    jail_cards: int = Field(default=0, ge=0)
+    jail_cards: tuple[Deck, ...] = ()
+    """*Which* cards, not how many: a used card must go back to the bottom of its own
+    deck, and a count cannot say which deck that is (GAP G-11)."""
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if len(set(self.tiles)) != len(self.tiles):
+            raise ValueError("a trade side lists the same tile twice")
+        if any(not 0 <= tile < BOARD_SIZE for tile in self.tiles):
+            raise ValueError("a trade side lists a tile that is not on the board")
+        if len(set(self.jail_cards)) != len(self.jail_cards):
+            raise ValueError("a trade side lists the same jail card twice")
+        return self
 
 
 class TradeOffer(BaseModel, frozen=True):
@@ -106,6 +125,12 @@ class TradeOffer(BaseModel, frozen=True):
     """What the proposer hands over."""
     receive: TradeSide
     """What the proposer asks for in return."""
+
+    @model_validator(mode="after")
+    def _check(self) -> Self:
+        if self.proposer == self.recipient:
+            raise ValueError("proposer and recipient are the same player")
+        return self
 
 
 class ProposeTrade(_CommandBase):
@@ -143,7 +168,7 @@ class RollForJail(_CommandBase):
 
 
 class DeclareBankruptcy(_CommandBase):
-    """Concede that the debt in ``pending_debt`` cannot be met."""
+    """Concede that the debt in the live :class:`~kesef_engine.state.DebtFrame` cannot be met."""
 
     kind: Literal["declare_bankruptcy"] = "declare_bankruptcy"
 

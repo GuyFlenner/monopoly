@@ -19,7 +19,11 @@ Planned modules (see docs/BACKLOG.md for the owning items):
 ``cards``      (MON-206)      Chance and Community Chest decks and their effects
 ``insolvency`` (MON-207)      forced asset sales, bankruptcy to a player or to the bank
 ``endgame``    (MON-208)      last-solvent-player, time limit, net-worth tie-break
+``tiles``      (MON-108)      GO salary, tax tiles, Free Parking, go-to-jail, inert jail
 ============================  ==========================================================
+
+``tiles`` exists because those five rules had no home and would otherwise have been
+squeezed into whichever module the implementer happened to be in (GAP G-17).
 
 Every module here is a pure function of ``(state, ...) -> (state, events)``. None of them
 import anything from :mod:`kesef_server` or perform I/O.

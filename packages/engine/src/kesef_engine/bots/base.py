@@ -1,18 +1,19 @@
-"""The bot interface."""
+"""The bot interface.
+
+``BotLevel`` is re-exported here for the callers that think in terms of bots, but it is
+defined in :mod:`kesef_engine.primitives`: the engine's ``PlayerKind`` and the server's
+seat configuration both need it, and neither should have to import the bot package to
+name a difficulty (GAP G-19).
+"""
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Protocol
 
-from kesef_engine.commands import Command, PlayerId
+from kesef_engine.commands import Command
+from kesef_engine.primitives import BotLevel as BotLevel
+from kesef_engine.primitives import PlayerId
 from kesef_engine.state import GameState
-
-
-class BotLevel(StrEnum):
-    EASY = "easy"
-    NORMAL = "normal"
-    HARD = "hard"
 
 
 class Bot(Protocol):

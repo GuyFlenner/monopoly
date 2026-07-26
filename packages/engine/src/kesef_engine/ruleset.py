@@ -42,11 +42,17 @@ class Ruleset(BaseModel, frozen=True):
     """Houses across a colour group may never differ by more than one."""
     building_shortage_enforced: bool = True
     """When the bank runs out of houses, they genuinely run out."""
+    building_shortage_auction: bool = False
+    """Whether a contested last house goes to auction. Off in v1 (owner decision 1, GAP
+    §7): buildings are first-come-first-served, a documented divergence from the printed
+    rule. ``BuildingLot`` exists so turning this on later is a rule change, not a rework."""
     max_jail_turns: int = 3
     """Turns in jail before the fine is compulsory."""
 
     # --- House rules (off under the official rules) -------------------------
-    free_parking_pot: bool = False
+    free_parking_pot_enabled: bool = False
+    """Renamed from ``free_parking_pot``, which collided with the *int* of the same name on
+    ``GameState`` — one was a switch, the other the money on the tile."""
     double_salary_on_exact_go: bool = False
 
     # --- Child-friendliness -------------------------------------------------

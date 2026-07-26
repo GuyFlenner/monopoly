@@ -11,15 +11,20 @@ from typing import Self
 
 from pydantic import BaseModel, Field, model_validator
 
-from kesef_engine.bots.base import BotLevel
 from kesef_engine.commands import Command
 from kesef_engine.events import Event
+from kesef_engine.primitives import BotLevel
 from kesef_engine.ruleset import RulesetName
-from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, GameState
+from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, GameState, PlayerKind
 
 
 class SeatConfig(BaseModel):
-    """One seat at the table. A seat is either a person or a bot."""
+    """One seat at the table. A seat is either a person or a bot.
+
+    ``is_bot`` stays on the *wire* even though the engine's ``PlayerKind`` derives it from
+    ``bot_level``: a client that sends ``is_bot: true`` and forgets the level has made a
+    mistake, and a 422 says so instead of silently seating a human.
+    """
 
     name: str = Field(min_length=1, max_length=24)
     is_bot: bool = False
@@ -33,6 +38,12 @@ class SeatConfig(BaseModel):
         if not self.is_bot and self.bot_level is not None:
             raise ValueError("a human seat must not carry a bot_level")
         return self
+
+    @property
+    def player_kind(self) -> PlayerKind:
+        """The engine's shape for this seat. MON-301 seats a game through here, so the
+        wire's two fields can never be mapped onto the engine's one inconsistently."""
+        return PlayerKind(bot_level=self.bot_level)
 
 
 class NewGameRequest(BaseModel):

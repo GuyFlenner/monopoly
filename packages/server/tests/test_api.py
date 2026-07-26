@@ -135,4 +135,6 @@ def _minimal_state() -> GameState:
             PlayerState(id=i, name=f"P{i}", kind=PlayerKind(), token=f"token.{i}", cash=1500) for i in range(2)
         ),
         properties=tuple(PropertyState() for _ in range(BOARD_SIZE)),
+        # MON-100 / ADR-007: the state names the acting seat by id, not by tuple index.
+        current_player_id=0,
     )
