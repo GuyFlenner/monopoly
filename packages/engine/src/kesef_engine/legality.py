@@ -180,10 +180,13 @@ def _current_player_gate(state: GameState, player: PlayerId, phase: Phase) -> Le
 def _portfolio_gate(state: GameState, player: PlayerId, *, debt_ok: bool, auction_ok: bool) -> LegalityResult:
     """Who may manage a portfolio right now.
 
-    Portfolio phases open the estate to **every** solvent player (MON-204 amendment,
-    G-B4b) — no interrupt can be live there, the state validator guarantees it. The
-    RAISING contexts are narrower: the debtor during DEBT_SETTLEMENT, the bidding turn
-    during an AUCTION (G-B1a), each for cash-raising kinds only.
+    Portfolio phases open the estate to **every** solvent player — the MON-204 design
+    decision recorded in the backlog: portfolio actions do not wait for your turn, only
+    for a quiet phase. No interrupt can be live there, the state validator guarantees
+    it. The RAISING contexts are narrower: the debtor during DEBT_SETTLEMENT, the
+    bidding turn during an AUCTION (G-B1a), each for cash-raising kinds only — and
+    trading is DEBT_SETTLEMENT-only, since a live auction cannot be paused by a trade
+    review (GAP G-5, as corrected).
     """
     if state.phase in PORTFOLIO_PHASES:
         return _LEGAL
