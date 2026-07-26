@@ -1,0 +1,58 @@
+# ADR-005 — The engine tells the UI what is legal; the UI never decides
+
+- **Status**: Accepted
+- **Date**: 2026-07-25
+- **Deciders**: Guy Flenner
+
+## Context
+
+There is a bug family every board-game implementation eventually ships: the Build button is
+enabled but the move is rejected, or it is greyed out when the move was actually allowed.
+It happens because two places encode the same rule — the engine that validates, and the UI
+that decides what to render — and they drift.
+
+The same drift shows up between a human's options and a bot's, when the bot is given a
+different view of what it may do.
+
+## Decision
+
+`legal_commands(state) -> tuple[Command, ...]` returns every command that is legal right
+now, **with concrete parameters** — `BuildHouse(tile=16)`, not "you may build somewhere". It
+is bundled into every `GameView` the server returns.
+
+The UI renders the commands it is handed. It contains no rule logic of any kind. Bots receive
+the identical tuple, so a bot cannot cheat — it has no path to the state except the one a
+human uses.
+
+Two invariants, enforced as property tests rather than spot-checks:
+
+1. Every command `legal_commands` returns is accepted by `apply`.
+2. Every command it omits is rejected by `apply`.
+
+Two parameter spaces are unbounded and get an explicit exception: `PlaceBid` is returned at
+the minimum legal bid, and `ProposeTrade` is not enumerated at all — the trade builder
+validates its draft through `is_legal(state, command)`.
+
+## Alternatives considered
+
+**The UI derives affordances from the state.** The conventional approach, and the source of
+the bug family above. Rejected.
+
+**The UI optimistically enables everything and shows errors.** Honest, and it does keep the
+rules in one place — but it teaches a child by punishment, offering moves that turn out to be
+illegal. Wrong for this audience.
+
+**A capability bitmask** (`canBuild: true`) rather than concrete commands. Rejected: the UI
+still has to construct the command, which means it still has to know which tile is buildable,
+which is the rule leaking out again.
+
+## Consequences
+
+- The UI is genuinely simple, and stays simple as rules get more intricate. Adding a rule
+  changes the engine and, at most, adds a label.
+- Rendering is driven by data, so a new action needs a translation entry and an icon, not a
+  new conditional.
+- `legal_commands` is on the hot path for every render and must stay cheap. At 40 tiles and
+  6 players this is not a real constraint, but it is a reason not to make it do search.
+- Hints in Kids Mode are a natural extension: rank the legal commands and highlight one. The
+  hint system needs no rule knowledge of its own.
