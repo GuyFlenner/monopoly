@@ -1,0 +1,37 @@
+# Pre-commit — the fast subset of the CI gate, run at commit time.
+#
+# Ruff runs through `uv run` so the version is always the one in uv.lock; a
+# pinned mirror hook would drift from it silently. mypy and pytest are NOT
+# here on purpose: they are too slow for a commit hook and CI runs them on
+# every push anyway. The commit hook exists to catch the mechanical stuff
+# before it wastes a CI round-trip.
+#
+# One-time setup:  uv run pre-commit install
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-json
+        # tsconfig is JSONC (comments allowed), which check-json rejects.
+        exclude: ^packages/web/tsconfig\.json$
+      - id: check-added-large-files
+        args: [--maxkb=500]
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (uv.lock version)
+        entry: uv run ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format --check (distinct gate from ruff check)
+        entry: uv run ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true

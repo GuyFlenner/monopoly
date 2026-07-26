@@ -58,6 +58,7 @@ packages/web      @kesef-street/web   React 19 + Vite + TS + Tailwind. Presentat
 
 ```bash
 uv sync                      # runtime + dev tools into .venv
+uv run pre-commit install    # one-time: commit hook = the fast subset of this gate
 uv run ruff check .          # lint
 uv run ruff format --check . # format gate — DISTINCT from the line above
 uv run mypy                  # types, strict

@@ -88,7 +88,11 @@ jobs:
     runs-on: ubuntu-latest
     # The frontend's types are generated from the server's OpenAPI document. This job
     # regenerates them and fails if the committed types have drifted (MON-302).
-    if: hashFiles('packages/web/package-lock.json') != ''
+    #
+    # Gated on generated.ts, NOT the lockfile: the lockfile lands at MON-401 but the
+    # openapi export module and the committed types only exist from MON-302. Gating on
+    # the lockfile would turn CI red for the whole gap between the two.
+    if: hashFiles('packages/web/src/api/generated.ts') != ''
     needs: python
     steps:
       - uses: actions/checkout@v4
