@@ -40,3 +40,4 @@ Thumbs.db
 
 # VSCode Local History extension artifacts
 .history/
+.claude/worktrees/

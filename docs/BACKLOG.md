@@ -210,6 +210,15 @@ they would have been squeezed into whichever module the implementer was in (G-17
 ### MON-204 — Trading
 **Tier**: Opus · **Size**: L · **Depends on**: MON-202 · `rules/trade.py`
 
+- **Who may trade, and when (design decision, Phase 0 exploration; encoded by MON-101):**
+  `ProposeTrade` is legal for **any solvent player** whenever the phase is a portfolio
+  phase (`AWAITING_ROLL`, `AWAITING_END_TURN`, `JAIL_DECISION`) — portfolio actions wait
+  for a quiet phase, not for your turn — and for the **debtor only** during
+  `DEBT_SETTLEMENT` (MON-207). Never during `AUCTION` (a live auction cannot be paused
+  by a trade review) or `TRADE_REVIEW` (one pending trade at a time). The same
+  any-solvent-player rule applies to Build/Sell/Mortgage/Unmortgage in portfolio phases,
+  matching the official "houses may be bought, and unimproved properties dealt, between
+  turns" reading.
 - Cash, properties and jail cards on either side; executed atomically or not at all.
 - Cannot trade a property with buildings on its group; mortgaged properties transfer with
   their obligation.
@@ -251,6 +260,10 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - A debt beyond cash enters `DEBT_SETTLEMENT`: sell buildings, mortgage, or trade to raise
   it (`RAISING_PHASES` — build and unmortgage stay forbidden while insolvent, G-5).
   Shortfall-as-data: cash never goes negative; the `DebtFrame` holds outstanding obligations.
+- **The debtor may concede at any point** — `DeclareBankruptcy` is legal during
+  `DEBT_SETTLEMENT` even when the estate could raise the debt (the "raise cash *or*
+  declare bankruptcy" model `phases.py` documents; encoded by MON-101). Kids Mode UX puts
+  the confirm step (MON-412 terminal-command class) in front of it.
 - Multi-creditor debts ("pay each player") settle in turn order from the debtor; on
   bankruptcy with several creditors, the estate divides **proportionally to claim** — the
   rule now has an owner (G-7).
@@ -415,6 +428,9 @@ to "would this test fail if the implementation were wrong". Coverage floor
 **Tier**: Opus · **Size**: L · **Depends on**: MON-204, MON-406
 
 - Two-sided draft: cash, properties, jail cards; validated live via `is_legal`.
+- An empty draft (nothing on either side) is engine-legal (MON-101 resolution 5) but the
+  send button stays hidden until at least one side carries an item — no nothing-for-nothing
+  spam, especially in Kids Mode.
 - Honours `simplified_trades` in Kids Mode.
 - Shows both sides' dossiers while building — the compare case, in situ.
 

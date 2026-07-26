@@ -67,7 +67,13 @@ TRANSIENT_PHASES = frozenset({Phase.MOVING, Phase.RESOLVING_TILE, Phase.CARD_RES
 """Phases the engine passes straight through — a returned state should never rest here."""
 
 INTERRUPT_PHASES = frozenset({Phase.AUCTION, Phase.DEBT_SETTLEMENT, Phase.TRADE_REVIEW})
-"""Phases in which the acting player may not be the player whose turn it is."""
+"""Phases whose *primary* actor may not be the player whose turn it is.
+
+Not the only place a non-current player can act: portfolio phases open portfolio
+actions to every solvent player (MON-204). What makes these three special is that the
+phase itself exists *for* another actor — a bidder, a debtor, a trade recipient — and
+carries an interrupt frame naming them.
+"""
 
 PORTFOLIO_PHASES = frozenset({Phase.AWAITING_ROLL, Phase.JAIL_DECISION, Phase.AWAITING_END_TURN})
 """Phases in which the full portfolio is open: build, sell, mortgage, unmortgage, trade.
@@ -77,8 +83,10 @@ takes a turn — the rules let them collect rent, build and trade from the cell 
 """
 
 RAISING_PHASES = frozenset({Phase.DEBT_SETTLEMENT, Phase.AUCTION})
-"""Phases in which a player may *raise cash but not spend it*: sell buildings, mortgage,
-trade. Building and unmortgaging are not offered here — a player who owes money may not
-tie more of it up (GAP G-5). ``AUCTION`` is included for the bidder who needs to fund a
-bid; MON-101 additionally restricts it to a player still active in the auction.
+"""Phases in which a player may *raise cash but not spend it*: sell buildings, mortgage.
+Building and unmortgaging are not offered here — a player who owes money may not tie
+more of it up (GAP G-5, as corrected). Trading is allowed only in ``DEBT_SETTLEMENT``:
+a live auction cannot be paused by a trade review, so the bidder raises cash by sale
+and mortgage alone. ``AUCTION`` is included for the bidder who needs to fund a bid;
+MON-101 additionally restricts it to a player still active in the auction.
 """
