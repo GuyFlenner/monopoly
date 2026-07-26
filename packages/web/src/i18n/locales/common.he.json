@@ -1,0 +1,121 @@
+{
+  "app": {
+    "title": "רחוב הכסף",
+    "tagline": "לקנות רחובות. לגבות שכר דירה. לא להתרברב יותר מדי."
+  },
+  "action": {
+    "roll": "הטל קוביות",
+    "buy": "קנה ב-{{price}}",
+    "decline": "לא קונה",
+    "endTurn": "סיים תור",
+    "build": "בנה בית",
+    "sellHouse": "מכור בית",
+    "mortgage": "משכן",
+    "unmortgage": "פדה משכנתא",
+    "trade": "הצע עסקה",
+    "bid": "הצע {{amount}}",
+    "withdraw": "צא מהמכירה",
+    "payFine": "שלם ערבות {{amount}}",
+    "useCard": "השתמש בכרטיס יציאה",
+    "rollForDoubles": "הטל לזוגי",
+    "declareBankruptcy": "אני נפרש"
+  },
+  "label": {
+    "cash": "מזומן",
+    "properties": "נכסים",
+    "turn": "תור {{number}}",
+    "player": "שחקן",
+    "rent": "שכר דירה",
+    "price": "מחיר",
+    "houses": "בתים",
+    "hotel": "מלון",
+    "mortgaged": "ממושכן",
+    "netWorth": "שווי נקי",
+    "jailCards": "כרטיסי יציאה מהכלא",
+    "inJail": "בכלא",
+    "bankrupt": "מחוץ למשחק",
+    "bank": "הבנק"
+  },
+  "group": {
+    "brown": "חום",
+    "light_blue": "תכלת",
+    "pink": "ורוד",
+    "orange": "כתום",
+    "red": "אדום",
+    "yellow": "צהוב",
+    "green": "ירוק",
+    "dark_blue": "כחול כהה"
+  },
+  "board": {
+    "classic": { "name": "קלאסי (אטלנטיק סיטי)" },
+    "israel": { "name": "ישראל" }
+  },
+  "setup": {
+    "title": "משחק חדש",
+    "players": "שחקנים",
+    "addPlayer": "הוסף שחקן",
+    "removePlayer": "הסר",
+    "playerName": "שם",
+    "human": "אדם",
+    "bot": "מחשב",
+    "botLevel": "דרגת קושי",
+    "easy": "קל",
+    "normal": "בינוני",
+    "hard": "קשה",
+    "board": "לוח",
+    "ruleset": "חוקים",
+    "universal": "חוקים מלאים",
+    "kids": "מצב ילדים",
+    "kidsExplainer": "בלי מכירות פומביות ובלי משכנתאות, עסקאות פשוטות, רמזים דולקים, והמשחק נגמר תוך כ-{{minutes}} דקות.",
+    "language": "שפה",
+    "start": "התחל משחק",
+    "tooFewPlayers": "צריך לפחות {{min}} שחקנים.",
+    "tooManyPlayers": "עד {{max}} שחקנים יכולים לשחק."
+  },
+  "dossier": {
+    "title": "הנכסים של {{name}}",
+    "compare": "השווה שחקנים",
+    "pin": "הצמד זה לזה",
+    "unpin": "בטל הצמדה",
+    "completeSet": "סדרה שלמה",
+    "setProgress": "{{owned}} מתוך {{total}}",
+    "empty": "אין נכסים עדיין"
+  },
+  "rent": {
+    "note": {
+      "fullGroupDoubled": "שכר הדירה כפול: {{name}} מחזיק בכל הסדרה ה{{group}}ה.",
+      "railroads": "{{count}} רכבות בבעלות.",
+      "utilityOne": "מפעל אחד: פי 4 מתוצאת הקוביות.",
+      "utilityTwo": "שני המפעלים: פי 10 מתוצאת הקוביות.",
+      "mortgagedNoRent": "אין שכר דירה — הנכס ממושכן.",
+      "withHouses": "{{houses}} בתים עליו."
+    }
+  },
+  "event": {
+    "passedGo": "{{name}} עבר בהתחלה וקיבל {{amount}}.",
+    "rentPaid": "{{payer}} שילם ל{{owner}} {{amount}} שכר דירה.",
+    "bought": "{{name}} קנה את {{tile}} ב-{{price}}.",
+    "wentToJail": "{{name}} נכנס לכלא.",
+    "leftJail": "{{name}} יצא מהכלא.",
+    "built": "{{name}} בנה על {{tile}}.",
+    "bankrupted": "{{name}} מחוץ למשחק.",
+    "gameEnded": "{{name}} ניצח!"
+  },
+  "error": {
+    "notYourTurn": "זה עוד לא התור שלך.",
+    "insufficientFunds": "אין מספיק מזומן לזה.",
+    "gameNotFound": "המשחק הזה לא קיים יותר.",
+    "illegalMove": "המהלך הזה לא אפשרי כרגע.",
+    "mustOwnWholeGroup": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
+    "evenBuild": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
+    "noHousesLeft": "נגמרו הבתים בבנק.",
+    "mustSellFirst": "צריך למכור את הבתים בסדרה לפני משכון."
+  },
+  "a11y": {
+    "diceResult": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
+    "turnAnnouncement": "התור של {{name}}.",
+    "cashChange": "{{name}} {{direction}} {{amount}}.",
+    "boardTile": "{{name}}, {{kind}}{{owner}}",
+    "ownedBy": ", בבעלות {{name}}"
+  }
+}

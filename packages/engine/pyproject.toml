@@ -1,0 +1,28 @@
+# kesef-engine — the rules core.
+#
+# HARD RULE: this package performs no I/O beyond reading its own bundled board
+# JSON, imports no web framework, and knows nothing about HTTP, React, or the
+# terminal. Everything here is `apply(state, command) -> (state, events)`.
+# If you are about to add a dependency, that is a design smell — see ADR-002.
+[project]
+name = "kesef-engine"
+version = "0.1.0"
+description = "Pure-Python rules engine for a property-trading board game: deterministic, serializable, UI-agnostic"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Guy Flenner" }]
+dependencies = [
+    "pydantic>=2.9",
+]
+
+[project.scripts]
+# The text-mode driver. Proves the rules are correct before any pixel is drawn.
+kesef = "kesef_engine.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kesef_engine"]

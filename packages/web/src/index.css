@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Colour-group values live in src/theme/groups.ts because they are data the
+ * components read; everything here is surface-level chrome.
+ *
+ * Both themes are required — families play in the evening.
+ */
+@theme {
+  --font-sans:
+    "Rubik", "Heebo", ui-sans-serif, system-ui, sans-serif;
+
+  --color-table: oklch(45% 0.09 155); /* the felt-green playing surface */
+  --color-tile: oklch(97% 0.01 95);
+  --color-ink: oklch(22% 0.02 260);
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+/* Respect the player's motion preference globally, not per-animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* A visible focus ring is a hard requirement, so it is styled once, globally. */
+:focus-visible {
+  outline: 3px solid oklch(70% 0.18 250);
+  outline-offset: 2px;
+}

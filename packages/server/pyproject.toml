@@ -1,0 +1,31 @@
+# kesef-server — thin transport over kesef-engine.
+#
+# The server owns sessions, serialization and the WebSocket event fan-out.
+# It owns NO rules. If you find yourself writing `if player.cash < rent` here,
+# it belongs in the engine.
+[project]
+name = "kesef-server"
+version = "0.1.0"
+description = "FastAPI + WebSocket transport for the kesef-engine rules core"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Guy Flenner" }]
+dependencies = [
+    "kesef-engine",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.5",
+    "structlog>=24.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/kesef_server"]
+
+[tool.uv.sources]
+kesef-engine = { workspace = true }
