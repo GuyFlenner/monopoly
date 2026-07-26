@@ -30,7 +30,7 @@ export function App(): React.JSX.Element {
     queryFn: async () => {
       const response = await fetch("/api/boards");
       if (!response.ok) {
-        throw new Error(`/boards responded ${response.status}`);
+        throw new Error(`/boards responded ${String(response.status)}`);
       }
       return response.json() as Promise<BoardSummary[]>;
     },
@@ -55,7 +55,9 @@ export function App(): React.JSX.Element {
             key={candidate}
             type="button"
             aria-pressed={locale === candidate}
-            onClick={() => switchTo(candidate)}
+            onClick={() => {
+              switchTo(candidate);
+            }}
             className="min-h-11 rounded-lg border px-4 aria-pressed:font-bold"
           >
             {LOCALE_LABEL[candidate]}
@@ -65,8 +67,8 @@ export function App(): React.JSX.Element {
 
       <section className="flex flex-col gap-2">
         <h2 className="text-xl font-semibold">{t("setup.board")}</h2>
-        {boards.isPending && <p>…</p>}
-        {boards.isError && <p role="alert">{t("error.gameNotFound")}</p>}
+        {boards.isPending && <p role="status">{t("label.loading")}</p>}
+        {boards.isError && <p role="alert">{t("error.network")}</p>}
         <ul className="flex flex-col gap-2">
           {boards.data?.map((board) => (
             <li key={board.id} className="rounded-lg border p-3">

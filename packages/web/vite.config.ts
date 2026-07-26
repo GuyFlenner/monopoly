@@ -2,7 +2,9 @@ import { fileURLToPath, URL } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+// vitest/config re-exports vite's defineConfig with the `test` block merged into the
+// UserConfig type — importing from "vite" directly makes `test` an unknown property.
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

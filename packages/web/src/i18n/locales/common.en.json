@@ -34,7 +34,8 @@
     "jailCards": "Get Out of Jail cards",
     "inJail": "In jail",
     "bankrupt": "Out of the game",
-    "bank": "the bank"
+    "bank": "the bank",
+    "loading": "Loading…"
   },
   "group": {
     "brown": "Brown",
@@ -105,6 +106,7 @@
     "notYourTurn": "It isn't your turn yet.",
     "insufficientFunds": "Not enough cash for that.",
     "gameNotFound": "That game no longer exists.",
+    "network": "Network error. Please try again.",
     "illegalMove": "That move isn't allowed right now.",
     "mustOwnWholeGroup": "You need the whole colour set before you can build.",
     "evenBuild": "Houses in a set have to stay within one of each other.",
