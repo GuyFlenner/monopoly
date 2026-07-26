@@ -210,22 +210,20 @@ the PR discussion for this document.
 
 ---
 
-## 7. Decisions required from the owner
+## 7. Owner decisions — RESOLVED 2026-07-26
 
-Per kickoff §6, these are presented, not picked:
+Presented per kickoff §6; answered by the owner the same day:
 
-1. **Building-shortage auction** (G-4): implement the claim-window auction, or ship
-   first-come-first-served with a ruleset flag and a documented divergence? *Recommendation: divergence for v1.*
-2. **Mortgage transfer fee** (G-13): official rule (10% at transfer, or defer and pay full
-   10% on unmortgage) vs deferred-only. *Recommendation: official dual option.*
-3. **Income Tax** (G-17-minor): flat ₪200 only, or the classic "₪200 or 10% of worth" choice?
-   *Recommendation: flat for v1; flag later.*
-4. **Hebrew niqqud** (G-A7): should Kids Mode ship pointed Hebrew (menuqad) for early readers?
-   Affects the MON-504 font subset and catalogue shape. *Genuine open question.*
-5. **Hebrew verb gender** (G-42): per-seat pronoun choice feeding i18next context, with a
-   neutral fallback? *Recommendation: yes — the state field lands now either way.*
-6. **Kids Mode trading** — `trading_enabled` stays on in Kids Mode today; negotiation is more
-   abstract than an auction for a six-year-old. Keep, simplify further, or off?
+1. **Building-shortage auction** (G-4): **skip in v1** — first-come-first-served,
+   `Ruleset.building_shortage_auction = False`, `BuildingLot` stays in the model.
+2. **Mortgage transfer fee** (G-13): **full official rule** — receiver pays 10% at transfer
+   or defers and pays the full 10% again on unmortgage.
+3. **Income Tax** (G-17-minor): **flat ₪200 only** in v1.
+4. **Hebrew niqqud** (G-A7): **no niqqud** — plain Hebrew in all catalogues.
+5. **Hebrew verb gender** (G-42): **yes** — per-seat pronoun choice at setup, i18next
+   context, neutral fallback; `grammatical_gender` lands in MON-100.
+6. **Kids Mode trading**: **stays on by default, with a setup toggle to turn it off** —
+   `trading_enabled` becomes visible in the SetupScreen (MON-408) for any ruleset.
 
 ---
 
