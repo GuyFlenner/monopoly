@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+htmlcov/
+.coverage
+.coverage.*
+
+# Node / web
+node_modules/
+packages/web/dist/
+packages/web/.vite/
+packages/web/coverage/
+packages/web/test-results/
+packages/web/playwright-report/
+openapi.json   # regenerated on demand; packages/web/src/api/generated.ts IS committed
+               # so CI can diff it against a fresh generation and catch contract drift
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Saved games produced by local play sessions
+*.savegame.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# VSCode Local History extension artifacts
+.history/

@@ -1,0 +1,92 @@
+# Kesef Street — uv workspace root.
+#
+# This is a *virtual* root (tool.uv.package = false): it ships no code of its own,
+# it only pins the toolchain and holds the lint/type/test config for every member.
+# The members live under packages/ and are installed editable into the single .venv.
+[project]
+name = "kesef-street"
+version = "0.1.0"
+description = "A bilingual (English/Hebrew) property-trading board game with the classic universal rules"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "Guy Flenner" }]
+dependencies = [
+    "kesef-engine",
+    "kesef-server",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/engine", "packages/server"]
+
+[tool.uv.sources]
+kesef-engine = { workspace = true }
+kesef-server = { workspace = true }
+
+# PEP-735 dependency group. `uv sync` installs it by default.
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "hypothesis>=6.112",    # engine invariants (money conservation, even-build, ...)
+    "httpx>=0.27",          # FastAPI TestClient transport
+    "mypy>=1.13",
+    "ruff>=0.8",
+    "pip-audit>=2.7",
+]
+
+# ---------------------------------------------------------------------------
+# Ruff — lint + format. Inherited from claude-stream house style.
+# Reminder: a passing `ruff check` is NOT a passing `ruff format --check`.
+# ---------------------------------------------------------------------------
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+src = ["packages/engine/src", "packages/server/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "PTH"]
+
+[tool.ruff.lint.isort]
+# `helpers` is the test-factory module that sits beside the tests.
+known-first-party = ["kesef_engine", "kesef_server", "helpers"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---------------------------------------------------------------------------
+# mypy — strict everywhere. The engine is pure Python with one dependency, so
+# there is no excuse for an untyped corner in it.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+plugins = ["pydantic.mypy"]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+files = [
+    "packages/engine/src",
+    "packages/engine/tests",
+    "packages/server/src",
+    "packages/server/tests",
+    "tests",
+]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages/engine/tests", "packages/server/tests", "tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+branch = true
+source = ["kesef_engine", "kesef_server"]

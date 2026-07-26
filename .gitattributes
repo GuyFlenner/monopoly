@@ -1,0 +1,7 @@
+# Normalise to LF in the repository. The hooks are bash scripts and CI runs on Linux, so a
+# CRLF checkout of .sh would break them.
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary

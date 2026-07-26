@@ -1,0 +1,105 @@
+# CI — the same gate a human runs locally, so "works on my machine" and "CI is green"
+# mean the same thing.
+#
+# The golden rule inherited from claude-stream: a passing `ruff check` is NOT a passing
+# `ruff format --check`. Both run, as separate steps, so a failure names itself.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync (runtime + dev)
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Mypy (strict)
+        run: uv run mypy
+
+      - name: Pytest
+        run: uv run pytest --cov --cov-report=term-missing
+
+      - name: pip-audit
+        run: uv run pip-audit
+
+  web:
+    name: Web gate
+    runs-on: ubuntu-latest
+    # Activates when the frontend gains a lockfile (MON-401). Until then this job is
+    # skipped rather than red, so the repo can be green while the UI is scaffolded.
+    if: hashFiles('packages/web/package-lock.json') != ''
+    defaults:
+      run:
+        working-directory: packages/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/web/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Unit tests
+        run: npm run test -- --run
+
+      - name: Build
+        run: npm run build
+
+  contract:
+    name: API contract is in sync
+    runs-on: ubuntu-latest
+    # The frontend's types are generated from the server's OpenAPI document. This job
+    # regenerates them and fails if the committed types have drifted (MON-302).
+    if: hashFiles('packages/web/package-lock.json') != ''
+    needs: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: uv sync --frozen
+      - name: Export OpenAPI
+        run: uv run python -m kesef_server.openapi > openapi.json
+      - name: Generate types and diff
+        run: |
+          npx --yes openapi-typescript openapi.json -o /tmp/generated.ts
+          diff -u packages/web/src/api/generated.ts /tmp/generated.ts

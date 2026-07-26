@@ -1,0 +1,53 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/command-guard.sh" }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "bash .claude/hooks/edit-guardrail.sh" }]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(uv sync *)",
+      "Bash(uv lock *)",
+      "Bash(uv add *)",
+      "Bash(ruff *)",
+      "Bash(mypy *)",
+      "Bash(pytest *)",
+      "Bash(npm run *)",
+      "Bash(npm ci)",
+      "Bash(npm install)",
+      "Bash(npm test *)",
+      "Bash(npx *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git switch *)",
+      "Bash(git branch *)",
+      "Bash(gh pr *)",
+      "Bash(gh issue *)"
+    ],
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(npm publish *)",
+      "Bash(uv publish *)",
+      "Bash(twine upload *)",
+      "Bash(gh repo delete *)",
+      "Bash(gh repo archive *)"
+    ]
+  }
+}

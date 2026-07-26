@@ -1,0 +1,47 @@
+# claude-skills.lock — provenance of skills migrated into this repo.
+# Source: claude-sdlc @ d4d85c2ffe215ae5e13a67eeecb6118d9aa8e8ee (2026-07-12)
+# Migrated: 2026-07-21. Engineering + streaming/AWS domain set only; job-search,
+# Azure/on-prem/migration architects, React, Bitbucket, Slack, and ops-noise
+# skills were deliberately NOT migrated (not relevant to this PoC).
+
+source:
+  repo: claude-sdlc
+  commit: d4d85c2ffe215ae5e13a67eeecb6118d9aa8e8ee
+  synced_at: "2026-07-21"
+
+skills:
+  # --- SDLC pipeline ---
+  - sdlc
+  - product-owner
+  - team-lead
+  - architect
+  - developer
+  - code-reviewer          # ships references/python-fastapi-checklist.md
+  - test-reviewer
+  - security-researcher
+  - debugger
+  - flow-reviewer
+  - btw-status
+  - checkpoint
+  # --- Domain architects (the reason this repo exists) ---
+  - streaming-architect
+  - aws-architect
+  - aws-infra
+  - data-architect
+  - ai-llm-architect       # Phase-2 agentic layer
+  # --- Diagrams ---
+  - diagram-generator
+  - diagram-layout-reviewer
+  # --- Meta / hygiene ---
+  - skill-lint             # ships rules.md
+  - skill-inventory
+  - discovery
+  - audit
+
+not_migrated:
+  - [company-researcher, cv-aligner, interview-prep, job-seeking, position-filter]  # job search
+  - [azure-architect, onprem-architect, migration-architect]                        # wrong cloud/topology
+  - [cloud-architect]        # overlaps aws-architect (WAF assessment already covered)
+  - [react-developer]        # no React in MVP
+  - [bitbucket-reviewer]     # GitHub, not Bitbucket
+  - [slack, good-morning, health-check, dream, skill-curator]                       # ops/personal noise
