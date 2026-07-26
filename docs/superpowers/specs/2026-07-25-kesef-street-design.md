@@ -107,9 +107,12 @@ GameState
 ├─ phase: Phase                      ← the turn state machine (§3.3)
 ├─ current_player_index, dice, turn_number
 ├─ houses_remaining / hotels_remaining    ← the building shortage is a real rule
-├─ auction / pending_trade / pending_debt ← at most one interrupt is live at a time
+├─ interrupts: tuple[InterruptFrame, ...] ← a STACK: interrupts nest and queue (ADR-007).
+│    AuctionFrame | DebtFrame | TradeFrame | CardFrame, each with its own resume phase.
+│    (Amended 2026-07-26: the original "at most one interrupt is live at a time" was false
+│    for these rules — card→debt→trade and estate auctions nest to depth ≥ 3. GAP G-1..G-9.)
 ├─ chance_deck / community_chest_deck     ← card ids in draw order
-└─ free_parking_pot, winner
+└─ free_parking_pot, winner, elimination_order, elapsed_seconds
 ```
 
 `properties` is 40 long even though only 28 tiles can be owned. Wasting 12 slots buys O(1)
@@ -183,7 +186,12 @@ Called out because they are where implementations quietly diverge from the real 
 3. **Even-build**: houses within a group may never differ by more than one, on the way up
    *and* on the way down.
 4. **The building shortage is real.** 32 houses and 12 hotels. When they run out, they are
-   out, and if several players want the last house, the rules require it to be auctioned.
+   out. *(Amended 2026-07-26: the "several players want the last house → auction it" clause
+   is unrepresentable in a sequential reducer — contention has no representation when whoever
+   sends `BuildHouse` first simply gets it. v1 ships first-come-first-served behind
+   `Ruleset.building_shortage_auction = False`; the `BuildingLot` auction type exists in the
+   model (ADR-007) so the full rule stays buildable. Owner decision recorded in
+   `GAP_ANALYSIS.md` §7.)*
 5. **Declining to buy triggers an auction** with **no reserve** — the property can go for ₪1,
    and the player who declined may bid.
 6. **Bankruptcy chains.** Paying a player transfers everything to that player (mortgaged
@@ -225,8 +233,13 @@ Thin. FastAPI. Owns sessions, serialization and fan-out; owns no rules.
 | `DELETE` | `/games/{id}` | discard |
 | `WS` | `/games/{id}/ws` | event stream, drives the animation queue |
 
-`GameView = { state, legal_commands, events }`. Shipping `legal_commands` in the view is what
-keeps the UI rules-free (ADR-005).
+`GameView = { board, state, legal_commands, events, event_cursor }` — a **projection**, not
+the raw engine state (ADR-008): the board ships whole, derived values (`net_worth`, group
+completion, dice totals) are promoted to real fields, and the RNG and deck order never leave
+the server (deck *counts* do). The full `GameState` is reachable only as the save file.
+Shipping `legal_commands` in the view is what keeps the UI rules-free (ADR-005); the
+`validate` route exposes `is_legal` for the two non-enumerable command kinds. Errors are
+`{reason_key, params}` so the engine's context survives to the catalogue sentence.
 
 Sessions are a process-local dict, capped (ADR-006). Errors return **i18n keys** as
 `detail` — `error.game_not_found`, not a sentence.
@@ -256,8 +269,15 @@ i18n/     i18next setup and catalogues
 api/      generated.ts (from OpenAPI) + client.ts
 ```
 
-The board is an 11×11 grid with tiles placed by index. Because it is a grid rather than
-absolute positions, RTL mirroring is free.
+The board is an 11×11 grid with tiles placed by index. **The board is the one component that
+must NOT mirror** *(amended 2026-07-26 — the original "RTL mirroring is free" contradicted
+§5.3: flipping the grid's inline axis reverses the visible direction of travel, so tokens
+would circle clockwise in Hebrew and counter-clockwise in English)*. The grid container is
+pinned `dir="ltr"` — the single deliberate, documented physical-direction exception in the
+web package, carrying a visible lint-disable comment — and each tile's text content restores
+the document direction. The chrome around the board mirrors normally. Playwright asserts this
+**geometrically** (tile 0's bounding rect is identical across locales), not via the `dir`
+attribute, which would be set and satisfied by the same line of code.
 
 ### 5.2 The flexibility the brief asked for
 
@@ -291,14 +311,39 @@ and dark themes both required — many families play in the evening.
 
 ### 5.5 Accessibility floor (gates, not aspirations)
 
-- Colour groups carry **colour + pattern + icon**. Never colour alone.
-- Every action keyboard-reachable, including the auction and trade builder.
-- Visible focus ring in both themes.
-- `aria-live="polite"` narration of dice, movement, rent and cash changes.
-- Contrast ≥ 4.5:1 text, ≥ 3:1 non-text indicators. Hit targets ≥ 44 × 44 px.
-- **Nothing blocks on an animation.** A player can always act, and always skip the flourish.
+- Colour groups carry **colour + pattern + icon**. Never colour alone. Railroads and
+  utilities are themed the same way — six ownable tiles with no group is the same defect.
+- Every **command kind carries an icon** (`theme/actions.ts`), and terminal commands
+  (bankruptcy, final auction withdrawal, decline-into-auction) get a confirm step with a
+  plain-language consequence. A pre-reader must be able to use every button.
+- Six token identities are **shape + colour + icon**, reused verbatim in the turn indicator,
+  dossier headers, board and auction list — "the triangle is playing" works without literacy.
+- Every action keyboard-reachable, including the auction and trade builder. Modal panels use
+  one shared `<Panel>` primitive: `role="dialog"`, `aria-modal`, focus trapped, restored on
+  close, Escape closes (or announces why it cannot). The board is a single composite widget —
+  one tab stop, arrow-key roving — never forty.
+- **No interaction requires dragging, double-click, long-press, right-click, hover-only
+  reveal, or multi-touch.** Selection is tap/click/Enter.
+- Visible focus ring in both themes, contrast-tested against every surface it can sit on.
+- One `<Announcer>` owns narration: a single polite region (dice, movement, rent, cash) and a
+  single assertive region (turn and interrupt-phase changes — the moments the actor changes),
+  fed by a serialized queue. Components never mount their own live regions; double-speak from
+  competing regions is a defect.
+- Contrast ≥ 4.5:1 text, ≥ 3:1 non-text indicators — **computed in a unit test**, both themes.
+- Hit targets ≥ 44 × 44 px for every interactive element. On narrow viewports tiles are not
+  tap targets (the arithmetic cannot work at 320 px / 11 columns); selection happens in
+  dossier lists and a tile-detail sheet. A Playwright assertion measures every focusable at
+  320 px.
+- **Nothing blocks on an animation.** A player can always act, and always skip the flourish —
+  via a persistent, focusable "skip animations" toggle plus Escape per animation; the DOM
+  always renders the authoritative post-command state, with animation as decorative overlay.
+  `prefers-reduced-motion` is honoured in the JS animation queue, not only in CSS.
 - Kids Mode surfaces a suggested move and explains rent maths (`rent.note.*` keys exist
-  precisely so an explanation is available in both languages).
+  precisely so an explanation is available in both languages), uses a `kids` catalogue
+  namespace resolved ahead of `common` for simpler language, and every rent has a note key —
+  including the plain base-rent case.
+- These are **acceptance criteria on every UI item**, not an M7 audit finding. The M7 audit
+  (MON-703) is the human/assistive-tech pass, not the first detection point.
 
 ---
 
@@ -309,13 +354,33 @@ and dark themes both required — many families play in the evening.
 1. **Unit tests** per rule, including the ten in §3.6 by name.
 2. **Golden recorded games** — a fixed seed plus a command list, asserting the final state.
    These catch "we changed rent and something far away moved".
-3. **Hypothesis invariants**, which must hold after *any* legal command sequence:
-   - money is conserved (total cash + bank flows balance),
-   - houses ≤ 32 and hotels ≤ 12 at all times,
-   - even-build is never violated,
-   - no player holds negative cash outside `DEBT_SETTLEMENT`,
-   - `legal_commands` and `apply` agree in both directions (ADR-005),
-   - a state round-trips through JSON unchanged.
+3. **Hypothesis invariants** *(restated 2026-07-26 — the original bullets were either
+   unfalsifiable or false as written; GAP §4)*:
+   - **the cash ledger**: every change to any player's cash is exactly one `CashChanged`
+     event with correct `delta`, `balance` and counterparty (`PlayerId | "bank" |
+     "free_parking_pot"`) — no other event moves money; `RentCharged` is narration. From it,
+     four named checks: ledger consistency · paired transfers · per-player reconciliation ·
+     money-supply accounting,
+   - **building stock is conserved**: `houses_remaining` + houses on board equals
+     `ruleset.houses_available` (same for hotels) — a conservation law, not a `≤ 32` bound a
+     never-decremented counter would satisfy; both fields `ge=0`,
+   - even-build holds as a state predicate after every command **and** as a legality
+     property: `BuildHouse` is only offered at the group minimum, `SellHouse` only at the
+     maximum (the sell direction is the half implementations get wrong; a hotel counts as 5),
+   - cash is never negative (shortfalls are data in the `DebtFrame`, so this is a field
+     constraint) and `DebtFrame` present ⇔ phase is `DEBT_SETTLEMENT`,
+   - the three ADR-005 properties (soundness · enumerable completeness · `is_legal` oracle),
+     with a coverage floor: the replay generator must observe every `Phase` and every
+     `CashReason`, or the run fails — a green property test that never entered an auction
+     proves nothing,
+   - `legal_commands` is **non-empty unless `GAME_OVER`** — the single invariant that
+     catches every deadlock,
+   - interrupt depth is bounded and decreases on non-escalating commands; `GAME_OVER` ⇒ no
+     live interrupts; bankrupt ⇒ not in jail, no cards, no tiles; the jail-card multiset is
+     conserved,
+   - a state round-trips through JSON unchanged — including a *maximal* state (live auction,
+     pending trade with jail cards, debt, populated decks), and every one of the 21 event
+     types and 17 command types round-trips through its discriminated union.
 
 **Repo-level**: locale parity — same keys in every language, no empty values, matching
 interpolation placeholders, and every board tile named in every language.
@@ -368,6 +433,8 @@ name. `/test-reviewer` exists to catch those.
 - **ADR-004** — one ruleset implementation, Kids Mode as feature flags
 - **ADR-005** — `legal_commands` is the UI contract
 - **ADR-006** — local hotseat for v1, networked play deferred but not designed out
+- **ADR-007** — interrupts are a stack of frames, not a scalar phase *(Phase 0)*
+- **ADR-008** — `GameView` is a projection, not the raw `GameState` *(Phase 0)*
 
 ---
 

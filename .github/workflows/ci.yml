@@ -16,6 +16,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # hashFiles() is a STEP-scope function; using it in a job-level `if` makes the whole
+  # workflow invalid (zero jobs, immediate failure — how M0's CI died on first contact
+  # with GitHub). This job does the file checks on a real runner and exposes them as
+  # outputs the other jobs can legally reference.
+  gate:
+    name: Which gates apply
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.check.outputs.web }}
+      contract: ${{ steps.check.outputs.contract }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          echo "web=$([ -f packages/web/package-lock.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "contract=$([ -f packages/web/src/api/generated.ts ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   python:
     name: Python gate
     runs-on: ubuntu-latest
@@ -53,7 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     # Activates when the frontend gains a lockfile (MON-401). Until then this job is
     # skipped rather than red, so the repo can be green while the UI is scaffolded.
-    if: hashFiles('packages/web/package-lock.json') != ''
+    needs: gate
+    if: needs.gate.outputs.web == 'true'
     defaults:
       run:
         working-directory: packages/web
@@ -88,8 +106,12 @@ jobs:
     runs-on: ubuntu-latest
     # The frontend's types are generated from the server's OpenAPI document. This job
     # regenerates them and fails if the committed types have drifted (MON-302).
-    if: hashFiles('packages/web/package-lock.json') != ''
-    needs: python
+    #
+    # Gated on generated.ts, NOT the lockfile: the lockfile lands at MON-401 but the
+    # openapi export module and the committed types only exist from MON-302. Gating on
+    # the lockfile would turn CI red for the whole gap between the two.
+    needs: [python, gate]
+    if: needs.gate.outputs.contract == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

@@ -32,6 +32,21 @@ together so you cannot play the Israeli board in English.
 
 Board data is generated from one table so the two boards cannot drift.
 
+6. **(Amended 2026-07-26, Phase 0.)** Key naming is **`snake_case` at every level of every
+   namespace** — `error.game_not_found`, `rent.note.full_group_doubled`,
+   `action.roll_dice` — because the engine's `StrEnum` values, the board files and the server
+   already emit that form, and command kinds map to `action.*` keys mechanically
+   (`t("action." + command.kind)`) only if the cases agree. The web catalogues, which had
+   drifted to camelCase leaves, conform to the engine, not the other way round.
+   Enforcement is a **cross-boundary test**: every key literal the engine and server can
+   emit — including every member of every displayed enum — must resolve in every catalogue.
+   A test that compares the catalogues only to each other cannot see this defect.
+7. **(Amended 2026-07-26.) The exemption, written down**: `cli.py` and programmer-error
+   exceptions (`ValueError`, `BoardDataError` on load of shipped data) are developer
+   surfaces, never rendered to a player, and print key ids verbatim rather than resolving
+   them — that is the point of them. They are the *only* prose allowed in the engine, and
+   the cross-boundary test allowlists exactly those.
+
 ## Alternatives considered
 
 **Names in the source with a translation layer at the display site.** Rejected: it puts
