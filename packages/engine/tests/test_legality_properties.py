@@ -144,16 +144,21 @@ def game_states(draw: st.DrawFn, phase: Phase | None = None) -> GameState:
     survivors = 2 if phase is Phase.TRADE_REVIEW else 1
     bankrupts = draw(st.sets(st.sampled_from(ids), max_size=seat_count - survivors))
     solvent = tuple(seat for seat in ids if seat not in bankrupts)
-    # Drawn from the *solvent* seats since MON-209 (reason: reachability the invariants
-    # depend on, not test weakening). A bankrupt current player is unreachable by
-    # construction — G-14's fix put the skip at ``turns.advance_turn``, the single point
-    # where the seat moves, and ``insolvency.resolve_after_command`` hands the seat on when
-    # the holder goes under. Drawn from every seat it swamped the run: with 2-4 seats and up
-    # to n-1 bankrupt, a large share of states offered no legal command *because the seat
-    # was empty*, which is the one reason that teaches nothing. The bankrupt-actor rejection
-    # is still covered — every other seat may be bankrupt, and
-    # ``test_bankrupt_players_and_finished_games_are_offered_nothing`` asserts it directly.
-    current = draw(st.sampled_from(solvent))
+    # Drawn from *every* seat, bankrupt or not. This draw was narrowed to the solvent seats
+    # for a while on the grounds that "a bankrupt current player is unreachable by
+    # construction", and that claim was simply false. The seat hand-off lives in
+    # ``insolvency.close_command``, *after* its early return on a non-empty interrupt stack —
+    # and that early return is deliberate (G-8: a live estate auction has to finish before
+    # endgame looks, or a two-player bankruptcy to the bank freezes). So a bankruptcy to the
+    # bank comes to rest at ``phase=auction`` holding a bankrupt current player, and stays
+    # there for as long as the auction runs. It is not a deadlock — every other seat is still
+    # offered the auction's commands — which is precisely why the state is worth generating.
+    #
+    # The narrowing's *practical* complaint was real, though, and it is answered with examples
+    # rather than with a smaller state space: widening this draw thins every kind's acceptance
+    # rate, so the oracle's budget went from 60 examples to 300 (measured: at 60 the floor
+    # already flapped, and ``build_house`` drew zero acceptances on 2 seeds in 8).
+    current = draw(st.sampled_from(ids))
     holders = {deck: draw(st.sampled_from((None, *solvent))) for deck in Deck}
     if phase is Phase.JAIL_DECISION and current in solvent and draw(st.booleans()):
         # Leaving jail on a card is one of the three offers the phase exists to present,
@@ -219,16 +224,27 @@ def game_states(draw: st.DrawFn, phase: Phase | None = None) -> GameState:
     if phase is Phase.GAME_OVER:
         winner = solvent[0]
     elif phase is Phase.AUCTION:
-        # Bidders, debtors and trade parties are all drawn from the solvent seats since
-        # MON-209 (same reachability reason as the owners above): ``auction.open_auction``
-        # filters bankrupts out of ``bidders``, a bankrupt player is never the debtor of a
-        # live frame, and ``insolvency._void_claims_of`` cancels any trade a leaving player
-        # was party to. Every such state was rejected on ``error.bankrupt`` before a single
-        # rule was consulted.
+        # Bidders are drawn from the solvent seats, and this narrowing is **contingent**, not
+        # a theorem: ``auction.open_auction`` filters bankrupts out of ``bidders``, and no
+        # command legal in AUCTION can open a debt, so no bankruptcy can begin while one runs.
+        # Nothing in the *model* enforces it — a hand-built save naming a bankrupt bidder
+        # validates — so if either of those two facts ever changes, this draw is wrong rather
+        # than merely narrow. ``insolvency._without_claims_of`` passes an ``AuctionFrame``
+        # through untouched and says the same thing at the other end of the same contingency.
         interrupts = (draw(auction_frames(solvent, cash_by_id)),)
     elif phase is Phase.DEBT_SETTLEMENT:
+        # Both parties solvent, and here it is a *validity* constraint rather than a
+        # reachability one. ``GameState._check_interrupts`` rejects a bankrupt creditor and,
+        # since MON-209, a bankrupt **debtor** as well: a player who has conceded owes nothing
+        # further, and a live debt frame naming one offers no legal command at all, which is a
+        # deadlock rather than a wrong number. Drawing either would only manufacture states the
+        # model refuses to build — tried, and 20 of this file's 33 tests failed on
+        # ``ValidationError`` from inside the generator, not on any property.
         interrupts = (draw(debt_frames(solvent, solvent)),)
     elif phase is Phase.TRADE_REVIEW:
+        # Solvent parties: ``insolvency._void_claims_of`` cancels any pending trade a leaving
+        # player was party to, and ``trade._still_deliverable`` refuses one either way, so a
+        # frame naming a bankrupt party is settled or gone before anything can answer it.
         interrupts = (draw(trade_frames(solvent)),)
 
     dice = draw(
@@ -347,10 +363,12 @@ def auction_frames(draw: st.DrawFn, ids: tuple[int, ...], cash_by_id: dict[int, 
 
 @st.composite
 def debt_frames(draw: st.DrawFn, ids: tuple[int, ...], solvent: tuple[int, ...]) -> DebtFrame:
-    debtor = draw(st.sampled_from(ids))  # ``ids`` is the solvent set since MON-209
-    # Enforced by ``GameState._check_interrupts`` since 2026-07-27: a bankrupt creditor is an
-    # invalid state (MON-207 settles or voids a leaving player's claims), so drawing one
-    # would only produce states the model refuses.
+    # Both ``ids`` and ``solvent`` are the solvent set, and both for the same reason: since
+    # MON-209 ``GameState._check_interrupts`` rejects a bankrupt **debtor** as well as a
+    # bankrupt creditor (MON-207 settles or voids a leaving player's claims in both
+    # directions), so either draw would only produce states the model refuses. The parameters
+    # stay separate because the *creditor* set is additionally narrowed below.
+    debtor = draw(st.sampled_from(ids))
     candidates: tuple[int | str, ...] = tuple(seat for seat in solvent if seat != debtor) + ("bank",)
     creditors = sorted(draw(st.sets(st.sampled_from(candidates), min_size=1, max_size=2)), key=str)
     obligations = tuple(
@@ -768,6 +786,15 @@ def test_is_legal_agrees_with_apply_over_the_full_parameter_space(kind: str) -> 
     nothing like uniform — it drew ``sell_house`` 82 times and ``end_turn`` 20 — and eight of
     the seventeen kinds finished a green run without one accepted example. A floor that
     depends on a distribution is a floor that flaps.
+
+    **300 examples, not 60.** Parametrizing per kind was necessary but not sufficient: at 60
+    the acceptance floor still flapped, and measurably so — over twelve hypothesis seeds
+    ``build_house`` drew *zero* accepted examples on two of them and ``unmortgage_property`` on
+    one, which is a green suite one unlucky seed away from a meaningless pass. Restoring the
+    bankrupt current player to the generator widened the state space and thinned every kind's
+    rate further. At 300 the worst kind's worst seed lands 9 accepted examples, and the whole
+    parametrized property costs a few seconds — examples are the cheap side of this trade, and
+    narrowing the generator to flatter the floor is the expensive one.
     """
     from kesef_engine.errors import IllegalCommandError
     from kesef_engine.reducer import apply
@@ -776,7 +803,7 @@ def test_is_legal_agrees_with_apply_over_the_full_parameter_space(kind: str) -> 
     rejected: Counter[str] = Counter()
 
     @given(pair=states_with_command_of_kind(kind))
-    @settings(max_examples=60, deadline=None)
+    @settings(max_examples=300, deadline=None)
     def check(pair: tuple[GameState, Command]) -> None:
         state, command = pair
         assert command.kind == kind
