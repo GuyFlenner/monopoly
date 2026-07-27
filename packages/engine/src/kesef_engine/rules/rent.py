@@ -26,14 +26,22 @@ def charge(
     *,
     roll_for_amount: bool = False,
     card_doubles_rent: bool = False,
+    utility_multiplier: int | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Charge ``payer_id`` for standing on ``tile_index``, or open a debt.
 
-    Returns a state resting in its final phase. The two keyword arguments are the
-    card-arrival hooks (MON-206): ``roll_for_amount`` prices a utility from a fresh
-    ``purpose="rent"`` roll instead of the roll that moved the token, and
-    ``card_doubles_rent`` is the "pay twice the rental" clause the nearest-railroad card
-    carries. Neither changes what an ordinary landing charges.
+    Returns a state resting in its final phase. The three keyword arguments are the
+    card-arrival hooks (MON-206), and none of them changes what an ordinary landing charges:
+
+    * ``roll_for_amount`` prices a utility from a fresh ``purpose="rent"`` roll instead of the
+      roll that moved the token (trap 9);
+    * ``card_doubles_rent`` is the "pay twice the rental" clause the nearest-railroad card
+      carries;
+    * ``utility_multiplier`` replaces the *tier* — an ordinary landing charges 4× the throw for
+      one utility held and 10× for both, while the printed "advance to the nearest utility"
+      card charges 10× regardless of how many the owner holds. Two different official rules
+      for one tile, and the card names its number, so the number travels with the card
+      (``AdvanceToNearestUtility.multiplier``) rather than being re-derived here.
     """
     tile = state.board.tile(tile_index)
     prop = state.properties[tile_index]
@@ -59,7 +67,11 @@ def charge(
             dice_total = dice.total
         else:
             dice_total = state.dice.total
-        multiplier = tile.rent[state.count_of_kind_owned(owner, TileKind.UTILITY) - 1]
+        by_tier = tile.rent[state.count_of_kind_owned(owner, TileKind.UTILITY) - 1]
+        multiplier = by_tier if utility_multiplier is None else utility_multiplier
+        # The explanation has to say *which* rule produced the figure, or a child asking "why
+        # ten times when he only owns one?" gets an answer that is simply wrong.
+        note = "rent.note.utility_multiplier" if utility_multiplier is None else "rent.note.card_utility_multiplier"
         rent = RentCharged(
             payer=payer_id,
             owner=owner,
@@ -68,7 +80,7 @@ def charge(
             base_rent=dice_total,
             multiplier=multiplier,
             dice_total=dice_total,
-            note_keys=("rent.note.utility_multiplier",),
+            note_keys=(note,),
             note_params={"multiplier": multiplier, "dice_total": dice_total},
         )
     elif tile.kind is TileKind.RAILROAD:

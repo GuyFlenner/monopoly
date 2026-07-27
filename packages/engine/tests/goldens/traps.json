@@ -11,8 +11,28 @@
     "event_index": 547,
     "golden": "fighter_traps_seed_4"
   },
+  "3": {
+    "event_index": 313,
+    "golden": "fighter_traps_seed_4"
+  },
+  "4": {
+    "event_index": 750,
+    "golden": "scarce_bank_traps_seed_18"
+  },
+  "5": {
+    "event_index": 148,
+    "golden": "fighter_traps_seed_4"
+  },
+  "6": {
+    "event_index": 387,
+    "golden": "conceder_seed_42"
+  },
   "7": {
     "event_index": 639,
+    "golden": "fighter_traps_seed_4"
+  },
+  "8": {
+    "event_index": 647,
     "golden": "fighter_traps_seed_4"
   },
   "9": {

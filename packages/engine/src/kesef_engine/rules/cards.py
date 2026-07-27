@@ -184,7 +184,9 @@ def _apply_step(
         case AdvanceToNearestRailroad():
             return _advance_to_nearest(state, player_id, TileKind.RAILROAD, doubles_rent=True)
         case AdvanceToNearestUtility():
-            return _advance_to_nearest(state, player_id, TileKind.UTILITY, rolls_for_rent=True)
+            return _advance_to_nearest(
+                state, player_id, TileKind.UTILITY, rolls_for_rent=True, utility_multiplier=step.multiplier
+            )
         case GoToJail():
             state, jailed = send_to_jail(state, player_id, via="card")
             # Recomputed rather than taken from the frame's resume: a card drawn after a
@@ -283,6 +285,7 @@ def _advance_to_nearest(
     *,
     doubles_rent: bool = False,
     rolls_for_rent: bool = False,
+    utility_multiplier: int | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
     target = _nearest(state, player_id, kind)
     forward = (target - state.player(player_id).position) % BOARD_SIZE
@@ -293,7 +296,12 @@ def _advance_to_nearest(
         state, resolved = tiles.resolve_landing(state, player_id)
         return state, (*moved, *resolved)
     state, charged = rent.charge(
-        state, player_id, target, roll_for_amount=rolls_for_rent, card_doubles_rent=doubles_rent
+        state,
+        player_id,
+        target,
+        roll_for_amount=rolls_for_rent,
+        card_doubles_rent=doubles_rent,
+        utility_multiplier=utility_multiplier,
     )
     return state, (*moved, *charged)
 

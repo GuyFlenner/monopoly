@@ -156,11 +156,20 @@ class AdvanceToNearestRailroad(_Step):
 
 
 class AdvanceToNearestUtility(_Step):
-    """Forward to the next utility, then pay rent priced by a roll made for the rent.
+    """Forward to the next utility, then pay **ten times the throw** — always.
 
-    Spec §3.6 trap 9: the dice are thrown *for the rent*, not for a move, so the throw
-    never feeds the doubles streak and never earns another turn.
+    Spec §3.6 trap 9: the dice are thrown *for the rent*, not for a move, so the throw never
+    feeds the doubles streak and never earns another turn.
+
+    ``multiplier`` is the half that is easy to get wrong, so it is data rather than a rule
+    module's assumption. A utility landed on *by moving* charges 4× the throw for one utility
+    held and 10× for both; the printed card charges **10× regardless of how many the owner
+    holds**. Those are two different official rules for the same tile, and the card's is
+    unambiguous — it names the number itself. MON-206 followed the tier and was wrong; the
+    named test is ``test_the_nearest_utility_card_charges_ten_times_even_for_one_utility``.
     """
+
+    multiplier: int = Field(default=10, gt=0)
 
 
 class GoToJail(_Step):

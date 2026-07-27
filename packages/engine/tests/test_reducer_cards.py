@@ -15,7 +15,7 @@ from __future__ import annotations
 import pytest
 
 from helpers import make_player, make_state
-from kesef_engine.board.models import BOARD_SIZE
+from kesef_engine.board.models import BOARD_SIZE, TileKind
 from kesef_engine.commands import (
     Command,
     MortgageProperty,
@@ -195,6 +195,38 @@ def test_chance_advance_to_nearest_utility_rolls_for_the_rent() -> None:
     assert rent.amount == 10 * rent.dice_total
     assert new_state.dice is not None and new_state.dice.purpose == "rent"
     assert _card_cash(events) == -rent.amount
+
+
+def test_the_nearest_utility_card_charges_ten_times_even_for_one_utility() -> None:
+    """The printed card charges **ten times the throw**, whatever the owner holds.
+
+    Two different official rules meet on one tile: a utility landed on *by moving* charges 4×
+    for one utility held and 10× for both, and MON-206 followed that tier here. The card names
+    its own number, so the tier does not apply — and with only Water Works owned the two rules
+    differ by a factor of two and a half, which is why this needs its own test rather than a
+    comment.
+    """
+    owned = {WATER_WORKS: PropertyState(owner=1)}  # Electric Company stays with the bank
+    new_state, events = _play("card.chance.advance_to_nearest_utility", properties=owned)
+    assert new_state.player(0).position == WATER_WORKS
+    assert new_state.count_of_kind_owned(1, TileKind.UTILITY) == 1, "the 4x tier would apply to a landing"
+    rent = next(event for event in events if isinstance(event, RentCharged))
+    assert rent.dice_total is not None
+    assert rent.multiplier == 10, "the card's number, not the one-utility tier"
+    assert rent.amount == 10 * rent.dice_total
+    assert rent.note_keys == ("rent.note.card_utility_multiplier",), "the explanation names the card's rule"
+
+
+def test_an_ordinary_landing_on_one_utility_still_charges_four_times() -> None:
+    """The other side of the same coin: the tier is untouched for a landing that was *moved*
+    into. Without this, the fix above could be a blanket 10x and nothing would notice."""
+    owned = {ELECTRIC_COMPANY: PropertyState(owner=1)}
+    seats = (make_player(0, position=ELECTRIC_COMPANY - _TOTAL), make_player(1))
+    state = make_state(seats=seats, properties=owned, seed=_SEED)
+    _, events = apply(state, RollDice(player=0))
+    rent = next(event for event in events if isinstance(event, RentCharged))
+    assert rent.multiplier == 4, "one utility owned, reached by moving"
+    assert rent.note_keys == ("rent.note.utility_multiplier",)
 
 
 def test_chance_advance_to_nearest_railroad_pays_double_rent() -> None:
