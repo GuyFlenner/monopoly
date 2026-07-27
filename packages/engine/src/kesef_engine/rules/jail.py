@@ -104,11 +104,19 @@ def release_after_compulsory_fine(state: GameState, player_id: PlayerId) -> tupl
     that knows the debt is paid. The roll that failed is still in ``state.dice`` (nothing
     rolls between the failure and the settlement — legality offers the debtor raising
     commands only), so the movement it earned is not lost.
+
+    A ``JAIL_FINE`` debt with no roll behind it cannot arise in play for exactly that
+    reason, but it is *representable*, and a state model that admits a shape owes the
+    reducer a definition for it: ``apply`` answers its caller with a result or an
+    ``IllegalCommandError``, never an ``AssertionError`` (ADR-005). With no roll to walk,
+    the player simply leaves the cell and the popped debt's resume phase stands.
     """
     dice = state.dice
-    assert dice is not None, "a compulsory fine is only ever reached through a jail roll"
     state = _release(state, player_id)
-    return _move_out(state, player_id, dice.total, [LeftJail(player=player_id, via="time_served")])
+    released = LeftJail(player=player_id, via="time_served")
+    if dice is None:
+        return state, (released,)
+    return _move_out(state, player_id, dice.total, [released])
 
 
 def _move_out(
