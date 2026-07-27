@@ -147,6 +147,38 @@ def test_settling_the_compulsory_fine_releases_and_still_walks_the_roll() -> Non
     assert [e for e in events if isinstance(e, TokenMoved)], "the token moved on settlement"
 
 
+def test_settling_a_compulsory_fine_with_no_roll_behind_it_still_releases() -> None:
+    """A ``JAIL_FINE`` debt with ``dice is None`` cannot arise in play — the fine only
+    becomes compulsory on a failed jail roll — but the state model admits the shape, and
+    ``apply`` owes its caller a result or an ``IllegalCommandError``, never an
+    ``AssertionError`` (ADR-005 soundness; the structural generator in
+    ``test_legality_properties.py`` reaches this state)."""
+    state = _jailed_state(cash=0)
+    debted = GameState(
+        **(
+            dict(state)
+            | {
+                "phase": Phase.DEBT_SETTLEMENT,
+                "dice": None,
+                "interrupts": (
+                    DebtFrame(
+                        resume=Phase.AWAITING_ROLL,
+                        debtor=0,
+                        obligations=(Obligation(creditor="bank", amount=50),),
+                        reason=CashReason.JAIL_FINE,
+                    ),
+                ),
+            }
+        )
+    )
+    settled, events = apply(debted, MortgageProperty(player=0, tile=5))
+    assert not settled.player(0).in_jail
+    assert settled.player(0).position == JAIL, "with no roll to walk, the token stays put"
+    assert settled.phase is Phase.AWAITING_ROLL, "the popped debt's resume phase stands"
+    assert next(e for e in events if isinstance(e, LeftJail)).via == "time_served"
+    assert not [e for e in events if isinstance(e, TokenMoved)]
+
+
 def test_the_voluntary_fine_does_not_move_the_player() -> None:
     """The negative half of the test above: paying the fine as a *decision* leaves the roll
     to come, so a mover there would move the player twice in one turn."""

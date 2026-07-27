@@ -105,18 +105,18 @@ def release_after_compulsory_fine(state: GameState, player_id: PlayerId) -> tupl
     rolls between the failure and the settlement — legality offers the debtor raising
     commands only), so the movement it earned is not lost.
 
-    It can, however, never have existed: nothing in the state model ties a ``JAIL_FINE``
-    debt to a jail roll, so a loaded or hand-built position may settle one with
-    ``state.dice`` empty. The cell still opens — the fine is paid either way — there is
-    simply no total to walk. This used to be an ``assert``, which made a *valid* state
-    crash ``apply`` and so broke ADR-005 soundness (found by the property test at MON-207).
+    A ``JAIL_FINE`` debt with no roll behind it cannot arise in play for exactly that
+    reason, but it is *representable*, and a state model that admits a shape owes the
+    reducer a definition for it: ``apply`` answers its caller with a result or an
+    ``IllegalCommandError``, never an ``AssertionError`` (ADR-005). With no roll to walk,
+    the player simply leaves the cell and the popped debt's resume phase stands.
     """
     dice = state.dice
     state = _release(state, player_id)
-    events: list[Event] = [LeftJail(player=player_id, via="time_served")]
+    released = LeftJail(player=player_id, via="time_served")
     if dice is None:
-        return state._replace(phase=Phase.AWAITING_END_TURN), tuple(events)
-    return _move_out(state, player_id, dice.total, events)
+        return state, (released,)
+    return _move_out(state, player_id, dice.total, [released])
 
 
 def _move_out(

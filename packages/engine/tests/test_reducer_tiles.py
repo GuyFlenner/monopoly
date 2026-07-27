@@ -117,14 +117,16 @@ def test_just_visiting_is_inert() -> None:
     assert not [e for e in events if isinstance(e, SentToJail)]
 
 
-def test_card_tiles_are_inert_until_mon_206() -> None:
-    # The deck is stocked so that "no card was drawn" can actually fail: against an empty
-    # deck the old ``== ()`` assertion held whether or not the tile drew anything.
-    deck = ("card.chance.advance_to_go", "card.chance.get_out_of_jail_free")
-    new_state, events = _land_on(CHANCE, chance_deck=deck)  # wraps past GO: only the salary moves money
-    assert not [e for e in events if isinstance(e, CashChanged) and e.reason is not CashReason.GO_SALARY]
+def test_a_card_tile_draws_and_resolves_its_card() -> None:
+    """The router's card branch (MON-206 owns the cards themselves; see
+    ``test_reducer_cards.py`` for one test per card). Here: the tile deals, the drawn card
+    goes to the bottom, and the turn still rests where a resolved tile leaves it."""
+    deck = ("card.chance.speeding_fine", "card.chance.get_out_of_jail_free")
+    new_state, events = _land_on(CHANCE, chance_deck=deck)  # wraps past GO: the salary moves too
+    fine = next(e for e in events if isinstance(e, CashChanged) and e.reason is CashReason.CARD)
+    assert fine.delta == -15
+    assert new_state.chance_deck == (deck[1], deck[0]), "the drawn card went to the bottom"
     assert new_state.phase is Phase.AWAITING_END_TURN
-    assert new_state.chance_deck == deck, "no card was drawn"
 
 
 def test_landing_exactly_on_go_pays_the_salary_once() -> None:
