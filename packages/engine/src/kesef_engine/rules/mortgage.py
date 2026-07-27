@@ -1,7 +1,19 @@
-"""Mortgaging (M1 slice; MON-202 owns the full acceptance surface).
+"""Mortgaging (MON-202).
 
-Half the printed price out, mortgage value plus 10% back in — the lift fee is computed
-by :func:`kesef_engine.legality.unmortgage_cost` so the two can never disagree.
+Half the printed price out, mortgage value plus 10% back in — the lift fee is computed by
+:func:`kesef_engine.legality.unmortgage_cost` so legality and the ledger can never
+disagree about it, and it rounds *up*, which is why it is arithmetic in one place rather
+than a literal in two.
+
+The three conditions that make this rule more than a flag are all legality's, checked
+against the group rather than the tile: every building in the colour group must be sold
+before any member can be mortgaged, a mortgaged member blocks building anywhere in the
+group, and lifting is not a cash-*raising* action so it is refused while insolvent (G-5).
+The rule that surprises people is in :mod:`kesef_engine.rules.rent`, not here — a
+mortgaged property charges no rent yet still completes its group (spec §3.6 trap 2).
+
+Absent entirely when ``Ruleset.mortgages_enabled`` is off (Kids Mode): both commands are
+rejected with ``error.mortgages_disabled`` and neither is ever enumerated.
 """
 
 from __future__ import annotations
