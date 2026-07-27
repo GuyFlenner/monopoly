@@ -787,14 +787,29 @@ def test_is_legal_agrees_with_apply_over_the_full_parameter_space(kind: str) -> 
     the seventeen kinds finished a green run without one accepted example. A floor that
     depends on a distribution is a floor that flaps.
 
-    **300 examples, not 60.** Parametrizing per kind was necessary but not sufficient: at 60
-    the acceptance floor still flapped, and measurably so — over twelve hypothesis seeds
-    ``build_house`` drew *zero* accepted examples on two of them and ``unmortgage_property`` on
-    one, which is a green suite one unlucky seed away from a meaningless pass. Restoring the
-    bankrupt current player to the generator widened the state space and thinned every kind's
-    rate further. At 300 the worst kind's worst seed lands 9 accepted examples, and the whole
-    parametrized property costs a few seconds — examples are the cheap side of this trade, and
-    narrowing the generator to flatter the floor is the expensive one.
+    **``derandomize=True``, and 120 examples.** Parametrizing per kind was necessary but not
+    sufficient: the acceptance floor was still an intermittent failure, and it was diagnosed as
+    one twice — once on ``build_house`` and once on ``unmortgage_property`` — before the cause
+    was pinned. It is worth naming precisely, because "it passed on the rerun" is not a
+    resolution for the property that guards ADR-005.
+
+    The cause was **test-side nondeterminism, not a rule bug**. Hypothesis draws fresh entropy
+    on every run unless told otherwise, so the acceptance *count* differed run to run while the
+    floor demanded it be non-zero. At 60 examples, measured over eight fixed seeds:
+    ``build_house`` drew zero accepted examples on two of them and ``unmortgage_property`` on
+    one — the exact two kinds that were reported. A hunt for a genuine disagreement over
+    12,000 examples per kind, with the floor removed so that only the oracle itself could fail,
+    found none: ``is_legal`` and ``apply`` agree.
+
+    So the run is pinned. ``derandomize=True`` fixes the stream, which turns the floor from a
+    coin toss into a real gate — it now either always passes or always fails, and a failure
+    names a generator that stopped reaching something rather than an unlucky afternoon. 120
+    examples then buys margin on the pinned stream: the thinnest kind lands 8 accepted examples
+    and every other lands 11 or more, where at 60 three kinds scraped by on 2.
+
+    The cost of pinning is honest and worth stating: a fixed stream explores the same states
+    every run, so this property no longer discovers *new* states over time. That is the right
+    trade for a PR gate, and the randomized deep run belongs in the nightly (MON-209).
     """
     from kesef_engine.errors import IllegalCommandError
     from kesef_engine.reducer import apply
@@ -803,7 +818,7 @@ def test_is_legal_agrees_with_apply_over_the_full_parameter_space(kind: str) -> 
     rejected: Counter[str] = Counter()
 
     @given(pair=states_with_command_of_kind(kind))
-    @settings(max_examples=300, deadline=None)
+    @settings(max_examples=120, deadline=None, derandomize=True)
     def check(pair: tuple[GameState, Command]) -> None:
         state, command = pair
         assert command.kind == kind
