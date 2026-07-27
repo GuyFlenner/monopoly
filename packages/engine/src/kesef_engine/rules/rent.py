@@ -20,13 +20,20 @@ from kesef_engine.state import GameState
 
 
 def charge(
-    state: GameState, payer_id: PlayerId, tile_index: TileIndex, *, roll_for_amount: bool = False
+    state: GameState,
+    payer_id: PlayerId,
+    tile_index: TileIndex,
+    *,
+    roll_for_amount: bool = False,
+    card_doubles_rent: bool = False,
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Charge ``payer_id`` for standing on ``tile_index``, or open a debt.
 
-    Returns a state resting in its final phase. ``roll_for_amount`` is the card-arrival
-    hook (MON-206): a fresh ``purpose="rent"`` roll prices a utility instead of the roll
-    that moved the token.
+    Returns a state resting in its final phase. The two keyword arguments are the
+    card-arrival hooks (MON-206): ``roll_for_amount`` prices a utility from a fresh
+    ``purpose="rent"`` roll instead of the roll that moved the token, and
+    ``card_doubles_rent`` is the "pay twice the rental" clause the nearest-railroad card
+    carries. Neither changes what an ordinary landing charges.
     """
     tile = state.board.tile(tile_index)
     prop = state.properties[tile_index]
@@ -67,13 +74,20 @@ def charge(
     elif tile.kind is TileKind.RAILROAD:
         count = state.count_of_kind_owned(owner, TileKind.RAILROAD)
         amount = tile.rent[count - 1]  # 25 / 50 / 100 / 200
+        # The doubling is the *card's*, so it is a multiplier over the printed tier rather
+        # than a second table: the explanation stays "N railroads, doubled by the card".
+        doubling = 2 if card_doubles_rent else 1
+        notes: tuple[str, ...] = ("rent.note.railroad_count",)
+        if card_doubles_rent:
+            notes = (*notes, "rent.note.card_doubled")
         rent = RentCharged(
             payer=payer_id,
             owner=owner,
             tile=tile_index,
-            amount=amount,
+            amount=amount * doubling,
             base_rent=amount,
-            note_keys=("rent.note.railroad_count",),
+            multiplier=doubling,
+            note_keys=notes,
             note_params={"count": count},
         )
     else:

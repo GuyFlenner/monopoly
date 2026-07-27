@@ -38,7 +38,18 @@ from kesef_engine.errors import IllegalCommandError
 from kesef_engine.events import Event, PhaseChanged
 from kesef_engine.legality import is_legal
 from kesef_engine.phases import TRANSIENT_PHASES, Phase
-from kesef_engine.rules import auction, development, insolvency, jail, mortgage, movement, purchase, trade, turns
+from kesef_engine.rules import (
+    auction,
+    cards,
+    development,
+    insolvency,
+    jail,
+    mortgage,
+    movement,
+    purchase,
+    trade,
+    turns,
+)
 from kesef_engine.state import GameState
 
 
@@ -62,12 +73,33 @@ def apply(state: GameState, command: Command) -> tuple[GameState, tuple[Event, .
 
     entry_phase = state.phase
     new_state, events = _dispatch(state, command)
-    new_state, settled = insolvency.settle_if_able(new_state)
-    all_events = [*events, *settled]
+    new_state, drained = _drain(new_state)
+    all_events = [*events, *drained]
     if new_state.phase is not entry_phase:
         all_events.append(PhaseChanged(previous=entry_phase, current=new_state.phase))
     assert new_state.phase not in TRANSIENT_PHASES  # the contract: callers never rest here
     return new_state, tuple(all_events)
+
+
+def _drain(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
+    """Settle what the debtor can now pay, and resume whatever that debt suspended.
+
+    A debt the debtor's cash now covers settles itself, and a debt a *card* opened
+    suspended the card underneath it — so settling one hands control back to
+    ``CARD_RESOLUTION`` and the card continues at the step it stopped at (ADR-007 G-9).
+
+    Terminating: ``cards.resume`` either finishes the card or suspends into a fresh debt,
+    and a re-entry needs that debt to have been settled at a strictly later step. Steps are
+    finite, so the loop is.
+    """
+    state, events = insolvency.settle_if_able(state)
+    produced = list(events)
+    while state.phase is Phase.CARD_RESOLUTION:
+        state, resumed = cards.resume(state)
+        produced.extend(resumed)
+        state, settled = insolvency.settle_if_able(state)
+        produced.extend(settled)
+    return state, tuple(produced)
 
 
 def apply_all(state: GameState, commands: tuple[Command, ...]) -> tuple[GameState, tuple[Event, ...]]:
