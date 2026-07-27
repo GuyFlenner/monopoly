@@ -21,6 +21,7 @@ The public surface is deliberately tiny::
 from kesef_engine.board.loader import available_boards, load_board
 from kesef_engine.board.models import Board, ColorGroup, Tile, TileKind
 from kesef_engine.errors import IllegalCommandError
+from kesef_engine.factory import Seat, new_game
 from kesef_engine.rng import Rng
 
 __all__ = [
@@ -28,8 +29,10 @@ __all__ = [
     "ColorGroup",
     "IllegalCommandError",
     "Rng",
+    "Seat",
     "Tile",
     "TileKind",
     "available_boards",
     "load_board",
+    "new_game",
 ]

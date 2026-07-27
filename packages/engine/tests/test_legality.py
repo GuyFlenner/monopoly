@@ -56,6 +56,8 @@ BROWN_A = 1
 BROWN_B = 3
 RAILROAD = 5
 LIGHT_BLUE = (6, 8, 9)
+PINK = (11, 13, 14)
+ORANGE = (16, 18, 19)
 JAIL_FINE = Ruleset.universal().jail_fine
 
 
@@ -379,11 +381,31 @@ def test_selling_a_hotel_is_legal_even_when_the_bank_has_no_houses() -> None:
     approved(state, SellHouse(player=0, tile=BROWN_A))
 
 
-def test_stock_is_ignored_when_the_shortage_is_not_enforced() -> None:
-    ruleset = Ruleset(name=RulesetName.UNIVERSAL, houses_available=6, building_shortage_enforced=False)
-    properties = {tile: owned(0, houses=2) for tile in LIGHT_BLUE}
-    state = make_state(phase=Phase.AWAITING_END_TURN, properties=properties, ruleset=ruleset)
-    approved(state, BuildHouse(player=0, tile=LIGHT_BLUE[0]))
+def test_the_finite_bank_vetoes_the_build_in_every_ruleset() -> None:
+    """The soundness hole that ADR-005 exists to prevent: the stock check used to sit behind
+    a ``building_shortage_enforced`` flag while ``GameState`` enforced the same 32/12 limit
+    unconditionally, so with the flag off ``legal_commands`` offered a build that ``apply``
+    could only answer with a ValidationError. The flag is gone; the veto is not."""
+    from kesef_engine.errors import IllegalCommandError
+    from kesef_engine.reducer import apply
+
+    # All 32 of the bank's houses are standing (brown 4+4, light blue and pink 4+4+4 each),
+    # and player 0 also holds the orange group unbuilt — so the next orange build needs a
+    # house the bank does not have.
+    exhausted = {tile: owned(0, houses=4) for tile in (BROWN_A, BROWN_B, *LIGHT_BLUE, *PINK)}
+    properties = exhausted | {tile: owned(0) for tile in ORANGE}
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=properties)
+    assert state.houses_remaining == 0
+    build = BuildHouse(player=0, tile=ORANGE[0])
+    assert build not in legal_commands(state)
+    assert rejected(state, build) == "error.no_houses_left"
+    with pytest.raises(IllegalCommandError) as excinfo:
+        apply(state, build)
+    assert excinfo.value.reason_key == "error.no_houses_left"
+    # Kids Mode has the same bank; a custom ruleset only resizes it.
+    kids = make_state(phase=Phase.AWAITING_END_TURN, properties=properties, ruleset=Ruleset.kids())
+    assert rejected(kids, build) == "error.no_houses_left"
+    assert "building_shortage_enforced" not in Ruleset.model_fields
 
 
 def test_build_is_capped_at_the_hotel() -> None:
