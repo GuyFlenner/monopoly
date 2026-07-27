@@ -14,12 +14,12 @@ from kesef_engine.commands import (
     TradeSide,
     UnmortgageProperty,
 )
-from kesef_engine.events import BuildingChanged, CashChanged, MortgageChanged, TradeExecuted
+from kesef_engine.events import BuildingChanged, CashChanged, DebtSettled, MortgageChanged, TradeExecuted
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason, Deck
 from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset
-from kesef_engine.state import GameState, PropertyState
+from kesef_engine.state import DebtFrame, GameState, Obligation, PropertyState
 
 BROWNS = {1: PropertyState(owner=0), 3: PropertyState(owner=0)}  # house_cost 50 each
 
@@ -142,6 +142,61 @@ def test_the_proposer_may_cancel_a_pending_trade() -> None:
     new_state, _ = apply(state, CancelTrade(player=0))
     assert new_state.phase is Phase.AWAITING_ROLL
     assert new_state.properties[1].owner == 0
+
+
+def test_a_debtor_trades_their_way_out_and_the_debt_settles_itself() -> None:
+    """The nested-interrupt path nothing else covered: DEBT_SETTLEMENT is suspended by a
+    TradeFrame pushed on top of the DebtFrame, and when the accepted trade pops, the cash it
+    delivered settles the debt automatically (no PayDebt command) and the *second* frame pops
+    too — two levels of ADR-007 stack unwinding inside one ``apply``."""
+    seats = (make_player(0, cash=100), make_player(1), make_player(2))
+    debt = DebtFrame(
+        resume=Phase.AWAITING_END_TURN,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=600),),
+        reason=CashReason.RENT,
+        source_tile=19,
+    )
+    state = make_state(
+        seats=seats,
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(debt,),
+        properties={1: PropertyState(owner=0)},
+    )
+    offer = TradeOffer(proposer=0, recipient=2, give=TradeSide(tiles=(1,)), receive=TradeSide(cash=500))
+
+    proposed, _ = apply(state, ProposeTrade(player=0, offer=offer))
+    assert proposed.phase is Phase.TRADE_REVIEW
+    assert [frame.kind for frame in proposed.interrupts] == ["debt", "trade"], "the debt is suspended, not replaced"
+    assert proposed.pending_debt is debt
+
+    settled, events = apply(proposed, RespondToTrade(player=2, accept=True))
+    assert settled.interrupts == (), "both frames popped"
+    assert settled.phase is Phase.AWAITING_END_TURN, "play resumes where the debt suspended it"
+    assert settled.properties[1].owner == 2
+    assert (settled.player(0).cash, settled.player(1).cash, settled.player(2).cash) == (0, 2100, 1000)
+    assert [e for e in events if isinstance(e, TradeExecuted)]
+    assert [e for e in events if isinstance(e, DebtSettled)] == [DebtSettled(debtor=0, creditor=1, amount=600)]
+
+
+def test_a_debtor_whose_trade_falls_short_stays_in_debt_settlement() -> None:
+    """The negative half: an accepted trade that does not cover the debt pops only its own
+    frame. Without it the test above would pass on a reducer that always drained the stack."""
+    seats = (make_player(0, cash=100), make_player(1), make_player(2))
+    debt = DebtFrame(
+        resume=Phase.AWAITING_END_TURN,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=600),),
+        reason=CashReason.RENT,
+    )
+    state = make_state(seats=seats, phase=Phase.DEBT_SETTLEMENT, interrupts=(debt,))
+    offer = TradeOffer(proposer=0, recipient=2, give=TradeSide(), receive=TradeSide(cash=100))
+    state, _ = apply(state, ProposeTrade(player=0, offer=offer))
+    short, events = apply(state, RespondToTrade(player=2, accept=True))
+    assert short.phase is Phase.DEBT_SETTLEMENT
+    assert [frame.kind for frame in short.interrupts] == ["debt"]
+    assert short.player(0).cash == 200
+    assert not [e for e in events if isinstance(e, DebtSettled)]
 
 
 def test_kids_mode_rejects_a_multi_item_trade_side() -> None:
