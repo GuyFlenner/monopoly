@@ -40,8 +40,11 @@ class Ruleset(BaseModel, frozen=True):
     trading_enabled: bool = True
     even_build_enforced: bool = True
     """Houses across a colour group may never differ by more than one."""
-    building_shortage_enforced: bool = True
-    """When the bank runs out of houses, they genuinely run out."""
+    # There is deliberately no ``building_shortage_enforced`` flag: the bank's stock is
+    # finite in *every* ruleset, because ``GameState`` refuses to hold more buildings than
+    # ``houses_available`` / ``hotels_available``. A more generous bank is a bigger number,
+    # not a switched-off rule. What the shortage leaves open is who gets the last house,
+    # and that is the flag below.
     building_shortage_auction: bool = False
     """Whether a contested last house goes to auction. Off in v1 (owner decision 1, GAP
     §7): buildings are first-come-first-served, a documented divergence from the printed

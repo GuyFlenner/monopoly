@@ -10,7 +10,7 @@ from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, Event, Re
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason
 from kesef_engine.rng import Rng
-from kesef_engine.state import DebtFrame, GameState, PropertyState
+from kesef_engine.state import DebtFrame, DiceState, GameState, PropertyState
 
 _PLAIN_SEED = next(seed for seed in range(1000) if (r := Rng(seed=seed).roll_dice())[0] != r[1])
 _DOUBLES_SEED = next(seed for seed in range(1000) if (r := Rng(seed=seed).roll_dice())[0] == r[1])
@@ -124,6 +124,23 @@ def test_a_card_arrival_rolls_fresh_dice_for_the_utility_rent() -> None:
     assert rent.amount == 4 * rolled.total
     assert rent.dice_total == rolled.total
     assert new_state.doubles_streak == state.doubles_streak, "a rent roll never feeds the streak"
+
+
+def test_a_utility_rent_roll_does_not_forfeit_the_doubles_re_roll() -> None:
+    """The other half of GAP G-10: the resting phase is decided by the *move* roll that
+    brought the player here, so a doubles arrival on a utility keeps its extra roll. Rent
+    used to recompute the phase from post-roll state, where ``purpose='rent'`` reads as
+    "no doubles" and the earned roll vanished."""
+    from kesef_engine.rules import rent as rent_module
+
+    seats = (make_player(0, position=ELECTRIC), make_player(1))
+    state = make_state(seats=seats, seed=_PLAIN_SEED, properties={ELECTRIC: PropertyState(owner=1)})
+    doubles = DiceState(first=4, second=4, purpose="move")
+    state = GameState(**{**dict(state), "dice": doubles, "doubles_streak": 1})
+    new_state, events = rent_module.charge(state, 0, ELECTRIC, roll_for_amount=True)
+    assert next(e for e in events if isinstance(e, DiceRolled)).purpose == "rent"
+    assert new_state.phase is Phase.AWAITING_ROLL, "the doubles re-roll survives the rent roll"
+    assert new_state.doubles_streak == 1, "and the rent roll still does not feed the streak"
 
 
 def test_the_owner_is_never_charged_their_own_rent() -> None:

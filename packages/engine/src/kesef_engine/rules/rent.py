@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from kesef_engine.board.models import Tile, TileKind
 from kesef_engine.events import Event, RentCharged
+from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason, PlayerId, TileIndex
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import post_move_phase
@@ -31,11 +32,14 @@ def charge(
     prop = state.properties[tile_index]
     owner = prop.owner
     events: list[Event] = []
-    resting = state._replace(phase=post_move_phase(state, payer_id))
+    # Computed *before* any rent roll and carried through: a ``purpose="rent"`` roll must
+    # not decide where the turn rests, or a doubles arrival on a utility would silently
+    # forfeit the extra roll it earned (GAP G-10).
+    resting = post_move_phase(state, payer_id)
     if owner is None or owner == payer_id or prop.mortgaged or state.player(owner).bankrupt:
         # Trap 2 (mortgaged), plus: nobody pays themselves, and a bankrupt owner's
         # tiles charge nothing while awaiting MON-207's estate handling.
-        return resting, ()
+        return state._replace(phase=resting), ()
 
     if tile.kind is TileKind.UTILITY:
         if roll_for_amount or state.dice is None:
@@ -76,7 +80,7 @@ def charge(
         rent = _property_rent(state, payer_id, tile, owner)
 
     events.append(rent)
-    return _settle(state, rent, events)
+    return _settle(state, rent, events, resting=resting)
 
 
 def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: PlayerId) -> RentCharged:
@@ -105,8 +109,11 @@ def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: Play
     )
 
 
-def _settle(state: GameState, rent: RentCharged, events: list[Event]) -> tuple[GameState, tuple[Event, ...]]:
-    resting = post_move_phase(state, rent.payer)
+def _settle(
+    state: GameState, rent: RentCharged, events: list[Event], *, resting: Phase
+) -> tuple[GameState, tuple[Event, ...]]:
+    """``resting`` is ``charge``'s pre-roll verdict, passed in rather than recomputed: the
+    same concept derived twice from different states is how the doubles re-roll got lost."""
     if state.player(rent.payer).cash < rent.amount:
         state, incurred = open_debt(
             state,

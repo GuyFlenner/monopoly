@@ -12,7 +12,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from helpers import make_maximal_state, make_state
+from helpers import make_maximal_state, make_player, make_state
 from kesef_engine.commands import TradeOffer, TradeSide
 from kesef_engine.phases import INTERRUPT_PHASES, PORTFOLIO_PHASES, RAISING_PHASES, Phase
 from kesef_engine.primitives import AuctionReason, BuildingLot, CashReason, Deck, TileLot
@@ -159,6 +159,39 @@ def test_frames_may_only_name_seated_players() -> None:
         "interrupts": [_debt_frame(resume=Phase.AWAITING_ROLL, debtor=99).model_dump()],
     }
     with pytest.raises(ValidationError, match="unknown player"):
+        GameState.model_validate(payload)
+
+
+def test_a_standing_high_bid_the_bidder_cannot_afford_is_rejected() -> None:
+    """The invariant needs the bidder's cash, so it lives at GameState level: a bid is
+    capped by cash at placement and an auction only lets its bidders raise cash, so an
+    unaffordable standing bid could never be awarded — the ledger's ge=0 backstop would
+    break instead. It used to be asserted only in a generator comment."""
+    seats = (make_player(0, cash=40), make_player(1))
+    payload = make_state(seats=seats).model_dump() | {
+        "phase": Phase.AUCTION,
+        "interrupts": [_auction_frame(high_bid=50, high_bidder=0, min_bid=51).model_dump()],
+    }
+    with pytest.raises(ValidationError, match="high_bid"):
+        GameState.model_validate(payload)
+
+    affordable = make_state(seats=seats).model_dump() | {
+        "phase": Phase.AUCTION,
+        "interrupts": [_auction_frame(high_bid=40, high_bidder=0, min_bid=41).model_dump()],
+    }
+    assert GameState.model_validate(affordable).phase is Phase.AUCTION
+
+
+def test_a_bankrupt_creditor_is_rejected() -> None:
+    """MON-207 settles or voids a leaving player's claims, so a creditor is always a solvent
+    player or the bank. Also previously a generator comment rather than a rule."""
+    seats = (make_player(0), make_player(1, cash=0, bankrupt=True))
+    payload = make_state(seats=seats).model_dump() | {
+        "phase": Phase.DEBT_SETTLEMENT,
+        "interrupts": [_debt_frame(resume=Phase.AWAITING_ROLL).model_dump()],
+        "elimination_order": [1],
+    }
+    with pytest.raises(ValidationError, match="bankrupt creditor"):
         GameState.model_validate(payload)
 
 

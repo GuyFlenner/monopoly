@@ -415,10 +415,32 @@ class GameState(BaseModel, frozen=True):
             if self.phase is not expected:
                 raise ValueError(f"phase {self.phase} contradicts the live {live.kind} interrupt (expected {expected})")
         seated = {player.id for player in self.players}
+        bankrupt = {player.id for player in self.players if player.bankrupt}
         for frame in self.interrupts:
             unknown = frame.player_ids() - seated
             if unknown:
                 raise ValueError(f"{frame.kind} interrupt names unknown player(s) {sorted(unknown)}")
+            # Two cross-frame invariants that need a player's cash or solvency, so they
+            # cannot live on the frames themselves. Both were previously enforced nowhere
+            # and merely asserted in a generator comment, which is not enforcement.
+            if isinstance(frame, AuctionFrame) and frame.high_bidder is not None:
+                # A bid is capped by cash at placement and a high bidder only *gains* cash
+                # while an auction runs, so an unaffordable standing bid could not be
+                # awarded: it would break the ledger's ge=0 backstop instead.
+                available = self.player(frame.high_bidder).cash
+                if frame.high_bid > available:
+                    raise ValueError(
+                        f"auction high_bid {frame.high_bid} exceeds high bidder {frame.high_bidder}'s "
+                        f"cash ({available})"
+                    )
+            if isinstance(frame, DebtFrame):
+                # A bankrupt player's claims are settled or voided as they leave the game
+                # (MON-207), so a creditor is always a solvent player or the bank.
+                insolvent = sorted(
+                    creditor for creditor in frame.creditors if creditor != "bank" and creditor in bankrupt
+                )
+                if insolvent:
+                    raise ValueError(f"debt names bankrupt creditor(s) {insolvent}")
         return self
 
     @model_validator(mode="after")

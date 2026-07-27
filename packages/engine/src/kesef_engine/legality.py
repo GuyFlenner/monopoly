@@ -304,13 +304,19 @@ def _build_house(state: GameState, command: BuildHouse, actor: PlayerState) -> L
         return _no("error.at_maximum_development", tile=command.tile)
     if state.ruleset.even_build_enforced and prop.houses > min(_levels(state, group)):
         return _no("error.uneven_build", tile=command.tile)
-    if state.ruleset.building_shortage_enforced:
-        if prop.houses == HOTEL_LEVEL - 1:
-            # The fifth build erects the hotel; the four houses go back to the bank.
-            if state.hotels_remaining < 1:
-                return _no("error.no_hotels_left")
-        elif state.houses_remaining < 1:
-            return _no("error.no_houses_left")
+    # The bank's stock is finite unconditionally: ``GameState._check_properties`` refuses a
+    # state holding more buildings than the ruleset's ``houses_available`` /
+    # ``hotels_available``, so a flag-gated check here would offer a build that ``apply``
+    # could only answer with a ValidationError. How a *contested* last house is allotted is
+    # the flag-governed part, and that is ``Ruleset.building_shortage_auction`` (off in v1:
+    # first-come-first-served, owner decision 1). An "unlimited bank" variant raises
+    # ``houses_available``; it does not switch the stock check off.
+    if prop.houses == HOTEL_LEVEL - 1:
+        # The fifth build erects the hotel; the four houses go back to the bank.
+        if state.hotels_remaining < 1:
+            return _no("error.no_hotels_left")
+    elif state.houses_remaining < 1:
+        return _no("error.no_houses_left")
     cost = tile.house_cost or 0
     if actor.cash < cost:
         return _no("error.insufficient_funds", required=cost, available=actor.cash)

@@ -147,7 +147,9 @@ def maximal_interrupts() -> tuple[InterruptFrame, ...]:
         active=(0, 2),
         turn=2,
         high_bid=75,
-        high_bidder=0,
+        # Player 0 is the debtor with no cash, and GameState now enforces that a standing
+        # high bid is affordable, so the bid belongs to the solvent bidder.
+        high_bidder=2,
         min_bid=76,
         max_bid=1500,
         queue=(TileLot(tile=8), BuildingLot(building="hotel")),
