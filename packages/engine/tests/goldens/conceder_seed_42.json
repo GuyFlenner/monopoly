@@ -3767,6 +3767,106 @@
     },
     {
       "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
       "player": 1,
       "type": "game_ended"
     },

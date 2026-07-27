@@ -62,8 +62,9 @@ def apply(state: GameState, command: Command) -> tuple[GameState, tuple[Event, .
 
     entry_phase = state.phase
     new_state, events = _dispatch(state, command)
-    new_state, settled = insolvency.settle_if_able(new_state)
-    all_events = [*events, *settled]
+    # Settlement, endgame and the seat hand-off, in the one order that is correct (MON-207).
+    new_state, resolved = insolvency.resolve_after_command(new_state)
+    all_events = [*events, *resolved]
     if new_state.phase is not entry_phase:
         all_events.append(PhaseChanged(previous=entry_phase, current=new_state.phase))
     assert new_state.phase not in TRANSIENT_PHASES  # the contract: callers never rest here

@@ -104,11 +104,19 @@ def release_after_compulsory_fine(state: GameState, player_id: PlayerId) -> tupl
     that knows the debt is paid. The roll that failed is still in ``state.dice`` (nothing
     rolls between the failure and the settlement — legality offers the debtor raising
     commands only), so the movement it earned is not lost.
+
+    It can, however, never have existed: nothing in the state model ties a ``JAIL_FINE``
+    debt to a jail roll, so a loaded or hand-built position may settle one with
+    ``state.dice`` empty. The cell still opens — the fine is paid either way — there is
+    simply no total to walk. This used to be an ``assert``, which made a *valid* state
+    crash ``apply`` and so broke ADR-005 soundness (found by the property test at MON-207).
     """
     dice = state.dice
-    assert dice is not None, "a compulsory fine is only ever reached through a jail roll"
     state = _release(state, player_id)
-    return _move_out(state, player_id, dice.total, [LeftJail(player=player_id, via="time_served")])
+    events: list[Event] = [LeftJail(player=player_id, via="time_served")]
+    if dice is None:
+        return state._replace(phase=Phase.AWAITING_END_TURN), tuple(events)
+    return _move_out(state, player_id, dice.total, events)
 
 
 def _move_out(
