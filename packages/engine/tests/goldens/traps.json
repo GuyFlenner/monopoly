@@ -1,0 +1,22 @@
+{
+  "1": {
+    "event_index": 637,
+    "golden": "rent_traps_seed_1"
+  },
+  "10": {
+    "event_index": 59,
+    "golden": "conceder_seed_42"
+  },
+  "2": {
+    "event_index": 431,
+    "golden": "fighter_traps_seed_4"
+  },
+  "7": {
+    "event_index": 620,
+    "golden": "fighter_traps_seed_4"
+  },
+  "9": {
+    "event_index": 195,
+    "golden": "rent_traps_seed_1"
+  }
+}
