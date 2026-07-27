@@ -1,15 +1,34 @@
-"""MON-102/MON-205 (M1 slice) — jail decisions. The full rule set lands with MON-205."""
+"""MON-205 — jail, in full.
+
+The commonly mis-implemented rules are named here: release by doubles moves the rolled
+total and grants no further roll, jail rolls never touch ``doubles_streak`` (GAP G-12), the
+compulsory fine after ``max_jail_turns`` escalates to ``DEBT_SETTLEMENT`` when it cannot be
+paid *and still moves the roll once settled*, and jail is not a pause — rent, building and
+trading all continue from the cell (spec §3.6 trap 8).
+"""
 
 from __future__ import annotations
 
 from helpers import make_player, make_state
-from kesef_engine.commands import PayJailFine, RollForJail, UseJailCard
-from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, LeftJail, TokenMoved
+from kesef_engine.commands import (
+    BuildHouse,
+    DeclareBankruptcy,
+    MortgageProperty,
+    PayJailFine,
+    ProposeTrade,
+    RollForJail,
+    TradeOffer,
+    TradeSide,
+    UseJailCard,
+)
+from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, LeftJail, RentCharged, TokenMoved
+from kesef_engine.legality import is_legal, legal_commands
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason, Deck
 from kesef_engine.reducer import apply
 from kesef_engine.rng import Rng
-from kesef_engine.state import DebtFrame, GameState, PropertyState
+from kesef_engine.rules import tiles
+from kesef_engine.state import DebtFrame, GameState, Obligation, PropertyState
 
 JAIL = 10
 
@@ -101,3 +120,139 @@ def test_the_fine_feeds_the_pot_under_the_house_rule() -> None:
     assert new_state.free_parking_pot == 50
     fine = next(e for e in events if isinstance(e, CashChanged))
     assert fine.counterparty == "free_parking_pot"
+
+
+# --- MON-205: the full rule set ----------------------------------------------
+
+
+def test_settling_the_compulsory_fine_releases_and_still_walks_the_roll() -> None:
+    """The M1 stopgap forfeited the movement: the fine was paid out of the DebtFrame and
+    the player left the cell standing on the jail tile. The official rule moves the total
+    of the roll that failed, which is why the dice survive in ``state.dice``."""
+    state = _jailed_state(seed=_PLAIN_SEED, jail_turns=2, cash=10)
+    debted, _ = apply(state, RollForJail(player=0))
+    assert debted.phase is Phase.DEBT_SETTLEMENT
+    rolled = debted.dice
+    assert rolled is not None and rolled.purpose == "jail"
+
+    # Mortgaging the railroad raises 100, and settlement is automatic — there is no
+    # PayDebt command, because raising the money is the move and paying it is not optional.
+    settled, events = apply(debted, MortgageProperty(player=0, tile=5))
+    assert not settled.player(0).in_jail
+    assert settled.player(0).jail_turns == 0
+    assert settled.player(0).position == JAIL + rolled.total, "the failed roll's movement happens"
+    assert settled.phase is Phase.AWAITING_END_TURN, "release never grants another roll"
+    assert settled.doubles_streak == 0
+    assert next(e for e in events if isinstance(e, LeftJail)).via == "time_served"
+    assert [e for e in events if isinstance(e, TokenMoved)], "the token moved on settlement"
+
+
+def test_settling_a_compulsory_fine_with_no_roll_behind_it_still_releases() -> None:
+    """A ``JAIL_FINE`` debt with ``dice is None`` cannot arise in play — the fine only
+    becomes compulsory on a failed jail roll — but the state model admits the shape, and
+    ``apply`` owes its caller a result or an ``IllegalCommandError``, never an
+    ``AssertionError`` (ADR-005 soundness; the structural generator in
+    ``test_legality_properties.py`` reaches this state)."""
+    state = _jailed_state(cash=0)
+    debted = GameState(
+        **(
+            dict(state)
+            | {
+                "phase": Phase.DEBT_SETTLEMENT,
+                "dice": None,
+                "interrupts": (
+                    DebtFrame(
+                        resume=Phase.AWAITING_ROLL,
+                        debtor=0,
+                        obligations=(Obligation(creditor="bank", amount=50),),
+                        reason=CashReason.JAIL_FINE,
+                    ),
+                ),
+            }
+        )
+    )
+    settled, events = apply(debted, MortgageProperty(player=0, tile=5))
+    assert not settled.player(0).in_jail
+    assert settled.player(0).position == JAIL, "with no roll to walk, the token stays put"
+    assert settled.phase is Phase.AWAITING_ROLL, "the popped debt's resume phase stands"
+    assert next(e for e in events if isinstance(e, LeftJail)).via == "time_served"
+    assert not [e for e in events if isinstance(e, TokenMoved)]
+
+
+def test_the_voluntary_fine_does_not_move_the_player() -> None:
+    """The negative half of the test above: paying the fine as a *decision* leaves the roll
+    to come, so a mover there would move the player twice in one turn."""
+    state = _jailed_state()
+    new_state, events = apply(state, PayJailFine(player=0))
+    assert new_state.player(0).position == JAIL
+    assert new_state.phase is Phase.AWAITING_ROLL
+    assert not [e for e in events if isinstance(e, TokenMoved)]
+
+
+def test_a_jailed_player_still_collects_rent() -> None:
+    """Spec §3.6 trap 8: jail is not a pause."""
+    seats = (make_player(0, position=JAIL, in_jail=True), make_player(1, position=5))
+    state = make_state(seats=seats, phase=Phase.JAIL_DECISION, properties={5: PropertyState(owner=0)})
+    moved, events = tiles.resolve_landing(state, 1)
+    charged = next(e for e in events if isinstance(e, RentCharged))
+    assert (charged.owner, charged.amount) == (0, 25)
+    assert moved.player(0).cash == 1525, "the jailed owner was paid"
+    assert moved.player(0).in_jail, "and is still in the cell"
+
+
+def test_a_jailed_player_may_build_and_trade() -> None:
+    """Trap 8's other half: JAIL_DECISION is a portfolio phase (GAP G-5)."""
+    seats = (make_player(0, position=JAIL, in_jail=True), make_player(1))
+    state = make_state(
+        seats=seats,
+        phase=Phase.JAIL_DECISION,
+        properties={1: PropertyState(owner=0), 3: PropertyState(owner=0)},
+    )
+    builds = {c.tile for c in legal_commands(state) if isinstance(c, BuildHouse) and c.player == 0}
+    assert builds == {1, 3}
+    built, _ = apply(state, BuildHouse(player=0, tile=1))
+    assert built.properties[1].houses == 1
+    assert built.phase is Phase.JAIL_DECISION, "the cell door did not open"
+
+    offer = TradeOffer(proposer=0, recipient=1, give=TradeSide(tiles=(1,)), receive=TradeSide(cash=100))
+    assert is_legal(state, ProposeTrade(player=0, offer=offer)).legal
+
+
+def test_a_player_who_goes_bankrupt_while_jailed_leaves_no_dangling_cell() -> None:
+    """The invariant: bankrupt implies not in jail, no jail cards, no tiles."""
+    seats = (
+        make_player(0, position=JAIL, in_jail=True, jail_turns=1, cash=10, jail_cards=(Deck.CHANCE,)),
+        make_player(1),
+        make_player(2),
+    )
+    debt = DebtFrame(
+        resume=Phase.AWAITING_END_TURN,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=900),),
+        reason=CashReason.RENT,
+    )
+    state = make_state(
+        seats=seats,
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(debt,),
+        properties={1: PropertyState(owner=0)},
+    )
+    new_state, _ = apply(state, DeclareBankruptcy(player=0))
+    loser = new_state.player(0)
+    assert loser.bankrupt
+    assert not loser.in_jail and loser.jail_turns == 0
+    assert loser.jail_cards == ()
+    assert new_state.tiles_owned_by(0) == ()
+
+
+def test_a_jail_roll_never_feeds_the_doubles_streak() -> None:
+    """G-12, restated as a property of the streak rather than of one roll: two failed jail
+    rolls in a row leave the streak where it started, so the three-doubles rule cannot be
+    triggered from inside the cell."""
+    state = _jailed_state(seed=_DOUBLES_SEED)
+    assert state.doubles_streak == 0
+    released, events = apply(state, RollForJail(player=0))
+    rolled = next(e for e in events if isinstance(e, DiceRolled))
+    assert rolled.first == rolled.second, "a doubles roll, which would normally count"
+    assert rolled.doubles_streak == 0
+    assert released.doubles_streak == 0

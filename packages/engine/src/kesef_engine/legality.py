@@ -337,10 +337,21 @@ def _sell_house(state: GameState, command: SellHouse) -> LegalityResult:
         return _no("error.no_buildings", tile=command.tile)
     group = tile.group
     assert group is not None
+    if command.demolish_hotel:
+        # The whole-group sale. It needs no even-build check because it ends at zero
+        # across the group, and every member is owned by the seller (a hotel implies a
+        # complete group and nothing since could have split it — a group carrying
+        # buildings cannot be traded or mortgaged).
+        if prop.houses != HOTEL_LEVEL:
+            return _no("error.no_hotel_to_demolish", tile=command.tile)
+        return _LEGAL
     if state.ruleset.even_build_enforced and prop.houses < max(_levels(state, group)):
         return _no("error.uneven_build", tile=command.tile)
-    # Selling a hotel with an empty house bank stays legal: the shortage variant
-    # (drop to zero, half price for all five levels — G-B3b) is an effect, not a veto.
+    if prop.houses == HOTEL_LEVEL and state.houses_remaining < HOTEL_LEVEL - 1:
+        # A hotel comes down by *becoming* four houses, and the bank must hand them
+        # over. When it cannot, the only sale left is the whole group (G-B3b) — which is
+        # why ``demolish_hotel`` exists rather than this branch silently doing it.
+        return _no("error.no_houses_left")
     return _LEGAL
 
 
@@ -531,16 +542,20 @@ def _candidates(state: GameState) -> Iterator[Command]:
         for tile_index in state.tiles_owned_by(player.id):
             yield BuildHouse(player=player.id, tile=tile_index)
             yield SellHouse(player=player.id, tile=tile_index)
+            yield SellHouse(player=player.id, tile=tile_index, demolish_hotel=True)
             yield MortgageProperty(player=player.id, tile=tile_index)
             yield UnmortgageProperty(player=player.id, tile=tile_index)
 
 
-def _sort_key(command: Command) -> tuple[str, int, int]:
+def _sort_key(command: Command) -> tuple[str, int, int, int]:
     detail = 0
+    variant = 0
     if isinstance(command, BuildHouse | SellHouse | MortgageProperty | UnmortgageProperty):
         detail = command.tile
+        if isinstance(command, SellHouse):
+            variant = int(command.demolish_hotel)
     elif isinstance(command, PlaceBid):
         detail = command.amount
     elif isinstance(command, RespondToTrade):
         detail = int(command.accept)
-    return (command.kind, command.player, detail)
+    return (command.kind, command.player, detail, variant)

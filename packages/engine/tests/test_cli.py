@@ -39,7 +39,9 @@ def test_show_rejects_an_unknown_board() -> None:
 
 _SEED = 42
 _EXPECTED_WINNER_ID = 1
-_EXPECTED_WINNER_CASH = 712  # pinned: a change here is a rules change, not noise
+_EXPECTED_WINNER_CASH = 563  # pinned: a change here is a rules change, not noise
+# Re-pinned by MON-206: the card tiles stopped being inert, so the same seed and the same
+# menu policy now play a different (and, for the first time, complete) game.
 
 _PRIORITY = (
     "declare_bankruptcy",
@@ -96,6 +98,8 @@ def test_play_runs_a_seeded_two_player_game_to_a_winner(
     assert f"seed={_SEED}" in out, "--seed prints the seed so the game is reproducible"
     assert f"winner: Player{_EXPECTED_WINNER_ID + 1} (id {_EXPECTED_WINNER_ID}) with {_EXPECTED_WINNER_CASH}" in out
     assert out.isascii(), "the Windows console mangles anything beyond ASCII"
+    assert "drew card." in out, "the driver narrated a card's consequences but never the draw itself (MON-209)"
+    assert "game over: #1 Player" in out, "the final standings are printed, not just the winner's cash"
 
 
 def test_play_reprompts_on_nonsense_and_survives_it(

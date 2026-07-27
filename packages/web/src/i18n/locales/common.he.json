@@ -89,7 +89,11 @@
       "utilityOne": "מפעל אחד: פי 4 מתוצאת הקוביות.",
       "utilityTwo": "שני המפעלים: פי 10 מתוצאת הקוביות.",
       "mortgagedNoRent": "אין שכר דירה — הנכס ממושכן.",
-      "withHouses": "{{houses}} בתים עליו."
+      "withHouses": "{{houses}} בתים עליו.",
+      "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}}).",
+      "card_utility_multiplier": "הקלף תמיד גובה פי {{multiplier}} מתוצאת הקוביות, לא משנה כמה מפעלים בבעלות.",
+      "railroad_count": "{{count}} רכבות בבעלות.",
+      "card_doubled": "הקלף מכפיל את שכר הדירה הזה."
     }
   },
   "event": {
@@ -111,7 +115,9 @@
     "mustOwnWholeGroup": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
     "evenBuild": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
     "noHousesLeft": "נגמרו הבתים בבנק.",
-    "mustSellFirst": "צריך למכור את הבתים בסדרה לפני משכון."
+    "mustSellFirst": "צריך למכור את הבתים בסדרה לפני משכון.",
+    "no_houses_left": "נגמרו הבתים בבנק.",
+    "no_hotel_to_demolish": "אין כאן מלון לפרק."
   },
   "a11y": {
     "diceResult": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",

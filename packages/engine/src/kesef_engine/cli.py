@@ -22,6 +22,7 @@ from kesef_engine.commands import Command
 from kesef_engine.events import (
     AuctionEnded,
     AuctionStarted,
+    CardDrawn,
     CashChanged,
     DebtIncurred,
     DiceRolled,
@@ -154,6 +155,11 @@ def _describe_event(event: Event, state: GameState) -> str:
             return f"rent {event.amount}{note} on {state.board.tile(event.tile).name_key}"
         case PropertyAcquired():
             return f"{_name(state, event.player)} acquired {state.board.tile(event.tile).name_key} ({event.via})"
+        case CardDrawn():
+            # Added at MON-209: the driver narrated a card's *consequences* — a jump across the
+            # board, a fine, a jailing — without ever saying a card had been drawn, which is the
+            # one thing that makes those consequences make sense to someone reading along.
+            return f"{_name(state, event.player)} drew {event.card_id}"
         case AuctionStarted():
             return "auction opened"
         case AuctionEnded():

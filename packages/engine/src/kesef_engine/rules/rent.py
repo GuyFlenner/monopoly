@@ -20,13 +20,28 @@ from kesef_engine.state import GameState
 
 
 def charge(
-    state: GameState, payer_id: PlayerId, tile_index: TileIndex, *, roll_for_amount: bool = False
+    state: GameState,
+    payer_id: PlayerId,
+    tile_index: TileIndex,
+    *,
+    roll_for_amount: bool = False,
+    card_doubles_rent: bool = False,
+    utility_multiplier: int | None = None,
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Charge ``payer_id`` for standing on ``tile_index``, or open a debt.
 
-    Returns a state resting in its final phase. ``roll_for_amount`` is the card-arrival
-    hook (MON-206): a fresh ``purpose="rent"`` roll prices a utility instead of the roll
-    that moved the token.
+    Returns a state resting in its final phase. The three keyword arguments are the
+    card-arrival hooks (MON-206), and none of them changes what an ordinary landing charges:
+
+    * ``roll_for_amount`` prices a utility from a fresh ``purpose="rent"`` roll instead of the
+      roll that moved the token (trap 9);
+    * ``card_doubles_rent`` is the "pay twice the rental" clause the nearest-railroad card
+      carries;
+    * ``utility_multiplier`` replaces the *tier* — an ordinary landing charges 4× the throw for
+      one utility held and 10× for both, while the printed "advance to the nearest utility"
+      card charges 10× regardless of how many the owner holds. Two different official rules
+      for one tile, and the card names its number, so the number travels with the card
+      (``AdvanceToNearestUtility.multiplier``) rather than being re-derived here.
     """
     tile = state.board.tile(tile_index)
     prop = state.properties[tile_index]
@@ -39,6 +54,12 @@ def charge(
     if owner is None or owner == payer_id or prop.mortgaged or state.player(owner).bankrupt:
         # Trap 2 (mortgaged), plus: nobody pays themselves, and a bankrupt owner's
         # tiles charge nothing while awaiting MON-207's estate handling.
+        #
+        # That last clause is belt-and-braces against a hand-built save, not doubt about the
+        # invariant: ``handle_declare_bankruptcy`` reassigns every deed before it marks the
+        # seat, so in a played game a bankrupt player owns nothing and this arm is dead code.
+        # It stays because ``owner`` comes from a loaded file, and charging rent to a ghost is
+        # a worse failure than one redundant comparison.
         return state._replace(phase=resting), ()
 
     if tile.kind is TileKind.UTILITY:
@@ -52,7 +73,11 @@ def charge(
             dice_total = dice.total
         else:
             dice_total = state.dice.total
-        multiplier = tile.rent[state.count_of_kind_owned(owner, TileKind.UTILITY) - 1]
+        by_tier = tile.rent[state.count_of_kind_owned(owner, TileKind.UTILITY) - 1]
+        multiplier = by_tier if utility_multiplier is None else utility_multiplier
+        # The explanation has to say *which* rule produced the figure, or a child asking "why
+        # ten times when he only owns one?" gets an answer that is simply wrong.
+        note = "rent.note.utility_multiplier" if utility_multiplier is None else "rent.note.card_utility_multiplier"
         rent = RentCharged(
             payer=payer_id,
             owner=owner,
@@ -61,19 +86,26 @@ def charge(
             base_rent=dice_total,
             multiplier=multiplier,
             dice_total=dice_total,
-            note_keys=("rent.note.utility_multiplier",),
+            note_keys=(note,),
             note_params={"multiplier": multiplier, "dice_total": dice_total},
         )
     elif tile.kind is TileKind.RAILROAD:
         count = state.count_of_kind_owned(owner, TileKind.RAILROAD)
         amount = tile.rent[count - 1]  # 25 / 50 / 100 / 200
+        # The doubling is the *card's*, so it is a multiplier over the printed tier rather
+        # than a second table: the explanation stays "N railroads, doubled by the card".
+        doubling = 2 if card_doubles_rent else 1
+        notes: tuple[str, ...] = ("rent.note.railroad_count",)
+        if card_doubles_rent:
+            notes = (*notes, "rent.note.card_doubled")
         rent = RentCharged(
             payer=payer_id,
             owner=owner,
             tile=tile_index,
-            amount=amount,
+            amount=amount * doubling,
             base_rent=amount,
-            note_keys=("rent.note.railroad_count",),
+            multiplier=doubling,
+            note_keys=notes,
             note_params={"count": count},
         )
     else:

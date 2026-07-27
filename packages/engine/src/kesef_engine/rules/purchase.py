@@ -8,11 +8,12 @@ disables auctions, in which case the tile simply stays with the bank.
 from __future__ import annotations
 
 from kesef_engine.commands import BuyProperty, Command, DeclinePurchase
-from kesef_engine.events import AuctionStarted, Event, PropertyAcquired
+from kesef_engine.events import Event, PropertyAcquired
 from kesef_engine.primitives import AuctionReason, CashReason, TileLot
+from kesef_engine.rules import auction
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import post_move_phase, update_property
-from kesef_engine.state import AuctionFrame, GameState
+from kesef_engine.state import GameState
 
 
 def decide(state: GameState, command: Command) -> tuple[GameState, tuple[Event, ...]]:
@@ -38,24 +39,11 @@ def _decline(state: GameState, player_id: int) -> tuple[GameState, tuple[Event, 
     state = state._replace(phase=post_move_phase(state, player_id))
     if not state.ruleset.auctions_enabled:
         return state, ()
-    tile_index = state.player(player_id).position
-    eligible = _bidding_order(state, player_id)
-    frame = AuctionFrame(
-        resume=state.phase,  # push_interrupt overwrites this with the suspended phase
-        lot=TileLot(tile=tile_index),
+    # Ordering and the void rule both live in the auction module, so the two openers
+    # (this one and MON-207's estate liquidation) cannot drift apart.
+    return auction.open_auction(
+        state,
+        lots=(TileLot(tile=state.player(player_id).position),),
         reason=AuctionReason.DECLINED_PURCHASE,
-        eligible=eligible,
-        active=eligible,
-        turn=eligible[0],
-        min_bid=1,  # no reserve (spec §3.6 trap 5)
+        eligible=auction.bidding_order(state, start_from=player_id, include_start=True),
     )
-    state = state.push_interrupt(frame)
-    return state, (AuctionStarted(lot=frame.lot, reason=frame.reason, eligible=eligible),)
-
-
-def _bidding_order(state: GameState, decliner: int) -> tuple[int, ...]:
-    """Solvent players in seat order starting from the decliner, who may bid (trap 5)."""
-    seat_count = len(state.players)
-    start = next(index for index, player in enumerate(state.players) if player.id == decliner)
-    ordered = (state.players[(start + offset) % seat_count] for offset in range(seat_count))
-    return tuple(player.id for player in ordered if not player.bankrupt)

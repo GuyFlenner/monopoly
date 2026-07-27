@@ -89,7 +89,11 @@
       "utilityOne": "One utility: 4 × the dice roll.",
       "utilityTwo": "Both utilities: 10 × the dice roll.",
       "mortgagedNoRent": "No rent — this property is mortgaged.",
-      "withHouses": "{{houses}} houses on it."
+      "withHouses": "{{houses}} houses on it.",
+      "utility_multiplier": "{{multiplier}} × the dice roll ({{dice_total}}).",
+      "card_utility_multiplier": "The card always charges {{multiplier}} × the dice roll, no matter how many utilities are owned.",
+      "railroad_count": "{{count}} railroads owned.",
+      "card_doubled": "The card doubles this rent."
     }
   },
   "event": {
@@ -111,7 +115,9 @@
     "mustOwnWholeGroup": "You need the whole colour set before you can build.",
     "evenBuild": "Houses in a set have to stay within one of each other.",
     "noHousesLeft": "The bank has run out of houses.",
-    "mustSellFirst": "Sell the houses on this set before mortgaging."
+    "mustSellFirst": "Sell the houses on this set before mortgaging.",
+    "no_houses_left": "The bank has run out of houses.",
+    "no_hotel_to_demolish": "There's no hotel here to demolish."
   },
   "a11y": {
     "diceResult": "Rolled {{first}} and {{second}}, total {{total}}.",

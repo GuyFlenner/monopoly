@@ -1,0 +1,119 @@
+# Nightly — the expensive gates that would make every PR wait for no reason.
+#
+# MON-209: mutation testing (mutmut) over the rule modules and the legality gate, with
+# a >=80% kill-rate gate that fails the job, plus the `slow`-marked test lane. Neither of
+# these belongs on the PR path (mutmut alone runs the suite once per surviving mutant),
+# so this workflow carries no `pull_request:` and no `push:` trigger — schedule and a
+# manual button only.
+name: Nightly
+
+on:
+  schedule:
+    # 03:17 UTC daily. Off the hour so it does not stack with everyone else's cron.
+    - cron: "17 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutation:
+    name: Mutation kill-rate gate (rules/ + legality.py)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync (runtime + dev)
+        run: uv sync --frozen
+
+      # mutmut's own process exit code is not a trustworthy pass/fail signal here (it
+      # reflects the last child status, not the overall kill-rate), so this step is
+      # allowed to finish non-zero — the gate below reads `mutmut results` and decides.
+      - name: Run mutmut over packages/engine/src/kesef_engine/rules and legality.py
+        run: uv run mutmut run || true
+
+      - name: Enforce >=80% kill-rate
+        run: |
+          uv run mutmut results --all > mutmut-results.txt || true
+          cat mutmut-results.txt
+          uv run python - <<'PY'
+          import sys
+
+          KILL_RATE_THRESHOLD = 0.80
+
+          with open("mutmut-results.txt", encoding="utf-8") as f:
+              lines = [line.strip() for line in f if line.strip()]
+
+          statuses = []
+          for line in lines:
+              # `mutmut results --all` prints one "<mutant key>: <status>" line per
+              # mutant, e.g. "is_legal__mutmut_3: killed".
+              if ":" not in line:
+                  continue
+              _, _, status = line.rpartition(":")
+              statuses.append(status.strip())
+
+          total = len(statuses)
+          if total == 0:
+              print("::error::mutmut reported zero mutants for rules/ and legality.py — "
+                    "treating this as a failure, not a silent pass")
+              sys.exit(1)
+
+          killed = sum(1 for s in statuses if s == "killed")
+          rate = killed / total
+          print(f"mutation kill-rate: {killed}/{total} = {rate:.1%}")
+
+          if rate < KILL_RATE_THRESHOLD:
+              print(f"::error::mutation kill-rate {rate:.1%} is below the "
+                    f"{KILL_RATE_THRESHOLD:.0%} gate (MON-209)")
+              sys.exit(1)
+          PY
+
+      - name: Upload mutmut cache for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-results
+          path: |
+            mutmut-results.txt
+            mutants/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  slow-tests:
+    name: Slow-marked tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Sync (runtime + dev)
+        run: uv sync --frozen
+
+      # No `slow`-marked tests exist yet. Exit code 5 ("no tests collected") is pytest's
+      # signal for that and must not fail the job; any other non-zero exit code is a
+      # real failure and must.
+      - name: Pytest -m slow
+        run: |
+          uv run pytest -m slow; status=$?
+          if [ "$status" -eq 5 ]; then
+            echo "No slow-marked tests collected yet — treating as a pass."
+            exit 0
+          fi
+          exit "$status"

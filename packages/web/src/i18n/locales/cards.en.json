@@ -1,0 +1,39 @@
+{
+  "card": {
+    "chance": {
+      "advance_to_go": "Head straight to GO. If you pass it along the way, collect your salary.",
+      "advance_to_illinois_avenue": "Move ahead to Illinois Avenue. Collect your salary if you pass GO on the way.",
+      "advance_to_st_charles_place": "Move ahead to St. Charles Place. Collect your salary if you pass GO on the way.",
+      "advance_to_nearest_utility": "Move to the nearest utility. If it's unowned, you may buy it from the bank. If it's owned, pay the owner ten times your dice roll.",
+      "advance_to_nearest_railroad": "Move to the nearest railroad. If it's unowned, you may buy it from the bank. If it's owned, pay the owner double the usual rent.",
+      "bank_pays_dividend": "The bank pays you a dividend of $50.",
+      "get_out_of_jail_free": "A free pass out of jail. Keep this card until you need it, or trade it away.",
+      "go_back_three_spaces": "Move back three spaces.",
+      "go_to_jail": "Straight to jail. No stop at GO, no salary along the way.",
+      "general_repairs": "Time for repairs on your properties: pay $25 for each house and $100 for each hotel you own.",
+      "speeding_fine": "Caught speeding. Pay a $15 fine.",
+      "trip_to_reading_railroad": "Take a trip to Reading Railroad. Collect your salary if you pass GO on the way.",
+      "advance_to_boardwalk": "Move ahead to Boardwalk.",
+      "elected_chairman": "You're elected chairman of the board. Pay every other player $50.",
+      "building_loan_matures": "Your building loan matures. Collect $150."
+    },
+    "community_chest": {
+      "advance_to_go": "Move straight to GO. If you pass it along the way, collect your salary.",
+      "bank_error": "A bank mix-up works in your favor. Collect $200.",
+      "doctor_fee": "Pay the doctor's bill: $50.",
+      "sale_of_stock": "You sell some stock and collect $50.",
+      "get_out_of_jail_free": "A free pass out of jail. Keep this card until you need it, or trade it away.",
+      "go_to_jail": "Straight to jail. No stop at GO, no salary along the way.",
+      "holiday_fund": "Your holiday fund matures. Collect $100.",
+      "income_tax_refund": "A tax refund arrives. Collect $20.",
+      "birthday": "It's your birthday! Every other player chips in $10.",
+      "life_insurance": "Your life insurance matures. Collect $100.",
+      "hospital_fee": "Pay the hospital bill: $100.",
+      "school_fee": "Pay your school fees: $50.",
+      "consultancy_fee": "Paid for consulting work. Collect $25.",
+      "street_repairs": "Time for street repairs: pay $40 for each house and $115 for each hotel you own.",
+      "beauty_contest": "Second place in a beauty contest. Collect $10.",
+      "inheritance": "You come into an inheritance of $100."
+    }
+  }
+}

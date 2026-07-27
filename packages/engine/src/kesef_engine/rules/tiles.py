@@ -48,7 +48,12 @@ def resolve_landing(state: GameState, player_id: PlayerId) -> tuple[GameState, t
         state, collected = _collect_pot(state, player_id)
         events.extend(collected)
     elif tile.kind in (TileKind.CHANCE, TileKind.COMMUNITY_CHEST):
-        pass  # TODO(MON-206): draw and resolve a card. Card tiles are inert in M1.
+        # The card owns the resting phase from here: it may move the token on, offer a
+        # purchase, jail the player or open a debt (MON-206). Imported locally because a
+        # card resolves its own arrival through this function.
+        from kesef_engine.rules import cards
+
+        return cards.draw_and_resolve(state, player_id, cards.DECK_OF_TILE[tile.kind])
     # GO and JAIL ("just visiting") are inert; GO's salary was paid by the mover.
     return state._replace(phase=post_move_phase(state, player_id)), tuple(events)
 

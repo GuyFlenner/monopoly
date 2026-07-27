@@ -10,13 +10,20 @@ from __future__ import annotations
 from kesef_engine.commands import EndTurn
 from kesef_engine.events import Event, TurnStarted
 from kesef_engine.phases import Phase
+from kesef_engine.rules import endgame
 from kesef_engine.state import GameState
 
 
 def handle_end_turn(state: GameState, command: EndTurn) -> tuple[GameState, tuple[Event, ...]]:
     if command.elapsed_seconds is not None:
-        # Caller-stamped wall clock, monotone by construction (GAP G-6). MON-208 reads it.
+        # Caller-stamped wall clock, forced monotone here so a caller that stamps a stale
+        # value cannot rewind the clock (GAP G-6). MON-208 reads it, never sets it.
         state = state._replace(elapsed_seconds=max(state.elapsed_seconds, command.elapsed_seconds))
+    if endgame.time_is_up(state):
+        # Kids Mode's clock ran out as this turn closed, so the seat is not handed on —
+        # otherwise the log would announce a turn nobody gets to play. The *ending* is
+        # still declared in one place only, the reducer's post-command hook (MON-208).
+        return state, ()
     return advance_turn(state)
 
 

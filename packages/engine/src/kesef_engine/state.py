@@ -441,6 +441,16 @@ class GameState(BaseModel, frozen=True):
                 )
                 if insolvent:
                     raise ValueError(f"debt names bankrupt creditor(s) {insolvent}")
+                # And neither is a *debtor*, which is the same rule read the other way round.
+                # A player who has conceded owes nothing further — the estate answered the
+                # frame they conceded on, and ``insolvency._without_claims_of`` drops any
+                # other frame they are the debtor of. Enforced here rather than left to that
+                # function because the shape has no legal command in it: a bankrupt player is
+                # offered nothing, so a live debt frame naming one is a hard deadlock rather
+                # than a wrong number. It was reachable through a transfer fee nesting a
+                # second debt on the debtor, and only the state model makes it unrepresentable.
+                if frame.debtor in bankrupt:
+                    raise ValueError(f"debt names bankrupt debtor {frame.debtor}")
         return self
 
     @model_validator(mode="after")
@@ -586,6 +596,13 @@ class GameState(BaseModel, frozen=True):
 
         This is the official tie-break for a time-limited game, and the yardstick the
         Kids Mode timer uses to pick a winner.
+
+        **A mortgaged property contributes zero** — not its price, not its mortgage value
+        (decided at MON-208). The deed is pledged to the bank, so counting it would let a
+        player raise their standing by borrowing against everything they own on the last
+        turn; and the buildings on it cannot count either, because a mortgaged tile may not
+        carry any. ``rules.endgame.final_standings`` is the only caller that ranks on this,
+        and it cites the same decision.
         """
         player = self.player(player_id)
         total = player.cash

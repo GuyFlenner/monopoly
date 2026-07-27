@@ -50,9 +50,6 @@ def move_token(state: GameState, player_id: PlayerId, total: int) -> tuple[GameS
     passed_go = origin + total >= BOARD_SIZE
     state = update_player(state, player_id, position=destination)
     events: list[Event] = [
-        # TODO(MON-206): backward movement ("go back three spaces") is a card effect, so the
-        # only mover in M1 walks forward. MON-206 owns the ``forward=False`` path and the
-        # rule that walking backwards past GO pays nothing.
         TokenMoved(player=player_id, from_tile=origin, to_tile=destination, forward=True, passed_go=passed_go)
     ]
     if passed_go:
@@ -62,6 +59,21 @@ def move_token(state: GameState, player_id: PlayerId, total: int) -> tuple[GameS
         state, paid = move_cash(state, source="bank", dest=player_id, amount=salary, reason=CashReason.GO_SALARY)
         events.extend(paid)
     return state, tuple(events)
+
+
+def move_token_back(state: GameState, player_id: PlayerId, spaces: int) -> tuple[GameState, tuple[Event, ...]]:
+    """Walk the token backwards ("go back three spaces", MON-206).
+
+    Separate from :func:`move_token` because the two differ in the rule that matters:
+    walking backwards over GO pays **nothing**. The salary is for *passing* GO, which is a
+    forward act — the same reasoning that makes going to jail not passing GO (spec §3.6
+    trap 10). ``TokenMoved.forward`` is False so the UI animates the three steps back
+    rather than teleporting the token nearly all the way round the board.
+    """
+    origin = state.player(player_id).position
+    destination = (origin - spaces) % BOARD_SIZE
+    state = update_player(state, player_id, position=destination)
+    return state, (TokenMoved(player=player_id, from_tile=origin, to_tile=destination, forward=False),)
 
 
 def handle_roll_dice(state: GameState, command: RollDice) -> tuple[GameState, tuple[Event, ...]]:
