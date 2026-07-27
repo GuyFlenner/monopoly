@@ -6,62 +6,6 @@
       "player": 0
     },
     {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "kind": "buy_property",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
       "elapsed_seconds": null,
       "kind": "end_turn",
       "player": 0
@@ -97,6 +41,40 @@
       "player": 1
     },
     {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
       "elapsed_seconds": null,
       "kind": "end_turn",
       "player": 1
@@ -110,6 +88,24 @@
       "player": 0
     },
     {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
       "kind": "roll_dice",
       "player": 0
     },
@@ -121,95 +117,165 @@
       "elapsed_seconds": null,
       "kind": "end_turn",
       "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "buy_property",
+      "player": 0
+    },
+    {
+      "kind": "build_house",
+      "player": 0,
+      "tile": 37
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "buy_property",
+      "player": 0
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "build_house",
+      "player": 0,
+      "tile": 39
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
     },
     {
       "kind": "roll_for_jail",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
       "player": 0
     },
     {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
+      "kind": "decline_purchase",
       "player": 0
     },
     {
-      "kind": "roll_for_jail",
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
       "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_for_jail",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
     },
     {
       "elapsed_seconds": null,
@@ -256,249 +322,15 @@
       "player": 0
     },
     {
-      "kind": "buy_property",
+      "kind": "decline_purchase",
       "player": 0
     },
     {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
+      "kind": "withdraw_from_auction",
       "player": 0
     },
     {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "kind": "buy_property",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "kind": "buy_property",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "kind": "buy_property",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "kind": "buy_property",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_dice",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
+      "kind": "withdraw_from_auction",
       "player": 1
     },
     {
@@ -533,8 +365,127 @@
       "player": 0
     },
     {
-      "kind": "roll_for_jail",
+      "kind": "roll_dice",
       "player": 1
+    },
+    {
+      "kind": "buy_property",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 1
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 1
+    },
+    {
+      "kind": "roll_dice",
+      "player": 0
+    },
+    {
+      "kind": "build_house",
+      "player": 0,
+      "tile": 37
+    },
+    {
+      "elapsed_seconds": null,
+      "kind": "end_turn",
+      "player": 0
+    },
+    {
+      "kind": "roll_dice",
+      "player": 1
+    },
+    {
+      "kind": "decline_purchase",
+      "player": 1
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 1
+    },
+    {
+      "kind": "withdraw_from_auction",
+      "player": 0
     },
     {
       "elapsed_seconds": null,
@@ -551,54 +502,17 @@
       "player": 0
     },
     {
-      "kind": "roll_for_jail",
-      "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
       "kind": "roll_dice",
-      "player": 0
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 0
-    },
-    {
-      "kind": "roll_for_jail",
       "player": 1
-    },
-    {
-      "elapsed_seconds": null,
-      "kind": "end_turn",
-      "player": 1
-    },
-    {
-      "kind": "roll_dice",
-      "player": 0
     },
     {
       "kind": "declare_bankruptcy",
-      "player": 0
+      "player": 1
     }
   ],
   "events": [
     {
-      "amount": 10,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 8,
+      "amount": 7,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -609,83 +523,18 @@
     },
     {
       "amount": null,
-      "player": null,
-      "type": "phase_changed"
+      "player": 0,
+      "type": "card_drawn"
     },
     {
-      "amount": -180,
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": -200,
       "player": 0,
       "type": "cash_changed"
-    },
-    {
-      "amount": 180,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 10,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 11,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -280,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 280,
-      "player": 0,
-      "type": "property_acquired"
     },
     {
       "amount": null,
@@ -718,12 +567,12 @@
       "type": "phase_changed"
     },
     {
-      "amount": -180,
+      "amount": -100,
       "player": 1,
       "type": "cash_changed"
     },
     {
-      "amount": 180,
+      "amount": 100,
       "player": 1,
       "type": "property_acquired"
     },
@@ -733,7 +582,57 @@
       "type": "phase_changed"
     },
     {
-      "amount": 4,
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 7,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -140,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 140,
+      "player": 0,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 9,
       "player": 1,
       "type": "dice_rolled"
     },
@@ -741,6 +640,21 @@
       "amount": null,
       "player": 1,
       "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -200,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 200,
+      "player": 1,
+      "type": "property_acquired"
     },
     {
       "amount": null,
@@ -768,9 +682,114 @@
       "type": "token_moved"
     },
     {
-      "amount": -100,
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 8,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -220,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 220,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 8,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -300,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 300,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 8,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -150,
       "player": 0,
       "type": "cash_changed"
+    },
+    {
+      "amount": 150,
+      "player": 0,
+      "type": "property_acquired"
     },
     {
       "amount": null,
@@ -788,7 +807,452 @@
       "type": "phase_changed"
     },
     {
-      "amount": 7,
+      "amount": 5,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "card_drawn"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": 200,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -150,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 150,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 9,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -350,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 350,
+      "player": 0,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 4,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -180,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 180,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 2,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -400,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 400,
+      "player": 0,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -200,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 1,
+      "player": null,
+      "type": "building_changed"
+    },
+    {
+      "amount": 10,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": 200,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -120,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 120,
+      "player": 0,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 6,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "card_drawn"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": 100,
+      "player": 1,
+      "type": "rent_charged"
+    },
+    {
+      "amount": -100,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 100,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -200,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 1,
+      "player": null,
+      "type": "building_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 5,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 9,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": 200,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -100,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 100,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 5,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 8,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": 10,
       "player": 1,
       "type": "dice_rolled"
     },
@@ -828,7 +1292,7 @@
       "type": "phase_changed"
     },
     {
-      "amount": 8,
+      "amount": 11,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -838,53 +1302,8 @@
       "type": "token_moved"
     },
     {
-      "amount": 200,
+      "amount": null,
       "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -100,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 100,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 3,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 1,
       "type": "sent_to_jail"
     },
     {
@@ -894,6 +1313,141 @@
     },
     {
       "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 7,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "card_drawn"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 4,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "left_jail"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 8,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": 200,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -60,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 60,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
       "player": 0,
       "type": "turn_started"
     },
@@ -914,18 +1468,58 @@
     },
     {
       "amount": null,
+      "player": 0,
+      "type": "card_drawn"
+    },
+    {
+      "amount": null,
       "player": null,
       "type": "phase_changed"
     },
     {
-      "amount": -160,
-      "player": 0,
+      "amount": null,
+      "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 4,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -200,
+      "player": 1,
       "type": "cash_changed"
     },
     {
-      "amount": 160,
-      "player": 0,
+      "amount": 200,
+      "player": 1,
       "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
     },
     {
       "amount": null,
@@ -948,12 +1542,62 @@
       "type": "phase_changed"
     },
     {
-      "amount": -240,
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 11,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": 200,
       "player": 0,
       "type": "cash_changed"
     },
     {
-      "amount": 240,
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -60,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 60,
       "player": 0,
       "type": "property_acquired"
     },
@@ -965,26 +1609,6 @@
     {
       "amount": null,
       "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 9,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
       "type": "turn_started"
     },
     {
@@ -994,83 +1618,8 @@
     },
     {
       "amount": 6,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "sent_to_jail"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
       "player": 1,
       "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 12,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "left_jail"
     },
     {
       "amount": null,
@@ -1078,569 +1627,9 @@
       "type": "token_moved"
     },
     {
-      "amount": null,
-      "player": 1,
-      "type": "card_drawn"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "sent_to_jail"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 5,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "left_jail"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 4,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "left_jail"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": 12,
+      "amount": 10,
       "player": 1,
       "type": "rent_charged"
-    },
-    {
-      "amount": -12,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 12,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -200,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 200,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -220,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 220,
-      "player": 1,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "card_drawn"
-    },
-    {
-      "amount": 200,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -150,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 150,
-      "player": 1,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 200,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -60,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 60,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -200,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 200,
-      "player": 1,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 12,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -140,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 140,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 4,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "card_drawn"
-    },
-    {
-      "amount": 25,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": 200,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -60,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 60,
-      "player": 1,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 4,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "card_drawn"
-    },
-    {
-      "amount": 150,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 9,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "card_drawn"
     },
     {
       "amount": -10,
@@ -1659,7 +1648,7 @@
     },
     {
       "amount": null,
-      "player": 1,
+      "player": 0,
       "type": "turn_started"
     },
     {
@@ -1669,31 +1658,6 @@
     },
     {
       "amount": 9,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 5,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -1703,8 +1667,18 @@
       "type": "token_moved"
     },
     {
-      "amount": -100,
+      "amount": 36,
       "player": 0,
+      "type": "rent_charged"
+    },
+    {
+      "amount": -36,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 36,
+      "player": 1,
       "type": "cash_changed"
     },
     {
@@ -1715,6 +1689,46 @@
     {
       "amount": null,
       "player": 1,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 7,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": -180,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 180,
+      "player": 1,
+      "type": "property_acquired"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
       "type": "turn_started"
     },
     {
@@ -1724,36 +1738,6 @@
     },
     {
       "amount": 6,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "card_drawn"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 10,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -1763,82 +1747,22 @@
       "type": "token_moved"
     },
     {
-      "amount": 200,
+      "amount": 14,
       "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -100,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 100,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": 24,
-      "player": 1,
       "type": "rent_charged"
     },
     {
-      "amount": -24,
+      "amount": -14,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 14,
       "player": 1,
       "type": "cash_changed"
     },
     {
-      "amount": 24,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
+      "amount": 9,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -1853,14 +1777,29 @@
       "type": "phase_changed"
     },
     {
-      "amount": -200,
-      "player": 0,
-      "type": "cash_changed"
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
     },
     {
-      "amount": 200,
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
       "player": 0,
-      "type": "property_acquired"
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
     },
     {
       "amount": null,
@@ -1876,6 +1815,16 @@
       "amount": null,
       "player": null,
       "type": "phase_changed"
+    },
+    {
+      "amount": 2,
+      "player": 1,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 1,
+      "type": "token_moved"
     },
     {
       "amount": 5,
@@ -1893,14 +1842,29 @@
       "type": "phase_changed"
     },
     {
-      "amount": -320,
-      "player": 1,
-      "type": "cash_changed"
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
     },
     {
-      "amount": 320,
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
       "player": 1,
-      "type": "property_acquired"
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
     },
     {
       "amount": null,
@@ -1933,44 +1897,9 @@
       "type": "phase_changed"
     },
     {
-      "amount": -220,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 220,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
       "amount": null,
       "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 9,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": 200,
-      "player": 1,
-      "type": "cash_changed"
+      "type": "auction_started"
     },
     {
       "amount": null,
@@ -1980,67 +1909,17 @@
     {
       "amount": null,
       "player": 0,
-      "type": "turn_started"
+      "type": "bidder_withdrew"
     },
     {
       "amount": null,
+      "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
       "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 12,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 25,
-      "player": 0,
-      "type": "rent_charged"
-    },
-    {
-      "amount": -25,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 25,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 200,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 4,
-      "player": 0,
-      "type": "rent_charged"
-    },
-    {
-      "amount": -4,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 4,
-      "player": 1,
-      "type": "cash_changed"
+      "type": "auction_ended"
     },
     {
       "amount": null,
@@ -2068,81 +1947,6 @@
       "type": "token_moved"
     },
     {
-      "amount": 6,
-      "player": 1,
-      "type": "rent_charged"
-    },
-    {
-      "amount": -6,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 6,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 12,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 8,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
       "amount": 12,
       "player": 1,
       "type": "rent_charged"
@@ -2173,92 +1977,7 @@
       "type": "phase_changed"
     },
     {
-      "amount": 8,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": -300,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 300,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": -100,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
+      "amount": 5,
       "player": 0,
       "type": "dice_rolled"
     },
@@ -2283,14 +2002,9 @@
       "type": "cash_changed"
     },
     {
-      "amount": 200,
-      "player": 0,
-      "type": "property_acquired"
-    },
-    {
-      "amount": null,
+      "amount": 1,
       "player": null,
-      "type": "phase_changed"
+      "type": "building_changed"
     },
     {
       "amount": null,
@@ -2303,7 +2017,7 @@
       "type": "phase_changed"
     },
     {
-      "amount": 9,
+      "amount": 6,
       "player": 1,
       "type": "dice_rolled"
     },
@@ -2314,7 +2028,67 @@
     },
     {
       "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "auction_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
       "player": 1,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "bidder_withdrew"
+    },
+    {
+      "amount": 0,
+      "player": null,
+      "type": "auction_ended"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "turn_started"
+    },
+    {
+      "amount": null,
+      "player": null,
+      "type": "phase_changed"
+    },
+    {
+      "amount": 7,
+      "player": 0,
+      "type": "dice_rolled"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "token_moved"
+    },
+    {
+      "amount": null,
+      "player": 0,
+      "type": "card_drawn"
+    },
+    {
+      "amount": null,
+      "player": 0,
       "type": "sent_to_jail"
     },
     {
@@ -2324,31 +2098,6 @@
     },
     {
       "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 9,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
       "player": 1,
       "type": "turn_started"
     },
@@ -2358,109 +2107,9 @@
       "type": "phase_changed"
     },
     {
-      "amount": 5,
+      "amount": 3,
       "player": 1,
       "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 10,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 10,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 4,
-      "player": 1,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": -50,
-      "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": 1,
-      "type": "left_jail"
     },
     {
       "amount": null,
@@ -2468,48 +2117,13 @@
       "type": "token_moved"
     },
     {
-      "amount": 12,
+      "amount": 500,
       "player": 1,
       "type": "rent_charged"
     },
     {
-      "amount": -12,
+      "amount": 500,
       "player": 1,
-      "type": "cash_changed"
-    },
-    {
-      "amount": 12,
-      "player": 0,
-      "type": "cash_changed"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "turn_started"
-    },
-    {
-      "amount": null,
-      "player": null,
-      "type": "phase_changed"
-    },
-    {
-      "amount": 7,
-      "player": 0,
-      "type": "dice_rolled"
-    },
-    {
-      "amount": null,
-      "player": 0,
-      "type": "token_moved"
-    },
-    {
-      "amount": 100,
-      "player": 0,
       "type": "debt_incurred"
     },
     {
@@ -2518,18 +2132,23 @@
       "type": "phase_changed"
     },
     {
-      "amount": -92,
+      "amount": -78,
+      "player": 1,
+      "type": "cash_changed"
+    },
+    {
+      "amount": 78,
       "player": 0,
       "type": "cash_changed"
     },
     {
       "amount": null,
-      "player": 0,
+      "player": 1,
       "type": "player_bankrupted"
     },
     {
       "amount": null,
-      "player": 1,
+      "player": 0,
       "type": "game_ended"
     },
     {
@@ -2542,75 +2161,76 @@
     "board_id": "classic",
     "chance_deck": [
       "card.chance.advance_to_nearest_railroad",
-      "card.chance.advance_to_nearest_utility",
       "card.chance.advance_to_nearest_railroad",
-      "card.chance.speeding_fine",
-      "card.chance.advance_to_boardwalk",
-      "card.chance.trip_to_reading_railroad",
-      "card.chance.get_out_of_jail_free",
-      "card.chance.advance_to_illinois_avenue",
-      "card.chance.bank_pays_dividend",
       "card.chance.advance_to_go",
-      "card.chance.go_back_three_spaces",
-      "card.chance.elected_chairman",
-      "card.chance.advance_to_st_charles_place",
-      "card.chance.go_to_jail",
+      "card.chance.advance_to_illinois_avenue",
       "card.chance.building_loan_matures",
-      "card.chance.general_repairs"
+      "card.chance.advance_to_st_charles_place",
+      "card.chance.elected_chairman",
+      "card.chance.general_repairs",
+      "card.chance.trip_to_reading_railroad",
+      "card.chance.bank_pays_dividend",
+      "card.chance.speeding_fine",
+      "card.chance.go_back_three_spaces",
+      "card.chance.advance_to_nearest_utility",
+      "card.chance.advance_to_boardwalk",
+      "card.chance.go_to_jail"
     ],
     "community_chest_deck": [
-      "card.community_chest.life_insurance",
-      "card.community_chest.doctor_fee",
-      "card.community_chest.income_tax_refund",
-      "card.community_chest.get_out_of_jail_free",
-      "card.community_chest.hospital_fee",
-      "card.community_chest.holiday_fund",
-      "card.community_chest.sale_of_stock",
-      "card.community_chest.beauty_contest",
       "card.community_chest.school_fee",
-      "card.community_chest.advance_to_go",
+      "card.community_chest.doctor_fee",
+      "card.community_chest.life_insurance",
+      "card.community_chest.holiday_fund",
       "card.community_chest.inheritance",
-      "card.community_chest.street_repairs",
-      "card.community_chest.go_to_jail",
+      "card.community_chest.birthday",
+      "card.community_chest.advance_to_go",
       "card.community_chest.bank_error",
+      "card.community_chest.go_to_jail",
+      "card.community_chest.income_tax_refund",
       "card.community_chest.consultancy_fee",
-      "card.community_chest.birthday"
+      "card.community_chest.sale_of_stock",
+      "card.community_chest.hospital_fee",
+      "card.community_chest.beauty_contest",
+      "card.community_chest.street_repairs"
     ],
-    "current_player_id": 0,
+    "current_player_id": 1,
     "dice": {
-      "first": 3,
+      "first": 2,
       "purpose": "move",
-      "second": 4
+      "second": 1
     },
     "doubles_streak": 0,
     "elapsed_seconds": 0,
     "elimination_order": [
-      0
+      1
     ],
     "free_parking_pot": 0,
-    "game_id": "game-42",
+    "game_id": "game-50",
     "interrupts": [],
     "locale": "en",
     "phase": "game_over",
     "players": [
       {
-        "bankrupt": true,
-        "cash": 0,
+        "bankrupt": false,
+        "cash": 230,
         "grammatical_gender": "n",
         "id": 0,
-        "in_jail": false,
-        "jail_cards": [],
+        "in_jail": true,
+        "jail_cards": [
+          "chance",
+          "community_chest"
+        ],
         "jail_turns": 0,
         "kind": {
           "bot_level": null
         },
         "name": "Player1",
-        "position": 38,
+        "position": 10,
         "token": "token.rocket"
       },
       {
-        "bankrupt": false,
-        "cash": 563,
+        "bankrupt": true,
+        "cash": 0,
         "grammatical_gender": "n",
         "id": 1,
         "in_jail": false,
@@ -2620,7 +2240,7 @@
           "bot_level": null
         },
         "name": "Player2",
-        "position": 14,
+        "position": 37,
         "token": "token.dog"
       }
     ],
@@ -2633,7 +2253,7 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2643,7 +2263,7 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": 1
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2653,7 +2273,12 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2663,7 +2288,12 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2673,42 +2303,12 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
+        "owner": 0
       },
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": 1
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2723,7 +2323,12 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2733,7 +2338,7 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": 1
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2758,17 +2363,7 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": 1
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": 1
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2783,6 +2378,21 @@
       {
         "houses": 0,
         "mortgaged": false,
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": null
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
         "owner": null
       },
       {
@@ -2793,22 +2403,7 @@
       {
         "houses": 0,
         "mortgaged": false,
-        "owner": null
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": 1
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": 1
-      },
-      {
-        "houses": 0,
-        "mortgaged": false,
-        "owner": null
+        "owner": 0
       },
       {
         "houses": 0,
@@ -2824,11 +2419,36 @@
         "houses": 0,
         "mortgaged": false,
         "owner": null
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": null
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": null
+      },
+      {
+        "houses": 2,
+        "mortgaged": false,
+        "owner": 0
+      },
+      {
+        "houses": 0,
+        "mortgaged": false,
+        "owner": null
+      },
+      {
+        "houses": 1,
+        "mortgaged": false,
+        "owner": 0
       }
     ],
     "rng": {
-      "counter": 120,
-      "seed": 42,
+      "counter": 80,
+      "seed": 50,
       "stream": 0
     },
     "ruleset": {
@@ -2860,10 +2480,10 @@
       "trading_enabled": true
     },
     "schema_version": 2,
-    "turn_number": 53,
-    "winner": 1
+    "turn_number": 34,
+    "winner": 0
   },
-  "name": "conceder_seed_42",
+  "name": "rent_traps_seed_50",
   "rng_costs": {
     "deck_shuffle_draws_16": 15,
     "dice_roll_draws": 2
@@ -2911,5 +2531,5 @@
       "token": null
     }
   ],
-  "seed": 42
+  "seed": 50
 }

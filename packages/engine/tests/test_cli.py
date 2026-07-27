@@ -39,7 +39,9 @@ def test_show_rejects_an_unknown_board() -> None:
 
 _SEED = 42
 _EXPECTED_WINNER_ID = 1
-_EXPECTED_WINNER_CASH = 712  # pinned: a change here is a rules change, not noise
+_EXPECTED_WINNER_CASH = 563  # pinned: a change here is a rules change, not noise
+# Re-pinned by MON-206: the card tiles stopped being inert, so the same seed and the same
+# menu policy now play a different (and, for the first time, complete) game.
 
 _PRIORITY = (
     "declare_bankruptcy",

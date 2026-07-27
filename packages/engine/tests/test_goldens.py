@@ -18,6 +18,7 @@ from pydantic import TypeAdapter
 
 from kesef_engine.commands import Command
 from kesef_engine.events import (
+    CardDrawn,
     CashChanged,
     DiceRolled,
     Event,
@@ -28,7 +29,7 @@ from kesef_engine.events import (
     TokenMoved,
 )
 from kesef_engine.factory import Seat, new_game
-from kesef_engine.primitives import CashReason
+from kesef_engine.primitives import CashReason, Deck
 from kesef_engine.reducer import apply, apply_all
 from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import GameState
@@ -221,8 +222,11 @@ M1_PHASE_FLOOR = {
     "jail_decision",
     "game_over",
 }
-# TRADE_REVIEW joins with MON-204's golden; CARD_RESOLUTION with MON-206's (MON-209
-# then raises this floor to "every Phase and CashReason", per the backlog).
+# TRADE_REVIEW joins with MON-204's golden. CARD_RESOLUTION never will: it is transient, so
+# a card either finishes or suspends into a debt inside the command that drew it, and
+# ``PhaseChanged`` only ever names the phase a command *entered* and the one it came to
+# rest in. What MON-206 adds to this floor is CashReason.CARD below, plus its own touch
+# test. (MON-209 then raises the floor to "every Phase and CashReason", per the backlog.)
 M1_REASON_FLOOR = {
     CashReason.GO_SALARY,
     CashReason.RENT,
@@ -230,6 +234,7 @@ M1_REASON_FLOOR = {
     CashReason.AUCTION_WIN,
     CashReason.TAX,
     CashReason.JAIL_FINE,
+    CashReason.CARD,
     CashReason.BUILD,
     CashReason.SELL_BUILDING,
     CashReason.MORTGAGE,
@@ -250,3 +255,17 @@ def test_the_goldens_collectively_visit_the_m1_phase_and_reason_floor(
                 reasons.add(event.reason)
     assert phases >= M1_PHASE_FLOOR
     assert reasons >= M1_REASON_FLOOR
+
+
+def test_the_goldens_deal_from_both_decks_and_walk_a_token_backwards(
+    replayed: dict[str, tuple[Event, ...]],
+) -> None:
+    """MON-206's golden touch: the cards are dealt through real play, not only from
+    hand-built states, and the one card that moves a token *backwards* actually fired."""
+    drawn = [event for events in replayed.values() for event in events if isinstance(event, CardDrawn)]
+    assert len(drawn) >= 20, f"only {len(drawn)} cards were dealt across the goldens"
+    assert {event.deck for event in drawn} == set(Deck), "one deck was never dealt from"
+    backwards = [
+        event for events in replayed.values() for event in events if isinstance(event, TokenMoved) and not event.forward
+    ]
+    assert backwards, "'go back three spaces' never occurred, so its mover is untested here"
