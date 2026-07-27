@@ -86,7 +86,13 @@ def _dispatch(state: GameState, command: Command) -> tuple[GameState, tuple[Even
         case Phase.AWAITING_PURCHASE_DECISION:
             return purchase.decide(state, command)
         case Phase.AUCTION:
-            return auction.act(state, command)
+            match command:
+                case PlaceBid():
+                    return auction.handle_bid(state, command)
+                case WithdrawFromAuction():
+                    return auction.handle_withdraw(state, command)
+                case _:
+                    return _portfolio(state, command)  # the RAISING kinds; is_legal gated them
         case Phase.DEBT_SETTLEMENT:
             return _debt_settlement(state, command)
         case Phase.TRADE_REVIEW:
