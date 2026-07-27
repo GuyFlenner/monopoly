@@ -38,6 +38,7 @@ dev = [
     "ruff>=0.8",
     "pip-audit>=2.7",
     "pre-commit>=4.6.1",
+    "mutmut>=3.6.0",        # nightly mutation gate over rules/ and legality.py (MON-209)
 ]
 
 # ---------------------------------------------------------------------------
@@ -91,3 +92,27 @@ addopts = "-v --tb=short"
 [tool.coverage.run]
 branch = true
 source = ["kesef_engine", "kesef_server"]
+
+# MON-209: mechanical floor for the acceptance criterion. `fail_under` lives under
+# [report] (coverage.py reads it from there, not [run]) — that is the ONE place it is
+# set, so a local `uv run pytest --cov` and the CI pytest step can never disagree.
+# Measured TOTAL at the time this floor landed was 91% (`uv run pytest -q --cov
+# --cov-report=term`); the floor is set to 90, not 91, to leave a point of slack for
+# ordinary branch-coverage noise rather than pinning the gate to today's exact number.
+[tool.coverage.report]
+fail_under = 90
+
+# ---------------------------------------------------------------------------
+# mutmut — mutation testing, scoped to the rule modules and the legality gate
+# (MON-209). This is nightly-only (see .github/workflows/nightly.yml): mutating a
+# mutant per commit here is far too slow for the PR path. `source_paths` targets
+# exactly the two things the backlog item names; `pytest_add_cli_args_test_selection`
+# runs the engine's own test suite (the same tests `uv run pytest` collects for these
+# modules) against each mutant.
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+source_paths = [
+    "packages/engine/src/kesef_engine/rules",
+    "packages/engine/src/kesef_engine/legality.py",
+]
+pytest_add_cli_args_test_selection = ["packages/engine/tests"]
