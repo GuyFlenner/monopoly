@@ -522,6 +522,29 @@ will never be re-checked.
 - The type scale checked in both languages — Hebrew has no capitals and a different
   x-height, so a scale tuned on Latin text usually reads small.
 
+### MON-506 — Hebrew card catalogue 🚧 **BLOCKED**
+**Tier**: Sonnet (human input required) · **Size**: S · **Depends on**: —
+
+MON-206 shipped 31 Chance/Community Chest card ids as engine data (`decks.py`) and M4 gave
+them an English catalogue (`cards.en.json`); the Hebrew side is deliberately not attempted
+here. 31 cards of flavour text need a native-speaker pass, not a plausible machine guess — a
+fabricated catalogue would read fine and never be re-checked, the same reasoning MON-503
+applies to the Israeli board (cross-reference MON-503).
+
+- Source or author 31 Hebrew card strings, one per id in `CHANCE_CARD_IDS` /
+  `COMMUNITY_CHEST_CARD_IDS`, matching the mechanics each id's `CARD_EFFECTS` entry encodes
+  (amount, repairs schedule, destination tile) — reviewed by a native speaker.
+- Confirm gender and plural forms before writing: several cards address the holder directly
+  and several pay or charge "every other player," and Hebrew agreement differs by number and
+  gender. The catalogue may need i18next context per the grammatical-gender and CLDR-plural
+  gaps already tracked for `common` (GAP_ANALYSIS.md §5, G-41/G-42) — the same canonicalising
+  parity logic MON-501 adds should cover `cards` too rather than a second scheme.
+- Create `packages/web/src/i18n/locales/cards.he.json` with exactly the keys in
+  `cards.en.json`.
+- Delete `test_the_hebrew_card_catalogue_has_no_catalogue_yet` in `tests/test_locale_parity.py`
+  and remove `"cards"` from `ENGLISH_ONLY_CATALOGUES` — the parity machinery then compares
+  `cards` like any other bilingual catalogue.
+
 ---
 
 ## E6 — Bots and Kids Mode · M6
@@ -617,7 +640,7 @@ MON-100 ─► MON-101 ─► MON-102 ─► MON-103 ─► MON-104 ─► MON-1
 MON-106 ─┬─► MON-301 ─► MON-302 ─► MON-303 ─► MON-304                                     (M3)
          │                  │
 MON-401 ─┴─► MON-402 ─► MON-403 ─► MON-404 / 405 / 406 / 407 / 408 / 409 / 410            (M4)
-                 └─► MON-501 ─► MON-502 / 504     (M5, and MON-503 is blocked on a source)
+                 └─► MON-501 ─► MON-502 / 504     (M5, and MON-503 / MON-506 are blocked on a source / a Hebrew pass)
 MON-601 ─► MON-602 ─► MON-603 · MON-604 ─► MON-605                                        (M6)
 ```
 
