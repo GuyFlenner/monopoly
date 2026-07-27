@@ -376,9 +376,17 @@ def test_chest_get_out_of_jail_free_is_kept_and_leaves_its_own_deck() -> None:
 
 
 def test_chest_go_to_jail_sends_without_salary() -> None:
+    """The Chest twin of ``test_chance_go_to_jail_pays_no_salary``, and asserting the same
+    four facts as it does. ``in_jail`` plus a zero ledger left the interesting half unchecked:
+    the token has to *land on* the cell rather than stay where it was, the turn has to rest in
+    ``AWAITING_END_TURN`` (a card-driven jailing grants no further roll — trap 7), and ``via``
+    has to say a card did it, because the jail rules read that field."""
     new_state, events = _play("card.community_chest.go_to_jail", tile=CHEST)
+    assert next(event for event in events if isinstance(event, SentToJail)).via == "card"
     assert new_state.player(0).in_jail
+    assert new_state.player(0).position == JAIL
     assert _card_cash(events) == 0
+    assert new_state.phase is Phase.AWAITING_END_TURN
 
 
 def test_chest_holiday_fund_collects_one_hundred() -> None:
@@ -426,6 +434,23 @@ def test_chest_street_repairs_charges_per_house_and_per_hotel() -> None:
     }
     _, events = _play("card.community_chest.street_repairs", tile=CHEST, properties=built)
     assert _card_cash(events) == -(2 * 40 + 1 * 115)
+
+
+def test_a_repair_assessment_charges_for_every_hotel_not_merely_for_having_one() -> None:
+    """Two hotels are two charges, and the houses beside them are still counted per house.
+
+    No other card test in this file gives an estate more than one hotel, so ``_assessment``'s
+    hotel *count* was unpinned: replacing ``hotels += 1`` with a saturating ``min(hotels, 1)``
+    left every one of them green. Three built tiles here, over two colour groups, so the two
+    multipliers cannot cover for each other either.
+    """
+    built = {
+        MEDITERRANEAN_AVENUE: PropertyState(owner=0, houses=5),
+        BALTIC_AVENUE: PropertyState(owner=0, houses=5),
+        NEW_YORK_AVENUE: PropertyState(owner=0, houses=4),
+    }
+    _, events = _play("card.community_chest.street_repairs", tile=CHEST, properties=built)
+    assert _card_cash(events) == -(4 * 40 + 2 * 115)
 
 
 def test_chest_beauty_contest_collects_ten() -> None:

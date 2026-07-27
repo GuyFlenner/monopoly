@@ -54,6 +54,12 @@ def charge(
     if owner is None or owner == payer_id or prop.mortgaged or state.player(owner).bankrupt:
         # Trap 2 (mortgaged), plus: nobody pays themselves, and a bankrupt owner's
         # tiles charge nothing while awaiting MON-207's estate handling.
+        #
+        # That last clause is belt-and-braces against a hand-built save, not doubt about the
+        # invariant: ``handle_declare_bankruptcy`` reassigns every deed before it marks the
+        # seat, so in a played game a bankrupt player owns nothing and this arm is dead code.
+        # It stays because ``owner`` comes from a loaded file, and charging rent to a ghost is
+        # a worse failure than one redundant comparison.
         return state._replace(phase=resting), ()
 
     if tile.kind is TileKind.UTILITY:

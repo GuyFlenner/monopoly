@@ -63,7 +63,7 @@ from hypothesis.stateful import (
 from test_legality_properties import trade_sides
 
 from kesef_engine.board.models import ColorGroup
-from kesef_engine.commands import Command, ProposeTrade, RespondToTrade, TradeOffer, TradeSide
+from kesef_engine.commands import Command, ProposeTrade, RespondToTrade, SellHouse, TradeOffer, TradeSide
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS, GET_OUT_OF_JAIL_IDS
 from kesef_engine.events import BuildingChanged, CardDrawn, CashChanged, Event, GameEnded
 from kesef_engine.factory import Seat, new_game
@@ -195,10 +195,17 @@ def check_building_stock_is_conserved(state: GameState) -> None:
 
     The equality is arithmetic, because ``houses_remaining`` is a *derived* field and so
     cannot drift the way a stored counter could — that design is what this line documents
-    (GAP G-19). The teeth are the bounds: a board holding more buildings than the bank owns
-    is exactly what the finite-stock rule exists to prevent, and the hotel exchange (four
-    houses back for one hotel) is where implementations go wrong. The falsifiable half is
-    :func:`check_the_building_ledger_accounts_for_every_level`.
+    (GAP G-19). Being honest about it: the first two assertions are therefore definitional,
+    and the bounds below them cannot fire either, because ``GameState._check_properties``
+    refuses an over-built board before this function is ever reached. What is left is
+    documentation of a design, which is worth having and is not a test.
+
+    The falsifiable half is :func:`check_the_building_ledger_accounts_for_every_level`, and
+    the hotel exchange — four houses back to the bank for one hotel — is where implementations
+    go wrong, so it is the half that matters. It went uncovered for a while: the sweep never
+    built a hotel, so no ``SellHouse(demolish_hotel=True)`` was ever applied and a
+    ``BuildingChanged`` whose ``delta`` was hardcoded to ``-1`` survived the whole run. See
+    ``Scenario.demolish`` and the light-blue scenario, which exist to close that.
     """
     houses = sum(prop.houses for prop in state.properties if 0 < prop.houses < HOTEL_LEVEL)
     hotels = sum(1 for prop in state.properties if prop.houses == HOTEL_LEVEL)
@@ -673,6 +680,17 @@ class Scenario:
     clock: bool = False
     """Whether to stamp ``EndTurn.elapsed_seconds``, the only route to MON-208's ``time_limit``
     ending from real play (G-6)."""
+    demolish: bool = True
+    """Whether to prefer the whole-group demolition when a hotel can be sold that way.
+
+    On by default, and it needs saying why a *preference* is required at all.
+    ``legal_commands`` offers ``SellHouse(demolish_hotel=False)`` before the ``True`` variant,
+    so every policy that walks the offered list by kind takes the one-level sale and the
+    exchange — four houses back to the bank for one hotel, the place the building-stock
+    docstring names as where implementations go wrong — was never applied by this sweep at
+    all. It is only ever legal on a tile carrying a hotel, so preferring it costs the
+    one-level sale nothing: the ordinary sell direction of even-build is untouched on every
+    other tile."""
     stake: tuple[tuple[TileIndex, PlayerId], ...] = ()
     """Deeds handed out before the first roll: ``(tile, owner)`` pairs.
 
@@ -766,6 +784,20 @@ SWEEP = (
     # out, and the developer then sells back down (trap 4's aftermath, and the sell direction
     # of even-build).
     Scenario(seed=7, seats=3, ruleset=SCARCE_BANK, policy="developer", stake=LIGHT_BLUE + ORANGE, steps=600),
+    # A full bank against the *cheapest* colour group, which is the only way this sweep ever
+    # reaches a hotel at all. SCARCE_BANK cannot: a hotel needs its whole group standing at
+    # four first, so a three-member group holds twelve houses at the moment the fifth goes up
+    # and a six-house bank tops out at level two. Light blue at ₪50 a house costs ₪650 to take
+    # to a hotel, which a ₪1500 bankroll can do inside a few dozen commands — and once it is
+    # there, ``Scenario.demolish`` sells it back as one lot, so ``BuildingChanged`` finally has
+    # to narrate a five-level exchange rather than a string of single steps.
+    # The policy is the pure builder, which never sells: it does not need to. ``_pick``'s
+    # demolition preference is consulted *before* the priority list, and a whole-group
+    # demolition is legal only on a tile carrying a hotel — so the group climbs to a hotel
+    # unopposed and is then sold back the instant one stands. A rotation that also sold
+    # single levels could not get there: it knocked the group back down faster than the
+    # even-build ladder let it climb, and topped out at level three over 300 commands.
+    Scenario(seed=7, seats=2, ruleset=UNIVERSAL, policy="builder", stake=LIGHT_BLUE, steps=300),
     # Mortgage, lift, build, sell — on a rotation, so the table still advances.
     Scenario(seed=7, seats=3, ruleset=UNIVERSAL, policy="churner", stake=RAILROADS, trades=True),
     # Pays and cards its way out of the cell instead of rolling for it, holding both decks'
@@ -800,13 +832,22 @@ still exercising it on every kind of state a long game passes through."""
 def _pick(state: GameState, priority: tuple[str, ...], scenario: Scenario) -> Command:
     """The first legal command matching ``priority``, else the first legal command.
 
-    A pending offer is *accepted* rather than merely answered, unless the policy is the one
-    that cancels: ``legal_commands`` sorts ``accept=False`` before ``accept=True``, so taking
-    the first match by kind would decline every offer and the swap — with the transfer fee that
-    follows it — would never execute.
+    Two preferences override the priority list, and both exist because ``legal_commands``
+    happens to sort the *uninteresting* variant of a command first, so a policy that walks the
+    list by kind alone would never reach the other one:
+
+    * a hotel is **demolished** whole where that is legal (``Scenario.demolish``);
+    * a pending offer is *accepted* rather than merely answered, unless the policy is the one
+      that cancels — ``accept=False`` sorts first, so taking the first match by kind would
+      decline every offer and the swap, with the transfer fee that follows it, would never
+      execute.
     """
     offered = legal_commands(state)
     assert offered, f"deadlock in {state.phase.value}"
+    if scenario.demolish:
+        demolitions = [command for command in offered if isinstance(command, SellHouse) and command.demolish_hotel]
+        if demolitions:
+            return demolitions[0]
     if scenario.trades and "cancel_trade" not in priority:
         accepts = [command for command in offered if isinstance(command, RespondToTrade) and command.accept]
         if accepts:

@@ -62,7 +62,15 @@ from kesef_engine.primitives import AuctionReason, CashReason, Deck, Lot, Player
 from kesef_engine.rules import auction, endgame, mortgage, turns
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import update_player, update_property
-from kesef_engine.state import PHASE_OF_FRAME, DebtFrame, GameState, InterruptFrame, Obligation, TradeFrame
+from kesef_engine.state import (
+    PHASE_OF_FRAME,
+    AuctionFrame,
+    DebtFrame,
+    GameState,
+    InterruptFrame,
+    Obligation,
+    TradeFrame,
+)
 
 # The transfer fee lives in one place only. MON-204 (trade) and MON-207 (bankruptcy) charge
 # the identical fee on the identical event — a mortgaged deed changing hands — and two
@@ -484,11 +492,18 @@ def _without_claims_of(frame: InterruptFrame, player: PlayerId, events: list[Eve
     for one reason only: a bank auction and a player transfer are mutually exclusive (see the
     module docstring), so the leaving player is never among a live auction's bidders — their
     own estate auction is pushed *after* this runs, and it excludes them by construction. The
-    safety is therefore contingent on that exclusivity rather than on anything checked here;
-    if a rule ever opened an auction a debtor could bid in, this branch would silently leave a
-    bankrupt bidder standing and :func:`kesef_engine.rules.auction.bidding_order` would be the
-    only thing between that and a deadlock.
+    safety is therefore contingent on that exclusivity rather than on anything checked here —
+    nothing in the state model forbids a bankrupt bidder — so the branch below asserts it
+    instead of assuming it. Without that assertion the contingency is an *absence*: if a rule
+    ever opened an auction a debtor could bid in, this function would leave a bankrupt bidder
+    standing in ``active`` and the failure would surface somewhere else entirely.
     """
+    if isinstance(frame, AuctionFrame):
+        # The contingency above, asserted rather than merely described. If a rule ever lets a
+        # debt open on a live auction's bidder, this fails loudly here instead of quietly
+        # leaving a bankrupt bidder in ``active`` for the auction to hand a lot to.
+        assert player not in frame.active, f"player {player} is bidding in a live auction and going bankrupt"
+        return frame
     if isinstance(frame, TradeFrame):
         if player in frame.player_ids():
             events.append(TradeCancelled(offer=frame.offer, by="system"))
