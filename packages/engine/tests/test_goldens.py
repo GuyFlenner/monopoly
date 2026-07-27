@@ -29,7 +29,7 @@ from kesef_engine.events import (
 )
 from kesef_engine.factory import Seat, new_game
 from kesef_engine.primitives import CashReason
-from kesef_engine.reducer import apply_all
+from kesef_engine.reducer import apply, apply_all
 from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import GameState
 
@@ -175,14 +175,39 @@ def test_trap_9_utility_rent_multiplies_the_dice(replayed: dict[str, tuple[Event
 
 
 def test_trap_10_going_to_jail_is_not_passing_go(replayed: dict[str, tuple[Event, ...]]) -> None:
+    """Pinned on the payer's cash and position across the whole jailing command rather than
+    a forward scan of the event window: a scan in one direction cannot see a salary paid
+    just before the jailing, and the tile walks the token 30 -> 10 without passing GO."""
     events, index = _trap_events(replayed, "10")
     jailed = events[index]
     assert isinstance(jailed, SentToJail)
     assert jailed.via == "tile"
-    for event in events[index:]:
-        if isinstance(event, DiceRolled):
-            break
-        assert not (isinstance(event, CashChanged) and event.reason is CashReason.GO_SALARY)
+
+    entry = _load(GOLDENS_DIR / "traps.json")["10"]
+    before, after = _states_around(_load(GOLDENS_DIR / f"{entry['golden']}.json"), index)
+    jail_tile = before.board.go_to_jail_target
+    assert before.player(jailed.player).position != jail_tile
+    assert after.player(jailed.player).position == jail_tile
+    assert after.player(jailed.player).in_jail
+    assert after.player(jailed.player).cash == before.player(jailed.player).cash, "no salary on the way to jail"
+
+
+def _states_around(golden: dict[str, Any], event_index: int) -> tuple[GameState, GameState]:
+    """The states either side of the command that produced ``events[event_index]``."""
+    state = new_game(
+        tuple(Seat.model_validate(seat) for seat in golden["seats"]),
+        seed=golden["seed"],
+        board_id=golden["board_id"],
+        ruleset=Ruleset.model_validate(golden["ruleset"]),
+    )
+    produced = 0
+    for payload in golden["commands"]:
+        before = state
+        state, events = apply(state, _COMMANDS.validate_python(payload))
+        produced += len(events)
+        if produced > event_index:
+            return before, state
+    raise AssertionError(f"event index {event_index} is past the end of {golden['name']}")
 
 
 # --- Coverage floor: what the goldens collectively visit ---------------------------

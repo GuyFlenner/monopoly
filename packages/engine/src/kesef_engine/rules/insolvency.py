@@ -133,7 +133,9 @@ def handle_declare_bankruptcy(state: GameState, command: DeclareBankruptcy) -> t
     )
 
     # 3. The debtor leaves the game holding nothing (state invariant: bankrupt => free).
-    state = update_player(state, debtor_id, bankrupt=True, cash=0, in_jail=False, jail_turns=0, jail_cards=())
+    #    Cash is *not* zeroed here: the whole balance already moved through move_cash above,
+    #    which is the only writer of cash (the ledger rule, G-60).
+    state = update_player(state, debtor_id, bankrupt=True, in_jail=False, jail_turns=0, jail_cards=())
     state = state._replace(elimination_order=(*state.elimination_order, debtor_id))
     state = state.pop_interrupt()
 

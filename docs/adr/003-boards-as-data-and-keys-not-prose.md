@@ -41,11 +41,13 @@ Board data is generated from one table so the two boards cannot drift.
    Enforcement is a **cross-boundary test**: every key literal the engine and server can
    emit — including every member of every displayed enum — must resolve in every catalogue.
    A test that compares the catalogues only to each other cannot see this defect.
-7. **(Amended 2026-07-26.) The exemption, written down**: `cli.py` and programmer-error
-   exceptions (`ValueError`, `BoardDataError` on load of shipped data) are developer
-   surfaces, never rendered to a player, and print key ids verbatim rather than resolving
-   them — that is the point of them. They are the *only* prose allowed in the engine, and
-   the cross-boundary test allowlists exactly those.
+7. **(Amended 2026-07-26; exemption widened 2026-07-27 to name every developer-surface
+   entry point.) The exemption, written down**: the engine's developer-surface entry points
+   (`cli.py` and `goldens/__main__.py`, both invoked by a programmer, never by a player) and
+   programmer-error exceptions (`ValueError`, `BoardDataError` on load of shipped data) are
+   developer surfaces, never rendered to a player, and print key ids verbatim rather than
+   resolving them — that is the point of them. They are the *only* prose allowed in the
+   engine, and the cross-boundary test allowlists exactly those.
 
 ## Alternatives considered
 

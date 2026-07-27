@@ -64,8 +64,16 @@ jobs:
 
       # MON-107: goldens are committed artifacts, never a test-run side effect. A diff
       # here means something regenerated them silently — that is a failure by design.
+      # A plain `git diff` cannot see a *new* untracked golden, so the check is on the
+      # porcelain status of the directory: modified, deleted or added all fail here.
       - name: Goldens unchanged after tests
-        run: git diff --exit-code -- packages/engine/tests/goldens/
+        run: |
+          status="$(git status --porcelain -- packages/engine/tests/goldens/)"
+          if [ -n "$status" ]; then
+            echo "$status"
+            echo "::error::tests changed packages/engine/tests/goldens/ - goldens are committed artifacts"
+            exit 1
+          fi
 
       - name: pip-audit
         run: uv run pip-audit

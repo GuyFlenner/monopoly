@@ -50,6 +50,9 @@ def move_token(state: GameState, player_id: PlayerId, total: int) -> tuple[GameS
     passed_go = origin + total >= BOARD_SIZE
     state = update_player(state, player_id, position=destination)
     events: list[Event] = [
+        # TODO(MON-206): backward movement ("go back three spaces") is a card effect, so the
+        # only mover in M1 walks forward. MON-206 owns the ``forward=False`` path and the
+        # rule that walking backwards past GO pays nothing.
         TokenMoved(player=player_id, from_tile=origin, to_tile=destination, forward=True, passed_go=passed_go)
     ]
     if passed_go:

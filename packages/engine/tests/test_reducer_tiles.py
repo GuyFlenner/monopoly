@@ -18,15 +18,27 @@ _TOTAL = sum(Rng(seed=_PLAIN_SEED).roll_dice()[:2])
 
 
 def _land_on(
-    target: int, *, cash: int = 1500, ruleset: Ruleset | None = None, pot: int = 0
+    target: int,
+    *,
+    cash: int = 1500,
+    ruleset: Ruleset | None = None,
+    pot: int = 0,
+    chance_deck: tuple[str, ...] = (),
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Roll the known seed's total onto ``target`` and return (state, events)."""
     from kesef_engine.reducer import apply
 
     start = (target - _TOTAL) % 40
     state = make_state(seats=(make_player(0, position=start, cash=cash), make_player(1)), seed=_PLAIN_SEED)
-    if ruleset is not None or pot:
-        state = GameState(**{**dict(state), "ruleset": ruleset or state.ruleset, "free_parking_pot": pot})
+    if ruleset is not None or pot or chance_deck:
+        state = GameState(
+            **{
+                **dict(state),
+                "ruleset": ruleset or state.ruleset,
+                "free_parking_pot": pot,
+                "chance_deck": chance_deck,
+            }
+        )
     return apply(state, RollDice(player=0))
 
 
@@ -106,10 +118,13 @@ def test_just_visiting_is_inert() -> None:
 
 
 def test_card_tiles_are_inert_until_mon_206() -> None:
-    new_state, events = _land_on(CHANCE)  # wraps past GO: only the salary moves money
+    # The deck is stocked so that "no card was drawn" can actually fail: against an empty
+    # deck the old ``== ()`` assertion held whether or not the tile drew anything.
+    deck = ("card.chance.advance_to_go", "card.chance.get_out_of_jail_free")
+    new_state, events = _land_on(CHANCE, chance_deck=deck)  # wraps past GO: only the salary moves money
     assert not [e for e in events if isinstance(e, CashChanged) and e.reason is not CashReason.GO_SALARY]
     assert new_state.phase is Phase.AWAITING_END_TURN
-    assert new_state.chance_deck == (), "no card was drawn"
+    assert new_state.chance_deck == deck, "no card was drawn"
 
 
 def test_landing_exactly_on_go_pays_the_salary_once() -> None:
