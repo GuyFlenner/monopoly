@@ -98,6 +98,8 @@ def test_play_runs_a_seeded_two_player_game_to_a_winner(
     assert f"seed={_SEED}" in out, "--seed prints the seed so the game is reproducible"
     assert f"winner: Player{_EXPECTED_WINNER_ID + 1} (id {_EXPECTED_WINNER_ID}) with {_EXPECTED_WINNER_CASH}" in out
     assert out.isascii(), "the Windows console mangles anything beyond ASCII"
+    assert "drew card." in out, "the driver narrated a card's consequences but never the draw itself (MON-209)"
+    assert "game over: #1 Player" in out, "the final standings are printed, not just the winner's cash"
 
 
 def test_play_reprompts_on_nonsense_and_survives_it(
