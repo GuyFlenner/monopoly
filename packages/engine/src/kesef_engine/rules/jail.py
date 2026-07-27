@@ -1,9 +1,26 @@
-"""Jail decisions (M1 slice; MON-205 owns the full rule set).
+"""Jail (MON-205).
 
-What lands now: pay the fine, spend a card, roll for doubles, the compulsory fine after
-``max_jail_turns``. The commonly mis-implemented rule is named and tested: release by
-doubles moves the rolled total and does NOT grant another roll, and jail rolls never
-touch ``doubles_streak`` (GAP G-12).
+Three ways in — the GO_TO_JAIL tile, a card, three consecutive doubles — and three ways
+out: the fine, a kept card, or rolling doubles. After ``max_jail_turns`` failed rolls the
+fine is compulsory.
+
+The rules implementations get wrong, each with a named test:
+
+* **release by doubles moves the rolled total and grants no further roll.** The roll is
+  taken with ``purpose="jail"``, which is what makes ``post_move_phase`` rest the turn
+  instead of offering another one, and jail rolls never touch ``doubles_streak`` — so the
+  three-doubles rule cannot be triggered from inside the cell (GAP G-12).
+* **the compulsory fine still moves the roll, even when it had to be borrowed against the
+  estate.** An unaffordable fine opens a ``DebtFrame``; when that settles, the player
+  leaves *and walks the total of the roll that failed*
+  (:func:`release_after_compulsory_fine`, called by the settlement path). Forfeiting the
+  movement was the M1 stopgap, and it was invisible: the player simply stood still.
+* **jail is not a pause** (spec §3.6 trap 8). ``JAIL_DECISION`` is a portfolio phase
+  (GAP G-5), so a jailed player collects rent, builds and trades; nothing here changes
+  that, and that is the point.
+
+A bankrupt player is never left in the cell — the state model refuses it, and the estate
+transfer in :mod:`kesef_engine.rules.insolvency` clears the flag with the rest.
 """
 
 from __future__ import annotations
@@ -59,7 +76,9 @@ def handle_roll_for_jail(state: GameState, command: RollForJail) -> tuple[GameSt
     # The fine is now compulsory; the official rule then moves the failed roll's total.
     fine = state.ruleset.jail_fine
     if state.player(player_id).cash < fine:
-        # TODO(MON-205): settling this debt releases without moving (see insolvency).
+        # The debt settles itself the moment the estate raises the money, and
+        # ``release_after_compulsory_fine`` then walks this roll — the dice survive in
+        # ``state.dice``, which is why no continuation has to be stored on the frame.
         state, incurred = open_debt(
             state,
             debtor=player_id,
@@ -76,6 +95,20 @@ def handle_roll_for_jail(state: GameState, command: RollForJail) -> tuple[GameSt
     state = _release(state, player_id)
     all_events.append(LeftJail(player=player_id, via="time_served"))
     return _move_out(state, player_id, dice.total, all_events)
+
+
+def release_after_compulsory_fine(state: GameState, player_id: PlayerId) -> tuple[GameState, tuple[Event, ...]]:
+    """Leave the cell once a borrowed-against compulsory fine has been settled.
+
+    Called by :func:`kesef_engine.rules.insolvency.settle_if_able`, which is the only place
+    that knows the debt is paid. The roll that failed is still in ``state.dice`` (nothing
+    rolls between the failure and the settlement — legality offers the debtor raising
+    commands only), so the movement it earned is not lost.
+    """
+    dice = state.dice
+    assert dice is not None, "a compulsory fine is only ever reached through a jail roll"
+    state = _release(state, player_id)
+    return _move_out(state, player_id, dice.total, [LeftJail(player=player_id, via="time_served")])
 
 
 def _move_out(

@@ -17,7 +17,7 @@ from typing import Literal
 
 from kesef_engine.commands import DeclareBankruptcy
 from kesef_engine.decks import GET_OUT_OF_JAIL_IDS
-from kesef_engine.events import BuildingChanged, DebtIncurred, DebtSettled, Event, LeftJail, PlayerBankrupted
+from kesef_engine.events import BuildingChanged, DebtIncurred, DebtSettled, Event, PlayerBankrupted
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason, Deck, PlayerId, TileIndex
 from kesef_engine.rules import endgame, turns
@@ -64,9 +64,15 @@ def settle_if_able(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
         events.extend(paid)
         events.append(DebtSettled(debtor=frame.debtor, creditor=obligation.creditor, amount=obligation.amount))
     if frame.reason is CashReason.JAIL_FINE and state.player(frame.debtor).in_jail:
-        # TODO(MON-205): the compulsory-fine roll's movement is forfeit in M1.
-        state = update_player(state, frame.debtor, in_jail=False, jail_turns=0)
-        events.append(LeftJail(player=frame.debtor, via="fine"))
+        # Only the *compulsory* fine can become a debt (the voluntary one is gated on cash
+        # by legality), so this is always the after-``max_jail_turns`` path — and the
+        # official rule then walks the total of the roll that failed. Imported locally
+        # because jail depends on ``open_debt`` here: the cycle is real, and one function
+        # call is a smaller price than a module whose only job is to break it.
+        from kesef_engine.rules import jail
+
+        state, released = jail.release_after_compulsory_fine(state, frame.debtor)
+        events.extend(released)
     return state, tuple(events)
 
 
