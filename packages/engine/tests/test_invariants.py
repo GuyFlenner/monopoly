@@ -684,6 +684,15 @@ class Scenario:
     no ``sell_house``, no ``CashReason.BUILD``, and — because unimproved rent never outruns
     the GO salary — no unpayable rent, no bankruptcy and no ``last_solvent`` ending either.
     """
+    mortgaged: tuple[TileIndex, ...] = ()
+    """Staked deeds that start out **mortgaged**, as tile indices (each must appear in ``stake``).
+
+    Part of the same stipulated opening, and it exists for one shape only: the debtor
+    *receiving* a mortgaged deed (:func:`_offer_to`). That needs a mortgaged deed in somebody
+    *else's* hand at the moment a debt is live, and the two facts never coincided — a policy
+    only mortgages when it is itself short of cash, by which point it is the debtor. Mortgaged
+    at the deal, no money moves for it, exactly as the unmortgaged stake moves none.
+    """
     jail_cards: tuple[tuple[PlayerId, Deck], ...] = ()
     """Get-out-of-jail cards dealt into a hand, as ``(player, deck)`` pairs.
 
@@ -707,8 +716,15 @@ LIGHT_BLUE = ((6, 0), (8, 0), (9, 0))
 ORANGE = ((16, 1), (18, 1), (19, 1))
 DARK_BLUE = ((37, 1), (39, 1))
 RAILROADS = ((5, 0), (15, 0), (25, 0), (35, 0))
+SPLIT_RAILROADS = ((5, 0), (15, 0), (25, 1), (35, 1))
 """Whole colour groups, handed out at the deal. Two groups facing each other is what turns a
-sweep into a game with rent worth going bankrupt over."""
+sweep into a game with rent worth going bankrupt over.
+
+``SPLIT_RAILROADS`` puts two in each hand so that whichever seat ends up the debtor, the
+*other* one still holds a deed the debtor can be made to receive. Railroads because they carry
+no colour group: a mortgaged deed in a built group cannot be traded at all
+(``error.group_has_buildings``), and a mortgaged member blocks every build in its group — so a
+mortgaged *property* would either be untradeable or would stop the board developing."""
 
 SWEEP = (
     # The deal, played straight: buying, auctions, rent, the salary, the four quiet phases.
@@ -727,6 +743,20 @@ SWEEP = (
         steps=900,
         trades=True,
         must_finish=True,
+    ),
+    # The same board, with a mortgaged railroad already in each hand: the one opening from
+    # which the *debtor* can be made to **receive** a mortgaged deed, so the official 10%
+    # lands on a player who already owes money and opens a second debt beneath the first.
+    # That ``[debt, debt]`` stack is the shape ``handle_declare_bankruptcy`` half-popped.
+    Scenario(
+        seed=7,
+        seats=2,
+        ruleset=BRISK,
+        policy="builder",
+        stake=LIGHT_BLUE + ORANGE + DARK_BLUE + SPLIT_RAILROADS,
+        mortgaged=(5, 15, 25, 35),
+        steps=900,
+        trades=True,
     ),
     # A full table developing from the deal: cards, tax, jail fines, debt, bankruptcy.
     Scenario(seed=7, seats=4, ruleset=UNIVERSAL, policy="builder"),
@@ -796,28 +826,85 @@ def _stamped(command: Command, state: GameState, scenario: Scenario) -> Command:
     return command.model_copy(update={"elapsed_seconds": state.turn_number * 20})
 
 
-def _inject_a_trade(state: GameState) -> ProposeTrade | None:
-    """A legal ``ProposeTrade`` for this state, or None.
+FREE_OFFER_BUDGET = 8
+"""How much of a scenario's 12-offer budget the *undirected* shape may spend.
 
-    Two shapes, and each exists for a specific invariant:
+The reserve exists because the shapes are not equally available. A mortgaged deed lying in
+anybody's hand makes the third shape below legal from the first step onwards, whereas the two
+debt shapes need a live ``DebtFrame`` — which a game reaches after a hundred-odd commands, if
+at all. With one shared budget the undirected shape spent all twelve offers before the first
+debt opened, and the debt shapes were injected **zero** times in the whole sweep. A reserve is
+the smallest fix that keeps the cheap shape from starving the interesting ones.
+"""
 
-    * **during a debt**, the debtor offers a deed for a shekel. The debtor is the only player
-      who may trade in ``DEBT_SETTLEMENT`` (G-5 as corrected), and this is the one route to a
+
+def _inject_a_trade(state: GameState, offers: int) -> ProposeTrade | None:
+    """A legal ``ProposeTrade`` for this state, or None. ``offers`` is the budget spent so far.
+
+    Three shapes, and each exists for a specific invariant:
+
+    * **during a debt, the debtor *receiving*** somebody else's mortgaged deed — tried first,
+      because it is the one shape the other two cannot produce and the one that nests a
+      *second* debt under the debtor's own. See :func:`_offer_to`.
+    * **during a debt, the debtor giving** a deed for a shekel. The debtor is the only player
+      who may trade in ``DEBT_SETTLEMENT`` (G-5 as corrected), and this is one route to a
       ``[debt, trade]`` stack — the nested interrupt ADR-007 was written for, and the only way
       the depth bound and its descent are exercised at all.
     * **otherwise**, the owner of a *mortgaged* deed offers it for a shekel. Mortgaged on
       purpose: it is the one offer that charges the official 10% transfer fee, so it reaches
       ``CashReason.MORTGAGE_TRANSFER_FEE`` and, when the receiver cannot pay, the nested debt
-      that fee opens (MON-204, owner decision 2).
+      that fee opens (MON-204, owner decision 2). Capped at :data:`FREE_OFFER_BUDGET` so it
+      cannot spend the whole budget before a debt exists to offer into.
     """
     frame = state.top_interrupt
     if isinstance(frame, DebtFrame):
+        received = _offer_to(state, frame.debtor)
+        if received is not None:
+            return received
         return _offer_from(state, frame.debtor, state.tiles_owned_by(frame.debtor))
+    if offers >= FREE_OFFER_BUDGET:
+        return None
     for index, prop in enumerate(state.properties):
         if prop.mortgaged and prop.owner is not None:
             offer = _offer_from(state, prop.owner, (index,))
             if offer is not None:
                 return offer
+    return None
+
+
+def _offer_to(state: GameState, debtor: PlayerId) -> ProposeTrade | None:
+    """``debtor`` offers every coin they hold for somebody else's *mortgaged* deed.
+
+    The mirror of :func:`_offer_from`, and the direction no other injected offer produced: in
+    every other shape the debtor *gives*, so the official 10% transfer fee always landed on
+    the other party. Here the debtor is the **receiver**, and because the offer hands over
+    their whole balance the fee cannot be paid — it opens a *second* ``DebtFrame`` on a player
+    who already owes one, which is the ``[debt, debt]`` stack a conceding debtor used to leave
+    half-popped (MON-207: ``handle_declare_bankruptcy`` pops only the top frame).
+
+    Offered only onto a stack exactly one frame deep. A fee debt nested on a fee debt is the
+    same shape again, one level lower, and injecting it repeatedly would climb towards
+    ``MAX_INTERRUPT_DEPTH`` while testing nothing the first nesting does not already cover.
+    """
+    if len(state.interrupts) != 1:
+        return None
+    for other in state.solvent_players:
+        if other.id == debtor:
+            continue
+        for tile in state.tiles_owned_by(other.id):
+            if not state.properties[tile].mortgaged:
+                continue
+            command = ProposeTrade(
+                player=debtor,
+                offer=TradeOffer(
+                    proposer=debtor,
+                    recipient=other.id,
+                    give=TradeSide(cash=state.player(debtor).cash),
+                    receive=TradeSide(tiles=(tile,)),
+                ),
+            )
+            if is_legal(state, command):
+                return command
     return None
 
 
@@ -850,7 +937,7 @@ def _deal(scenario: Scenario) -> GameState:
         return state
     properties = list(state.properties)
     for tile, owner in scenario.stake:
-        properties[tile] = PropertyState(owner=owner)
+        properties[tile] = PropertyState(owner=owner, mortgaged=tile in scenario.mortgaged)
     return state._replace(properties=tuple(properties))
 
 
@@ -884,7 +971,7 @@ def play_out(scenario: Scenario, tally: Tally) -> GameState:
             return state
         command: Command | None = None
         if scenario.trades and offers < 12 and state.pending_trade is None:
-            command = _inject_a_trade(state)
+            command = _inject_a_trade(state, offers)
             offers += command is not None
         if command is None:
             command = _pick(state, cycle[step % len(cycle)], scenario)

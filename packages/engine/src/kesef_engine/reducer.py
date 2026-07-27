@@ -82,30 +82,46 @@ def apply(state: GameState, command: Command) -> tuple[GameState, tuple[Event, .
 
 
 def _drain(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
-    """Settle what the debtor can now pay, and resume whatever that debt suspended.
+    """Run the suspended machinery to a fixpoint, then close the command exactly once.
 
-    A debt the debtor's cash now covers settles itself, and a debt a *card* opened
-    suspended the card underneath it — so settling one hands control back to
-    ``CARD_RESOLUTION`` and the card continues at the step it stopped at (ADR-007 G-9).
+    Two mechanisms here can each re-enable the other, which is why they share **one** loop
+    rather than sitting in sequence:
 
-    Terminating: ``cards.resume`` either finishes the card or suspends into a fresh debt,
-    and a re-entry needs that debt to have been settled at a strictly later step. Steps are
-    finite, so the loop is.
+    * a debt whose total the debtor's cash now covers settles itself
+      (:func:`insolvency.settle_if_able`), and popping it can expose the frame underneath —
+      a *card* that the debt suspended, or a second debt a transfer fee opened;
+    * resuming that card (:func:`cards.resume`) runs it on from the step it stopped at
+      (ADR-007 G-9), and can open a fresh debt, which the very next pass settles if the
+      money is now there.
 
-    The card loop runs first and :func:`insolvency.resolve_after_command` closes the
-    command afterwards — settling anything left, then endgame, then the seat hand-off, in
-    that order (MON-207). Order matters both ways: a suspended card must resume *before*
-    endgame looks, or a game could be declared over mid-card; and endgame must not run
-    inside the loop, or it would be evaluated once per resumed step.
+    Settling *around* the card loop instead — one cascade before it and another after, which
+    is what this replaced — missed precisely the case where the trailing cascade popped the
+    last ``DebtFrame`` and re-exposed a ``CardFrame`` beneath it. Nothing then resumed the
+    card, the stack was non-empty so the close step returned early, and ``apply``'s
+    ``TRANSIENT_PHASES`` assertion fired: a contract breach escaping as ``AssertionError``
+    rather than the ``IllegalCommandError`` ADR-005 permits. Reachable at depth three,
+    ``[card, debt, debt]``, when one ``MortgageProperty`` raises enough to clear both debts.
+
+    Terminating: every pass either settles a frame — finitely many, and a settled frame never
+    returns — or advances the live card by at least one step, and ``CardFrame.step`` is
+    strictly monotone over a finite step list.
+
+    :func:`insolvency.close_command` then evaluates endgame and hands on a seat whose holder
+    has gone under. Both orderings matter: a suspended card must resume *before* endgame
+    looks, or a game could be declared over mid-card; and endgame must sit *outside* the loop,
+    or it would be evaluated once per resumed step instead of once per command.
     """
-    state, events = insolvency.settle_if_able(state)
-    produced = list(events)
-    while state.phase is Phase.CARD_RESOLUTION:
+    produced: list[Event] = []
+    while True:
+        state, settled = insolvency.settle_if_able(state)
+        if settled:
+            produced.extend(settled)
+            continue
+        if state.phase is not Phase.CARD_RESOLUTION:
+            break
         state, resumed = cards.resume(state)
         produced.extend(resumed)
-        state, settled = insolvency.settle_if_able(state)
-        produced.extend(settled)
-    state, closed = insolvency.resolve_after_command(state)
+    state, closed = insolvency.close_command(state)
     produced.extend(closed)
     return state, tuple(produced)
 

@@ -38,9 +38,9 @@ creditor is standing there it is already back in play. That also keeps a bank au
 a player transfer mutually exclusive, so no fee debt can ever open on a bidder in a live
 auction.
 
-Endgame is deliberately *not* decided here. :func:`resolve_after_command` evaluates it
-once — after the interrupt stack has drained (G-8), which is what stops a two-player
-bankruptcy to the bank from freezing on an auction nobody may bid in.
+Endgame is deliberately *not* decided here. :func:`close_command` evaluates it once per
+command — and only after the interrupt stack has drained (G-8), which is what stops a
+two-player bankruptcy to the bank from freezing on an auction nobody may bid in.
 """
 
 from __future__ import annotations
@@ -87,31 +87,34 @@ def open_debt(
     return state, (DebtIncurred(debtor=debtor, creditor=obligation.creditor, amount=amount),)
 
 
-def resolve_after_command(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
-    """The reducer's post-command hook — three obligations, in this order, in one place.
+def close_command(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
+    """Close the command: endgame, then the seat hand-off. Called once per ``apply``.
 
-    A debt whose total the debtor's cash now covers settles itself, and so does the frame
-    underneath it, and the one under that: a mortgage fee charged on an estate transfer can
-    leave a short stack of them, and each pop makes the next one live. Then, and only when
-    the stack is *empty*, endgame may look — a live estate auction has to finish first
-    (G-8), or a two-player bankruptcy to the bank freezes with no legal command. Last, a
-    seat still held by a player who has just gone under is handed on, which is what makes
-    "the current player is bankrupt" an unreachable state rather than a deadlock (G-14).
+    Only when the interrupt stack is *empty* may endgame look — a live estate auction has to
+    finish first (G-8), or a two-player bankruptcy to the bank freezes with no legal command.
+    Last, a seat still held by a player who has just gone under is handed on, which is what
+    keeps "the current player is bankrupt" from becoming a deadlock (G-14).
+
+    Read the early return carefully, because it is load-bearing and it was mis-stated
+    elsewhere for a while: while the stack is non-empty the hand-off is skipped **too**. So a
+    bankruptcy to the bank really does come to rest with a bankrupt current player, for as
+    long as the estate auction it opened runs. That state is legal and it is not a deadlock —
+    every other seat is still offered the auction's commands — which is why the structural
+    generator draws a bankrupt current player on purpose rather than narrowing it away.
+
+    The settle cascade this function used to run first now lives in the reducer's fixpoint
+    loop (:func:`kesef_engine.reducer._drain`): settling can re-expose a *card* frame that a
+    debt had suspended, and settling here — after the reducer's card loop had already
+    finished — left ``apply`` resting in a transient phase and tripped its own contract
+    assertion instead of resuming the card.
     """
-    events: list[Event] = []
-    while True:
-        state, settled = settle_if_able(state)
-        if not settled:
-            break
-        events.extend(settled)
     if state.interrupts:
-        return state, tuple(events)
-    state, ended = endgame.maybe_end(state)
-    events.extend(ended)
+        return state, ()
+    state, events = endgame.maybe_end(state)
     if state.phase is not Phase.GAME_OVER and state.current_player.bankrupt:
         state, started = turns.advance_turn(state)
-        events.extend(started)
-    return state, tuple(events)
+        events = (*events, *started)
+    return state, events
 
 
 def settle_if_able(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
@@ -435,13 +438,15 @@ def _void_claims_of(state: GameState, player: PlayerId) -> tuple[GameState, tupl
     side can deliver, and a frame naming a bankrupt party is not a state the model accepts.
     A debt owed *to* them goes the same way — the money has nobody to reach, and
     ``GameState`` rejects a bankrupt creditor outright, so leaving it would be a crash
-    rather than a rule.
+    rather than a rule. So does a debt owed *by* them, for the mirror-image reason: see
+    :func:`_without_claims_of`, which is where all three judgements live.
 
     Removing a frame from the middle of the stack means the frame above it inherits the
     phase the dropped one had suspended; otherwise the game would resume into a phase it
-    was never in. Neither shape is reachable in M2 — a bankruptcy needs the debt frame on
-    top — but MON-206's card-driven debts can nest above a trade review, and a latent
-    ValidationError is a poor way to find that out.
+    was never in. A bankruptcy needs *a* debt frame on top, but not the only one: a transfer
+    fee charged on an estate can nest a second debt above the first, and MON-206's
+    card-driven debts can nest above a trade review. Both shapes reach this function, and
+    the deeper one deadlocked the game until MON-209's replay driver produced it.
     """
     events: list[Event] = []
     kept: list[InterruptFrame] = []
@@ -473,17 +478,43 @@ def _void_claims_of(state: GameState, player: PlayerId) -> tuple[GameState, tupl
 
 
 def _without_claims_of(frame: InterruptFrame, player: PlayerId, events: list[Event]) -> InterruptFrame | None:
-    """``frame`` with ``player``'s claims removed, or None when nothing of it survives."""
+    """``frame`` with ``player``'s claims removed, or None when nothing of it survives.
+
+    An :class:`~kesef_engine.state.AuctionFrame` passes through untouched, and that is safe
+    for one reason only: a bank auction and a player transfer are mutually exclusive (see the
+    module docstring), so the leaving player is never among a live auction's bidders — their
+    own estate auction is pushed *after* this runs, and it excludes them by construction. The
+    safety is therefore contingent on that exclusivity rather than on anything checked here;
+    if a rule ever opened an auction a debtor could bid in, this branch would silently leave a
+    bankrupt bidder standing and :func:`kesef_engine.rules.auction.bidding_order` would be the
+    only thing between that and a deadlock.
+    """
     if isinstance(frame, TradeFrame):
         if player in frame.player_ids():
             events.append(TradeCancelled(offer=frame.offer, by="system"))
             return None
         return frame
-    if isinstance(frame, DebtFrame) and player in frame.creditors:
-        surviving = tuple(obligation for obligation in frame.obligations if obligation.creditor != player)
-        if not surviving:
+    if isinstance(frame, DebtFrame):
+        if frame.debtor == player:
+            # A debt owed *by* the leaver dies with them. They have conceded, and the estate
+            # that would have answered this frame was already divided among the creditors of
+            # the frame the bankruptcy popped — there is nothing left for a second frame to
+            # reach, and the debtor is about to stop being a player at all. This is the exact
+            # reciprocal of the branch below, where an obligation owed *to* the leaver is
+            # dropped as uncollectable.
+            #
+            # Reachable, and it deadlocked before MON-209 caught it: a debt on A, A then
+            # *receiving* a mortgaged deed, and the 10% transfer fee opens a second debt on A.
+            # ``handle_declare_bankruptcy`` pops only the top frame, so conceding used to
+            # leave ``[debt(debtor=A, bankrupt=True)]`` live, offering no legal command in a
+            # phase that is not GAME_OVER. ``GameState._check_interrupts`` now rejects that
+            # shape outright, so this branch is what keeps the state model satisfiable.
             return None
-        return DebtFrame(**{**dict(frame), "obligations": surviving})
+        if player in frame.creditors:
+            surviving = tuple(obligation for obligation in frame.obligations if obligation.creditor != player)
+            if not surviving:
+                return None
+            return DebtFrame(**{**dict(frame), "obligations": surviving})
     return frame
 
 

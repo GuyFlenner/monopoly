@@ -50,6 +50,7 @@ from kesef_engine.reducer import apply
 from kesef_engine.rules.insolvency import mortgage_transfer_fee
 from kesef_engine.state import (
     AuctionFrame,
+    CardFrame,
     DebtFrame,
     GameState,
     Obligation,
@@ -456,6 +457,130 @@ def test_a_pending_trade_involving_the_bankrupt_is_voided_by_the_system() -> Non
     assert new_state.interrupts == ()
     assert new_state.phase is Phase.AWAITING_ROLL and new_state.current_player_id == 1
     assert new_state.properties[1].owner == 1, "the tile went to the creditor, not the trade"
+
+
+# --- Two debts on one debtor: the frame a concession used to leave behind -----
+
+
+def _two_debts_on_one_debtor() -> GameState:
+    """``[debt(0 -> player 1), debt(0 -> bank)]``: the stack a transfer fee builds.
+
+    The reachable route, every step of it ``is_legal``-approved: a debt opens on player 0,
+    player 0 is then the only seat allowed to trade in ``DEBT_SETTLEMENT`` (G-5) and *receives*
+    a mortgaged deed, and the official 10% lands on a player who already owes money and cannot
+    pay it either. Two frames, one debtor.
+    """
+    rent = DebtFrame(
+        resume=Phase.AWAITING_END_TURN,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=500),),
+        reason=CashReason.RENT,
+    )
+    fee = DebtFrame(
+        resume=Phase.DEBT_SETTLEMENT,
+        debtor=0,
+        obligations=(Obligation(creditor="bank", amount=10),),
+        reason=CashReason.MORTGAGE_TRANSFER_FEE,
+    )
+    return make_state(
+        seats=(make_player(0, cash=0), make_player(1), make_player(2)),
+        properties={1: PropertyState(owner=0)},
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(rent, fee),
+    )
+
+
+def test_conceding_under_two_debts_leaves_no_frame_naming_the_bankrupt() -> None:
+    """The deadlock MON-209's replay driver found: ``handle_declare_bankruptcy`` pops only the
+    frame it was called on, so the *second* debt on the same debtor used to survive them.
+
+    The estate is auctioned, the auction drains, and the game came to rest at
+    ``phase=debt_settlement`` with ``interrupts=[debt(debtor=0)]`` — a player who has left the
+    game is offered no command at all, so ``legal_commands`` was empty in a phase that is not
+    ``GAME_OVER``. A hard deadlock, and the one invariant that catches every deadlock.
+    """
+    state = _two_debts_on_one_debtor()
+    new_state, _ = apply(state, DeclareBankruptcy(player=0))
+
+    assert new_state.player(0).bankrupt
+    orphans = [frame for frame in new_state.interrupts if isinstance(frame, DebtFrame) and frame.debtor == 0]
+    assert not orphans, f"a debt frame outlived its debtor: {orphans}"
+    assert legal_commands(new_state), f"deadlock: nothing legal in {new_state.phase.value}"
+
+
+def test_the_deed_answers_the_frame_conceded_on_and_the_other_claim_dies() -> None:
+    """The reciprocal of the rule above, stated so it cannot be changed by accident.
+
+    Player 0 concedes on the *fee* frame, whose only creditor is the bank, so the estate goes
+    to auction rather than to player 1 — and player 1's ₪500 rent claim, one frame further
+    down, is simply gone. That is deliberate and it is the same judgement the engine already
+    made in the other direction: a claim owed *to* a leaving player is dropped as
+    uncollectable, so a claim owed *by* one dies with them. There is nothing left for it to
+    reach — the estate was divided the moment the concession was taken.
+    """
+    state = _two_debts_on_one_debtor()
+    new_state, events = apply(state, DeclareBankruptcy(player=0))
+
+    assert [e.lot for e in events if isinstance(e, AuctionStarted)] == [TileLot(tile=1)]
+    assert new_state.player(1).cash == 1500, "the dropped rent claim must not be paid out of the estate"
+    assert next(e for e in events if isinstance(e, PlayerBankrupted)).creditor == "bank"
+
+
+def test_settling_two_debts_at_once_resumes_the_card_underneath_them() -> None:
+    """A ``[card, debt, debt]`` stack cleared by one command, which used to crash ``apply``.
+
+    The reducer settled once *before* its card-resume loop and again *after* it. The trailing
+    cascade is what pops the last ``DebtFrame`` here, re-exposing the ``CardFrame`` beneath —
+    and by then nothing was left to resume it, so ``apply`` returned a state resting in
+    ``CARD_RESOLUTION`` and tripped its own ``TRANSIENT_PHASES`` assertion. An
+    ``AssertionError`` out of ``apply`` is a contract breach, not a rejection (ADR-005 allows
+    only ``IllegalCommandError``), so the fix is one fixpoint loop rather than two cascades.
+
+    The card is "birthday": collect ₪10 from each player, which is three steps at a table of
+    four. Player 1 could not pay theirs, suspending the card at step 1; the fee debt above it
+    is the transfer-fee nesting. One mortgage covers both totals, so both settle in a single
+    command and the card still owes its last two collections.
+    """
+    card = CardFrame(
+        resume=Phase.AWAITING_END_TURN,
+        card_id="card.community_chest.birthday",
+        deck=Deck.COMMUNITY_CHEST,
+        step=1,
+    )
+    collection = DebtFrame(
+        resume=Phase.CARD_RESOLUTION,
+        debtor=1,
+        obligations=(Obligation(creditor=0, amount=10),),
+        reason=CashReason.CARD,
+    )
+    fee = DebtFrame(
+        resume=Phase.DEBT_SETTLEMENT,
+        debtor=1,
+        obligations=(Obligation(creditor="bank", amount=20),),
+        reason=CashReason.MORTGAGE_TRANSFER_FEE,
+    )
+    state = make_state(
+        seats=(make_player(0, cash=0), make_player(1, cash=0), make_player(2, cash=100), make_player(3, cash=100)),
+        properties={1: PropertyState(owner=1)},  # ₪30 of mortgage value: 20 + 10, exactly
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(card, collection, fee),
+        current=0,
+    )
+
+    new_state, events = apply(state, MortgageProperty(player=1, tile=1))
+
+    assert new_state.phase is Phase.AWAITING_END_TURN, "the card must resume and finish, not rest mid-resolution"
+    assert new_state.interrupts == ()
+    assert new_state.player(1).cash == 0, "30 raised, 20 to the bank and 10 to the card's subject"
+    # The two collections the card still owed, from the seats that could pay theirs.
+    assert new_state.player(2).cash == 90
+    assert new_state.player(3).cash == 90
+    assert new_state.player(0).cash == 30, "10 from each of the three other seats"
+    assert [(e.debtor, e.creditor, e.amount) for e in events if isinstance(e, DebtSettled)] == [
+        (1, "bank", 20),
+        (1, 0, 10),
+    ]
+    _assert_ledger_reconciles(state, new_state, events)
 
 
 # --- Concession -------------------------------------------------------------

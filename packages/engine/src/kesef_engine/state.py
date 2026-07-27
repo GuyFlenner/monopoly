@@ -441,6 +441,16 @@ class GameState(BaseModel, frozen=True):
                 )
                 if insolvent:
                     raise ValueError(f"debt names bankrupt creditor(s) {insolvent}")
+                # And neither is a *debtor*, which is the same rule read the other way round.
+                # A player who has conceded owes nothing further — the estate answered the
+                # frame they conceded on, and ``insolvency._without_claims_of`` drops any
+                # other frame they are the debtor of. Enforced here rather than left to that
+                # function because the shape has no legal command in it: a bankrupt player is
+                # offered nothing, so a live debt frame naming one is a hard deadlock rather
+                # than a wrong number. It was reachable through a transfer fee nesting a
+                # second debt on the debtor, and only the state model makes it unrepresentable.
+                if frame.debtor in bankrupt:
+                    raise ValueError(f"debt names bankrupt debtor {frame.debtor}")
         return self
 
     @model_validator(mode="after")
