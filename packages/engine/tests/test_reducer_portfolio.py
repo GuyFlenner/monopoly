@@ -49,8 +49,11 @@ def test_selling_a_hotel_with_stock_drops_to_four_houses() -> None:
     assert next(e for e in events if isinstance(e, CashChanged)).delta == 25
 
 
-def test_selling_a_hotel_with_an_empty_house_bank_drops_to_zero_at_half_price_for_all_levels() -> None:
-    # 32 houses standing elsewhere leave the bank empty (GAP G-B3b).
+def test_selling_a_hotel_with_an_empty_house_bank_takes_the_group_to_zero() -> None:
+    # 32 houses standing elsewhere leave the bank empty (GAP G-B3b). Updated by MON-201:
+    # the drop is now the explicit ``demolish_hotel`` whole-group sale, because a lone
+    # hotel falling to zero would leave its sibling five levels above it. The full surface
+    # lives in test_reducer_development.py.
     full_groups = {
         index: PropertyState(owner=1, houses=4)
         for index in (6, 8, 9, 11, 13, 14, 16, 18)  # 8 tiles x 4 houses = 32
@@ -59,10 +62,10 @@ def test_selling_a_hotel_with_an_empty_house_bank_drops_to_zero_at_half_price_fo
         properties={1: PropertyState(owner=0, houses=5), 3: PropertyState(owner=0, houses=5), **full_groups}
     )
     assert state.houses_remaining == 0
-    new_state, events = apply(state, SellHouse(player=0, tile=1))
-    assert new_state.properties[1].houses == 0
+    new_state, events = apply(state, SellHouse(player=0, tile=1, demolish_hotel=True))
+    assert (new_state.properties[1].houses, new_state.properties[3].houses) == (0, 0)
     refund = next(e for e in events if isinstance(e, CashChanged))
-    assert refund.delta == 5 * 25, "all five levels at half price"
+    assert refund.delta == 10 * 25, "ten levels at half price"
     changed = next(e for e in events if isinstance(e, BuildingChanged))
     assert (changed.houses, changed.delta) == (0, -5)
 

@@ -79,10 +79,21 @@ class BuildHouse(_CommandBase):
 
 
 class SellHouse(_CommandBase):
-    """Sell one house back to the bank at half the build cost."""
+    """Sell buildings back to the bank at half the build cost.
+
+    One level at a time by default — a hotel becomes four houses, which the bank must be
+    able to supply. ``demolish_hotel`` invokes the official "all buildings on one colour-
+    group may be sold at once" clause instead, which is the only way off the board when
+    the bank has run out of houses (GAP G-B3b, MON-201).
+    """
 
     kind: Literal["sell_house"] = "sell_house"
     tile: TileIndex = Field(ge=0, lt=BOARD_SIZE)
+    demolish_hotel: bool = False
+    """Sell every building in ``tile``'s colour group at once. Requires a hotel on
+    ``tile``. Selling the whole group rather than the one tile is what keeps even-build
+    true coming down: a single hotel dropped to zero would leave its siblings five
+    levels above it."""
 
 
 class MortgageProperty(_CommandBase):

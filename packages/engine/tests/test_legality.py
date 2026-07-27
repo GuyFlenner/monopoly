@@ -302,9 +302,15 @@ def test_sell_is_offered_only_at_the_group_maximum() -> None:
 
 
 def test_a_hotel_counts_as_five_for_even_build() -> None:
+    # Updated by MON-201: ``SellHouse.demolish_hotel`` is a second, explicit sale of the
+    # same tile (the official whole-group clause), so a hotel now offers two ways down.
     state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 4))
     build_and_sell = {c for c in legal_commands(state) if isinstance(c, BuildHouse | SellHouse)}
-    assert build_and_sell == {BuildHouse(player=0, tile=BROWN_B), SellHouse(player=0, tile=BROWN_A)}
+    assert build_and_sell == {
+        BuildHouse(player=0, tile=BROWN_B),
+        SellHouse(player=0, tile=BROWN_A),
+        SellHouse(player=0, tile=BROWN_A, demolish_hotel=True),
+    }
 
 
 def test_even_build_is_relaxed_when_the_ruleset_disables_it() -> None:
@@ -373,12 +379,15 @@ def test_the_hotel_build_needs_a_hotel_not_a_house() -> None:
     assert rejected(state, BuildHouse(player=0, tile=BROWN_A)) == "error.no_hotels_left"
 
 
-def test_selling_a_hotel_is_legal_even_when_the_bank_has_no_houses() -> None:
-    """MON-201 (G-B3b): the empty-bank demolition drops to zero — a legality question the
-    stock must not veto; the shortage variant is an *effect*, decided in apply."""
+def test_selling_a_hotel_with_no_houses_in_the_bank_is_the_demolition_only() -> None:
+    """MON-201 (G-B3b) rewrote this from "the empty-bank drop is an *effect*": an implicit
+    branch inside ``apply`` could not be rendered as a button, and a lone hotel dropping to
+    zero broke even-build coming down. The way out is now an explicit whole-group sale, so
+    the one-level sale is what the empty bank vetoes."""
     ruleset = Ruleset(name=RulesetName.UNIVERSAL, houses_available=0)
     state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 5), ruleset=ruleset)
-    approved(state, SellHouse(player=0, tile=BROWN_A))
+    assert rejected(state, SellHouse(player=0, tile=BROWN_A)) == "error.no_houses_left"
+    approved(state, SellHouse(player=0, tile=BROWN_A, demolish_hotel=True))
 
 
 def test_the_finite_bank_vetoes_the_build_in_every_ruleset() -> None:
