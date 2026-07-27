@@ -15,6 +15,14 @@ from __future__ import annotations
 
 from typing import Final
 
+from kesef_engine.primitives import Deck
+
+GET_OUT_OF_JAIL_IDS: Final[dict[Deck, str]] = {
+    Deck.CHANCE: "card.chance.get_out_of_jail_free",
+    Deck.COMMUNITY_CHEST: "card.community_chest.get_out_of_jail_free",
+}
+"""Which card id returns to which deck's bottom when a held jail card is spent (G-11)."""
+
 CHANCE_CARD_IDS: Final[tuple[str, ...]] = (
     "card.chance.advance_to_go",
     "card.chance.advance_to_illinois_avenue",
