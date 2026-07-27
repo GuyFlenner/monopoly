@@ -586,6 +586,13 @@ class GameState(BaseModel, frozen=True):
 
         This is the official tie-break for a time-limited game, and the yardstick the
         Kids Mode timer uses to pick a winner.
+
+        **A mortgaged property contributes zero** — not its price, not its mortgage value
+        (decided at MON-208). The deed is pledged to the bank, so counting it would let a
+        player raise their standing by borrowing against everything they own on the last
+        turn; and the buildings on it cannot count either, because a mortgaged tile may not
+        carry any. ``rules.endgame.final_standings`` is the only caller that ranks on this,
+        and it cites the same decision.
         """
         player = self.player(player_id)
         total = player.cash
