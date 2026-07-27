@@ -3,7 +3,9 @@
 ``ProposeTrade`` is validated by :func:`kesef_engine.legality.is_legal` (never
 enumerated — ADR-005's second exception), so these handlers only enact. TRADE_REVIEW
 admits nothing but respond/cancel, so the table cannot change under a pending offer in
-M1. TODO(MON-207): the 10% mortgage-transfer fee when a mortgaged tile changes hands.
+M1. TODO(MON-204): charge the 10% mortgage-transfer fee when a mortgaged tile changes hands
+here too — the arithmetic and the debt path are
+:func:`kesef_engine.rules.insolvency.mortgage_transfer_fee` and ``open_debt`` (MON-207).
 """
 
 from __future__ import annotations

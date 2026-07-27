@@ -1287,11 +1287,13 @@
       "player": 0
     },
     {
+      "demolish_hotel": false,
       "kind": "sell_house",
       "player": 0,
       "tile": 21
     },
     {
+      "demolish_hotel": false,
       "kind": "sell_house",
       "player": 0,
       "tile": 21
@@ -1347,11 +1349,13 @@
       "player": 0
     },
     {
+      "demolish_hotel": false,
       "kind": "sell_house",
       "player": 0,
       "tile": 21
     },
     {
+      "demolish_hotel": false,
       "kind": "sell_house",
       "player": 0,
       "tile": 21
@@ -6664,6 +6668,11 @@
       "type": "player_bankrupted"
     },
     {
+      "amount": -130,
+      "player": 0,
+      "type": "cash_changed"
+    },
+    {
       "amount": null,
       "player": 0,
       "type": "game_ended"
@@ -6731,7 +6740,7 @@
     "players": [
       {
         "bankrupt": false,
-        "cash": 651,
+        "cash": 521,
         "grammatical_gender": "n",
         "id": 0,
         "in_jail": false,

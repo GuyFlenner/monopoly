@@ -232,6 +232,22 @@ class DebtSettled(_EventBase):
     amount: int = Field(gt=0)
 
 
+class BankruptcyShare(BaseModel, frozen=True):
+    """One creditor's slice of a bankrupt estate, divided proportionally to claim (G-7).
+
+    Part of :class:`PlayerBankrupted`, not an event of its own — the estate divides once,
+    in one act, and a per-creditor event would invite a reader to treat the halves as
+    independent.
+    """
+
+    creditor: Creditor
+    claim: int = Field(gt=0)
+    """What this creditor was owed. The divisor of their share."""
+    cash: int = Field(default=0, ge=0)
+    tiles: tuple[TileIndex, ...] = ()
+    jail_cards: tuple[Deck, ...] = ()
+
+
 class PlayerBankrupted(_EventBase):
     type: Literal["player_bankrupted"] = "player_bankrupted"
     player: PlayerId
@@ -240,6 +256,11 @@ class PlayerBankrupted(_EventBase):
     cash_transferred: int = Field(default=0, ge=0)
     jail_cards_transferred: tuple[Deck, ...] = ()
     """Named, so the cards land in the right deck when the recipient uses them (GAP G-11)."""
+    shares: tuple[BankruptcyShare, ...] = ()
+    """How the estate divided when there was more than one creditor (G-7). Empty in the
+    ordinary case, where ``creditor`` and the three fields above are the whole story; when
+    it is populated, ``creditor`` names the *principal* claim (the largest) and the shares
+    carry the division."""
 
 
 class PhaseChanged(_EventBase):
