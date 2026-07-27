@@ -69,11 +69,14 @@ from kesef_engine.state import (
 BOARD = load_board("classic")
 OWNABLE_TILES = tuple(tile.index for tile in BOARD.tiles if tile.is_ownable)
 PROPERTY_TILES = tuple(tile.index for tile in BOARD.tiles if tile.kind is TileKind.PROPERTY)
+# Refined at MON-102/104 (reason: reachability invariants apply depends on, not test
+# weakening): the engine only ever suspends a *resting* phase into a frame — open_debt,
+# decline and propose all record post-move/portfolio phases — so a frame resuming a
+# transient phase is invalid, not merely unreachable. Transient resumes stay covered by
+# the serialization round-trips (helpers.maximal_interrupts).
 RESUME_PHASES = (
     Phase.AWAITING_ROLL,
     Phase.JAIL_DECISION,
-    Phase.MOVING,
-    Phase.RESOLVING_TILE,
     Phase.AWAITING_PURCHASE_DECISION,
     Phase.AWAITING_END_TURN,
 )
@@ -114,15 +117,16 @@ def game_states(draw: st.DrawFn) -> GameState:
         mortgaged = draw(st.booleans()) if houses == 0 else False
         tiles[index] = PropertyState(owner=draw(st.sampled_from(ids)), houses=houses, mortgaged=mortgaged)
 
+    cash_by_id = {player.id: player.cash for player in players}
     phase = draw(st.sampled_from(sorted(Phase)))
     interrupts: tuple[InterruptFrame, ...] = ()
     winner: int | None = None
     if phase is Phase.GAME_OVER:
         winner = solvent[0]
     elif phase is Phase.AUCTION:
-        interrupts = (draw(auction_frames(ids)),)
+        interrupts = (draw(auction_frames(ids, cash_by_id)),)
     elif phase is Phase.DEBT_SETTLEMENT:
-        interrupts = (draw(debt_frames(ids)),)
+        interrupts = (draw(debt_frames(ids, solvent)),)
     elif phase is Phase.TRADE_REVIEW:
         interrupts = (draw(trade_frames(ids)),)
     elif phase is Phase.CARD_RESOLUTION:
@@ -167,12 +171,19 @@ def game_states(draw: st.DrawFn) -> GameState:
 
 
 @st.composite
-def auction_frames(draw: st.DrawFn, ids: tuple[int, ...]) -> AuctionFrame:
+def auction_frames(draw: st.DrawFn, ids: tuple[int, ...], cash_by_id: dict[int, int]) -> AuctionFrame:
     eligible = tuple(sorted(draw(st.sets(st.sampled_from(ids), min_size=1))))
     active = tuple(sorted(draw(st.sets(st.sampled_from(eligible)))))
     turn = draw(st.one_of(st.none(), st.sampled_from(active))) if active else None
     high_bid = draw(st.integers(min_value=0, max_value=300))
-    high_bidder = draw(st.sampled_from(eligible)) if high_bid else None
+    # Refined at MON-102/104 (reachability invariant, not test weakening): bids are
+    # capped by cash at placement and a high bidder can only *gain* cash during an
+    # auction (RAISING_PHASES), so an unaffordable standing bid is invalid — awarding
+    # it would legitimately crash the ledger's ge=0 backstop.
+    solvent_for_bid = tuple(player for player in eligible if cash_by_id[player] >= high_bid)
+    if high_bid and not solvent_for_bid:
+        high_bid = 0
+    high_bidder = draw(st.sampled_from(solvent_for_bid)) if high_bid else None
     min_bid = draw(st.integers(min_value=1, max_value=350))
     max_bid = draw(st.one_of(st.none(), st.integers(min_value=min_bid, max_value=800)))
     lot: Lot = draw(
@@ -196,9 +207,12 @@ def auction_frames(draw: st.DrawFn, ids: tuple[int, ...]) -> AuctionFrame:
 
 
 @st.composite
-def debt_frames(draw: st.DrawFn, ids: tuple[int, ...]) -> DebtFrame:
+def debt_frames(draw: st.DrawFn, ids: tuple[int, ...], solvent: tuple[int, ...]) -> DebtFrame:
     debtor = draw(st.sampled_from(ids))
-    candidates: tuple[int | str, ...] = tuple(seat for seat in ids if seat != debtor) + ("bank",)
+    # Refined at MON-102/104 (reachability invariant, not test weakening): a bankrupt
+    # player's claims are settled or voided the moment they leave the game (MON-207),
+    # so a creditor is always solvent or the bank.
+    candidates: tuple[int | str, ...] = tuple(seat for seat in solvent if seat != debtor) + ("bank",)
     creditors = sorted(draw(st.sets(st.sampled_from(candidates), min_size=1, max_size=2)), key=str)
     obligations = tuple(
         Obligation(creditor=creditor, amount=draw(st.integers(min_value=1, max_value=200))) for creditor in creditors
@@ -300,23 +314,42 @@ def test_bankrupt_players_and_finished_games_are_offered_nothing(state: GameStat
     assert all(command.player not in bankrupt for command in commands)
 
 
-# --- ADR-005 against apply: scaffolded, owned by MON-102 / MON-209 -------------
+# --- ADR-005 against apply: soundness + completeness live (MON-102/104); the oracle
+# --- with its coverage floor stays with MON-209 ---------------------------------
 
 
-@pytest.mark.skip(reason="MON-102: apply() does not exist yet — this file is completed by MON-102/MON-209")
-def test_soundness_every_enumerated_command_is_accepted_by_apply() -> None:
-    """ADR-005 property 1 over both generators (structural above, replay from MON-107)."""
-    raise AssertionError("unskipped without being implemented — MON-102 owns this body")
+@given(state=game_states())
+@settings(max_examples=75, deadline=None)
+def test_soundness_every_enumerated_command_is_accepted_by_apply(state: GameState) -> None:
+    """ADR-005 property 1 over the structural generator (the replay generator's half
+    lives in MON-107's goldens): apply accepts everything legal_commands offers."""
+    from kesef_engine.reducer import apply
+
+    for command in legal_commands(state):
+        apply(state, command)  # a raise here is the property's failure
 
 
-@pytest.mark.skip(reason="MON-102: apply() does not exist yet — this file is completed by MON-102/MON-209")
-def test_completeness_omitted_enumerable_commands_raise_illegal_command_error() -> None:
+@given(state=game_states())
+@settings(max_examples=50, deadline=None)
+def test_completeness_omitted_enumerable_commands_raise_illegal_command_error(state: GameState) -> None:
     """ADR-005 property 2: the rejection must be IllegalCommandError with a populated
     reason_key — a crash does not count as a rejection."""
-    raise AssertionError("unskipped without being implemented — MON-102 owns this body")
+    from kesef_engine.errors import IllegalCommandError
+    from kesef_engine.reducer import apply
+
+    enumerated = set(legal_commands(state))
+    for command in enumerable_universe(state):
+        is_end_turn = isinstance(command, EndTurn)
+        canonical = command.model_copy(update={"elapsed_seconds": None}) if is_end_turn else command
+        if canonical in enumerated:
+            continue
+        with pytest.raises(IllegalCommandError) as excinfo:
+            apply(state, command)
+        assert excinfo.value.reason_key, f"{command!r} was rejected without a reason key"
+        assert REASON_KEY.fullmatch(excinfo.value.reason_key)
 
 
-@pytest.mark.skip(reason="MON-102: apply() does not exist yet — this file is completed by MON-102/MON-209")
+@pytest.mark.skip(reason="MON-209: the is_legal <=> apply oracle with the Phase/CashReason coverage floor")
 def test_is_legal_agrees_with_apply_over_the_full_parameter_space() -> None:
     """ADR-005 property 3 (the oracle), with the MON-209 coverage floor: every Phase and
     every CashReason observed via hypothesis.event(), or the run fails."""

@@ -13,10 +13,16 @@ from kesef_engine.state import GameState
 
 
 def maybe_end(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
-    if state.interrupts or len(state.solvent_players) > 1:
+    solvent = state.solvent_players
+    if state.interrupts or len(solvent) > 1:
         return state, ()
-    winner = state.solvent_players[0].id
     standings = final_standings(state)
+    if not solvent:
+        # Nobody survived — reachable once MON-207's cascades land (GAP G-13); handled
+        # now so a hand-built no-survivor position resolves instead of crashing.
+        state = state._replace(phase=Phase.GAME_OVER, winner=None)
+        return state, (GameEnded(winner=None, reason="no_survivors", final_standings=standings),)
+    winner = solvent[0].id
     state = state._replace(phase=Phase.GAME_OVER, winner=winner)
     return state, (GameEnded(winner=winner, reason="last_solvent", final_standings=standings),)
 

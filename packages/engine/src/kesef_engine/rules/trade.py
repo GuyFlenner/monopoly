@@ -8,8 +8,9 @@ M1. TODO(MON-207): the 10% mortgage-transfer fee when a mortgaged tile changes h
 
 from __future__ import annotations
 
-from kesef_engine.commands import CancelTrade, ProposeTrade, RespondToTrade, TradeSide
+from kesef_engine.commands import CancelTrade, ProposeTrade, RespondToTrade, TradeOffer, TradeSide
 from kesef_engine.events import Event, TradeCancelled, TradeDeclined, TradeExecuted, TradeProposed
+from kesef_engine.legality import _trade_side
 from kesef_engine.primitives import CashReason, PlayerId
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import update_player, update_property
@@ -28,6 +29,10 @@ def handle_respond(state: GameState, command: RespondToTrade) -> tuple[GameState
     state = state.pop_interrupt()
     if not command.accept:
         return state, (TradeDeclined(offer=offer),)
+    if not _still_deliverable(state, offer):
+        # A named holding changed hands before the recipient answered: the engine
+        # voids the offer rather than executing a swap a party can no longer honour.
+        return state, (TradeCancelled(offer=offer, by="system"),)
     events: list[Event] = []
     state = _transfer_side(state, offer.proposer, offer.recipient, offer.give, events)
     state = _transfer_side(state, offer.recipient, offer.proposer, offer.receive, events)
@@ -39,6 +44,14 @@ def handle_cancel(state: GameState, command: CancelTrade) -> tuple[GameState, tu
     frame = state.top_interrupt
     assert isinstance(frame, TradeFrame)  # is_legal proved it
     return state.pop_interrupt(), (TradeCancelled(offer=frame.offer, by="proposer"),)
+
+
+def _still_deliverable(state: GameState, offer: TradeOffer) -> bool:
+    """Both parties still hold what the offer moves — checked through the same
+    predicate ``is_legal`` used at proposal time (one source of truth, ADR-005)."""
+    give_ok = _trade_side(state, state.player(offer.proposer), offer.give)
+    receive_ok = _trade_side(state, state.player(offer.recipient), offer.receive)
+    return bool(give_ok) and bool(receive_ok)
 
 
 def _transfer_side(
