@@ -41,7 +41,8 @@ import {
 } from "./api";
 import { FailureNote, GameScreen, useReasonText } from "./game/GameScreen";
 import { GameProvider, queryKeys } from "./game";
-import { applyLocale, type Locale } from "./i18n";
+import { type Locale } from "./i18n";
+import { useLocale } from "./i18n/useLocale";
 import { SetupScreen } from "./panels/SetupScreen";
 import { ThemeSprite } from "./theme";
 
@@ -98,12 +99,10 @@ export interface AppProps {
 export function App({ client }: AppProps = {}): React.JSX.Element {
   const resolvedClient = useMemo(() => client ?? new ApiClient(), [client]);
   const [gameId, goTo] = useGameIdInUrl();
-  const [locale, setLocale] = useState<Locale>("en");
-
-  const switchLocale = useCallback((next: Locale) => {
-    setLocale(next);
-    applyLocale(next);
-  }, []);
+  // Read from i18next, not held beside it. Two controls can change the language now — the setup
+  // screen's radio group and the game chrome's switch — and a copy in this component is how the
+  // one that did not fire ends up displaying a language the page is no longer in.
+  const [locale, switchLocale] = useLocale();
 
   return (
     <AnnouncerProvider>

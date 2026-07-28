@@ -69,21 +69,22 @@
     "dark_blue": "כחול כהה"
   },
   "label": {
+    "bank": "הבנק",
+    "bankrupt": "מחוץ למשחק",
     "cash": "מזומן",
-    "properties": "נכסים",
-    "turn": "תור {{number}}",
-    "player": "שחקן",
-    "rent": "שכר דירה",
-    "price": "מחיר",
-    "houses": "בתים",
     "hotel": "מלון",
+    "houses": "בתים",
+    "in_jail": "בכלא",
+    "jail_cards": "כרטיסי יציאה מהכלא",
+    "language": "שפה",
+    "loading": "טוען…",
     "mortgaged": "ממושכן",
     "net_worth": "שווי נקי",
-    "jail_cards": "כרטיסי יציאה מהכלא",
-    "in_jail": "בכלא",
-    "bankrupt": "מחוץ למשחק",
-    "bank": "הבנק",
-    "loading": "טוען…"
+    "player": "שחקן",
+    "price": "מחיר",
+    "properties": "נכסים",
+    "rent": "שכר דירה",
+    "turn": "תור {{number}}"
   },
   "rent": {
     "note": {

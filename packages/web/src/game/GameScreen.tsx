@@ -57,6 +57,7 @@ import {
   Token,
   type Translate,
 } from "@/board";
+import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { EventLog } from "@/panels/EventLog";
@@ -143,6 +144,11 @@ function Chrome({
               reachable without hunting for the board's interior. The store behind it is
               module-level, so the two cannot disagree. */}
           <SkipAnimationsToggle />
+          {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
+              structurally rather than by care: this control writes to i18next and the document
+              element, and the game reaches this package as a projection cached by TanStack Query
+              that nothing here invalidates. */}
+          <LocaleSwitch />
           <button
             type="button"
             onClick={onLeave}

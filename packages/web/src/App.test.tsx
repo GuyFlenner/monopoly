@@ -361,4 +361,53 @@ describe("App — the game screen", () => {
     expect(dossier).toHaveAttribute("data-player", "1");
     expect(dossier).toHaveAttribute("data-current", "false");
   });
+
+  /**
+   * M5's definition of done, as an assertion: "switchable mid-game and no effect on game state".
+   *
+   * The claim is about what a language change may touch, so it is tested at the level where game
+   * state exists — the mounted app with a real view in the query cache — rather than on the switch
+   * in isolation. What must survive is the projection (the board, the seat on screen, the legal
+   * commands the engine offered) and the UI-local state that is nobody's business but this
+   * package's (which dossier is open).
+   *
+   * It must also not refetch: a language change that invalidated the game query would round-trip
+   * and *look* fine here while being a defect on a real network, so the request count is asserted
+   * too. Language is not a fact the server holds.
+   */
+  it("changes language mid-game without disturbing the game", async () => {
+    openGameUrl("g1");
+    const edge = gameEdge(gameView({ current_player_id: 0 }, [ROLL, END_TURN]));
+    renderApp(edge);
+    await screen.findByTestId("board-grid");
+
+    // Put the UI somewhere non-default first, so a remount would be visible.
+    await userEvent.click(screen.getByRole("button", { name: "Dan" }));
+    expect(screen.getByTestId("player-dossier")).toHaveAttribute("data-player", "1");
+
+    const requestsBefore = edge.calls.length;
+    const boardBefore = screen.getByTestId("board-grid");
+
+    await userEvent.click(screen.getByTestId("locale-he"));
+
+    // The catalogue moved: the same command is offered under its Hebrew label, not its English one.
+    // `action.roll_dice` has Hebrew, which is what makes this a real check on the switch rather
+    // than on a fallback.
+    await waitFor(() => {
+      expect(document.documentElement).toHaveAttribute("lang", "he");
+    });
+    expect(screen.queryByRole("button", { name: /Roll the dice/ })).not.toBeInTheDocument();
+
+    // The game did not move.
+    expect(screen.getByTestId("board-grid")).toBe(boardBefore);
+    expect(screen.getByTestId("player-dossier")).toHaveAttribute("data-player", "1");
+    const chits = screen
+      .getByTestId("board-grid")
+      .ownerDocument.querySelectorAll("[data-command-kind]");
+    expect([...chits].map((chit) => chit.getAttribute("data-command-kind"))).toEqual([
+      "roll_dice",
+      "end_turn",
+    ]);
+    expect(edge.calls.length, "a language change must not refetch the game").toBe(requestsBefore);
+  });
 });
