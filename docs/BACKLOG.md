@@ -498,22 +498,27 @@ to "would this test fail if the implementation were wrong". Coverage floor
   same line of code, G-F32). The `he` smoke asserts a Hebrew string present and an English
   string absent.
 
-### MON-503 — Israeli board name catalogue 🚧 **BLOCKED**
-**Tier**: Sonnet (human input required) · **Size**: S · **Depends on**: —
+### MON-503 — Israeli board name catalogue ✅ **DONE**
+**Tier**: Sonnet · **Size**: S · **Depends on**: —
 
-**Research done (2026-07-26, GAP §6); still blocked on owner confirmation.** The classic
-licensed edition's structure is multi-source verified (8 cities × 22 streets, Eilat → Tel
-Aviv, Dizengoff priciest; utilities and functional labels confirmed); 10 of 22 streets are
-cross-verified, 12 are single-source (Hebrew Wikipedia), and **prices and the four station
-names are unverifiable online** — our own price ladder stays, stated as original game data.
-Do not fill the remaining names from memory or inference: a fabricated board looks right and
-will never be re-checked.
+**Source: five high-resolution photographs of the physical licensed Kod Kod (קוד קוד) edition
+(© 1935/2015 Hasbro, product code D-1591-1232-0000 250215), supplied by the owner on
+2026-07-28, all four edges legible.** This replaces the 2026-07-26 web research (GAP §6),
+which had cross-verified only 10 of 22 streets and left prices, the four station names and
+one street (`t34`) unconfirmed. The photographs confirm all 22 streets, 4 railways, 2
+utilities and every functional label verbatim, and correct `t34` to רח' מוריה (the research
+had שד' מוריה). They also confirm that the shipped price ladder in
+`packages/engine/src/kesef_engine/board/data/israel.json` already matches the physical
+board's prices slot for slot — the ADR-003 §4 assumption is now verified, not just assumed.
 
-- Owner confirms the 12 single-source streets (a photo of a physical board suffices), or
-  supplies their own list; sources cited in the PR description.
-- Fill `board-israel.en.json` and `board-israel.he.json`, keyed `tile.israel.t00`–`t39`.
-- Add `board-israel` to `CATALOGUES` in `tests/test_locale_parity.py` and delete
-  `test_the_israeli_board_has_no_catalogue_yet`.
+- `board-israel.en.json` and `board-israel.he.json` filled, keyed `tile.israel.t00`–`t39`,
+  transcribed verbatim from the photographs (including the two deliberate duplicate names
+  and the geresh/quotation-mark punctuation).
+- `board-israel` added to `CATALOGUES` in `tests/test_locale_parity.py`;
+  `test_the_israeli_board_has_no_catalogue_yet` deleted.
+- **Standing rule, unchanged**: never fill board data from memory or inference. A
+  plausible-looking fabricated board is worse than a missing one, because nobody will
+  re-check it.
 
 ### MON-504 — Hebrew typography
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-501
@@ -665,7 +670,7 @@ MON-100 ─► MON-101 ─► MON-102 ─► MON-103 ─► MON-104 ─► MON-1
 MON-106 ─┬─► MON-301 ─► MON-302 ─► MON-303 ─► MON-304                                     (M3)
          │                  │
 MON-401 ─┴─► MON-402 ─► MON-403 ─► MON-404 / 405 / 406 / 407 / 408 / 409 / 410            (M4)
-                 └─► MON-501 ─► MON-502 / 504     (M5, and MON-503 / MON-506 are blocked on a source / a Hebrew pass)
+                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 done, MON-506 still blocked on a Hebrew pass)
 MON-601 ─► MON-602 ─► MON-603 · MON-604 ─► MON-605                                        (M6)
 ```
 

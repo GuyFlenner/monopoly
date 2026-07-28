@@ -182,7 +182,27 @@ designed out; the `legal_commands` contract makes "disabled buttons never lie" s
 
 ---
 
-## 6. MON-503 — Israeli board names (research completed 2026-07-26)
+## 6. MON-503 — Israeli board names (resolved 2026-07-28)
+
+**Resolution**: the owner supplied five high-resolution photographs of the physical licensed
+Kod Kod (קוד קוד) edition (© 1935/2015 Hasbro, product code D-1591-1232-0000 250215), all four
+edges legible. All 22 streets, 4 railways, 2 utilities and every functional label are now read
+directly from the photographs rather than inferred or sourced online — `board-israel.en.json`
+and `board-israel.he.json` are filled and `test_the_israeli_board_has_no_catalogue_yet` is
+deleted.
+
+The earlier web research (2026-07-26, below) had cross-checked 10 of 22 streets against 3+
+independent sources and left the remaining 12 single-source (Hebrew Wikipedia); the photograph
+matches that research on 21 of 22 streets and corrects one: `t34` is **רח' מוריה**, not
+**שד' מוריה** as the single-source research had it. The research had also flagged purchase
+prices as unverifiable online; the photograph confirms they are identical to the classic
+board's price ladder, slot for slot — the ADR-003 §4 assumption ("the two boards are
+economically identical, enforced by a test") is now verified by a primary source rather than
+merely assumed, and `packages/engine/src/kesef_engine/board/data/israel.json` did not need to
+change.
+
+<details>
+<summary>Original research (2026-07-26), superseded by the photograph above</summary>
 
 Web research (authorized by the owner) found and cross-checked the classic **licensed Israeli
 edition** (Kodkod, Hasbro's Israeli licensee):
@@ -207,6 +227,12 @@ physical board suffices); since the real edition's *numbers* are unverifiable, k
 classic price ladder as original game data and say so in the board file's comment. MON-503
 stays **blocked** on the owner's confirmation — the sourced list and full source URLs are in
 the PR discussion for this document.
+
+</details>
+
+**Standing rule, unchanged**: never fill board data from memory or inference. A
+plausible-looking fabricated board is worse than a missing one, because nobody will re-check
+it.
 
 ---
 
