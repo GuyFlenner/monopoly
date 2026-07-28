@@ -291,6 +291,30 @@ _AUCTION_AND_TRADE = frozenset(
         "auction.warnHalfCash",
         "auction.confirmWholeCash",
         "auction.confirmWithdraw",
+        # The trade builder (MON-410). "{{name}} gives" is a verb agreeing with a named subject and
+        # "Put something on the table" is an imperative, which Hebrew inflects for the addressee's
+        # gender — the same MON-501 pass. The *refusal* sentences a player actually reads are the
+        # engine's ``error.*`` keys, rendered from ``{reason_key, params}``, so they are not listed
+        # here: this panel adds no wording of its own for why a trade is illegal.
+        "trade.title",
+        "trade.cannotLeave",
+        "trade.between",
+        "trade.recipient",
+        "trade.sideGives",
+        "trade.cash",
+        "trade.sideCash",
+        "trade.addCash",
+        "trade.removeCash",
+        "trade.properties",
+        "trade.noProperties",
+        "trade.jailCards",
+        "trade.noJailCards",
+        "trade.checking",
+        "trade.ready",
+        "trade.refused",
+        "trade.empty",
+        "trade.send",
+        "trade.simplifiedHint",
     }
 )
 """MON-409/410's English-only keys — the auction panel, the trade builder and the modal chrome."""

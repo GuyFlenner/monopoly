@@ -192,6 +192,27 @@
     "confirmWholeCash": "Bidding {{amount}} spends nearly everything you have. Bid it anyway?",
     "confirmWithdraw": "Dropping out is final — you cannot bid on this one again. Drop out?"
   },
+  "trade": {
+    "title": "Offer a trade",
+    "cannotLeave": "Finish or cancel this offer before carrying on.",
+    "between": "{{proposer}} offers {{recipient}} a trade",
+    "recipient": "Trade with",
+    "sideGives": "{{name}} gives",
+    "cash": "Cash",
+    "sideCash": "Cash from {{name}}",
+    "addCash": "Add {{amount}}",
+    "removeCash": "Take off {{amount}}",
+    "properties": "Properties",
+    "noProperties": "No properties to offer",
+    "jailCards": "Get Out of Jail cards",
+    "noJailCards": "No cards to offer",
+    "checking": "Checking this offer…",
+    "ready": "This offer can be sent",
+    "refused": "This offer cannot be sent.",
+    "empty": "Put something on the table to make an offer.",
+    "send": "Send this offer",
+    "simplifiedHint": "Kids mode: one thing from each side per trade."
+  },
   "cash_reason": {
     "go_salary": "GO salary",
     "rent": "rent",
