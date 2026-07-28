@@ -50,6 +50,7 @@ from kesef_server.schemas import (
     LegalityView,
     LoggedEvent,
     NewGameRequest,
+    is_addressable_game_id,
 )
 from kesef_server.sessions import (
     DuplicateGameError,
@@ -296,6 +297,11 @@ async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> G
         state = GameState.model_validate_json(raw)
     except (ValidationError, ValueError, EngineError):
         raise errors.save_schema_mismatch() from None
+    # The id arrives from inside the body, where it is not a request field and so cannot carry
+    # the constraint ``NewGameRequest.game_id`` does. Unchecked, a save named ``kitchen/table``
+    # took a session slot that no route could then reach or free (schemas.GAME_ID_PATTERN).
+    if not is_addressable_game_id(state.game_id):
+        raise errors.invalid_game_id()
     return _view(_create(store, state))
 
 

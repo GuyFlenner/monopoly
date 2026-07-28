@@ -37,6 +37,7 @@ JSON is the save file" property is kept, just no longer conflated with what a cl
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
@@ -89,6 +90,43 @@ class ErrorResponse(BaseModel):
 
 # --- Requests ---------------------------------------------------------------
 
+GAME_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+"""What a ``game_id`` may contain, on every wire path that accepts one.
+
+Constrained only by a length, a client could name a game ``kitchen/table``: ``POST /games``
+answered 201, the game took one of ``max_sessions`` slots and was listed by ``GET /games``,
+and it was then unreachable by ``GET``, ``POST``, ``%2F`` *or* ``DELETE``. ``"  "`` did the
+same. So an unauthenticated client could wedge ``POST /games`` and ``POST /games/load`` at
+503 permanently, with no recovery short of a restart (MON-303 security review).
+
+The set here is exactly the set that survives a URL path segment intact. What is at stake is
+the id's *addressability*, not its prettiness — this is a transport constraint, not a rule,
+which is why it lives here and not in ``kesef_engine`` (the engine has no URLs).
+
+**The leading character class is not decoration.** The review prescribed
+``^[A-Za-z0-9_.-]{1,64}$``, which still admits ``.`` and ``..``, and a path segment is where
+those two mean something else. Measured against the app: ``..`` created 201, then answered
+404 to both ``GET`` and ``DELETE``; ``.`` created 201, answered 200 to ``GET`` and **405** to
+``DELETE``. Both kept the slot forever, which is the whole of the finding. Requiring the first
+character to be alphanumeric closes it without a lookahead — pydantic v2's default regex
+engine is ``rust-regex``, which has none.
+"""
+
+_GAME_ID = re.compile(GAME_ID_PATTERN)
+
+GameId = Annotated[str, Field(pattern=GAME_ID_PATTERN)]
+"""A ``game_id`` as a request field. Rejected by pydantic, so the answer is the ordinary
+``error.malformed_request`` naming the field."""
+
+
+def is_addressable_game_id(game_id: str) -> bool:
+    """Whether ``game_id`` satisfies :data:`GAME_ID_PATTERN`.
+
+    ``POST /games/load`` takes its id from *inside* a ``GameState``, where it is not a request
+    field and cannot carry a field constraint, so that route checks it by hand.
+    """
+    return _GAME_ID.fullmatch(game_id) is not None
+
 
 class SeatConfig(BaseModel):
     """One seat at the table. A seat is either a person or a bot.
@@ -136,10 +174,11 @@ class NewGameRequest(BaseModel):
     locale: str = "en"
     seed: int | None = None
     """None means the server picks one and returns it, so a game can be replayed."""
-    game_id: str | None = Field(default=None, min_length=1, max_length=64)
+    game_id: GameId | None = None
     """None means the server names the game. A client may name it — to reserve a link, or
     to restore a save under its own id — and a name already in use is a 409 rather than a
-    silent overwrite of somebody's live game."""
+    silent overwrite of somebody's live game. See :data:`GAME_ID_PATTERN` for why the
+    character set is closed and not merely length-limited."""
 
 
 class CommandRequest(BaseModel):

@@ -99,7 +99,8 @@ export interface paths {
          *     carried forward from the MON-100 security review:
          *
          *     * **Size.** This is the only route whose body is not a small fixed shape, so it gets an
-         *       explicit ceiling instead of reading whatever arrives.
+         *       explicit ceiling instead of reading whatever arrives — enforced *while* reading, by
+         *       :func:`_read_bounded`, not after.
          *     * **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``
          *       (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,
          *       which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body

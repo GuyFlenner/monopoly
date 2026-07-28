@@ -175,7 +175,7 @@
           "game"
         ],
         "summary": "Load Game",
-        "description": "Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.\n\nThe body is read raw rather than declared as a ``GameState`` parameter, for two reasons\ncarried forward from the MON-100 security review:\n\n* **Size.** This is the only route whose body is not a small fixed shape, so it gets an\n  explicit ceiling instead of reading whatever arrives.\n* **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``\n  (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,\n  which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body\n  parameter it escaped as a 500 with a traceback. Validating inside the handler is what\n  lets both become ``error.save_schema_mismatch``.\n\nThe OpenAPI request body is declared by hand above, so the contract still says\n``GameState`` and ``generated.ts`` still types it.",
+        "description": "Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.\n\nThe body is read raw rather than declared as a ``GameState`` parameter, for two reasons\ncarried forward from the MON-100 security review:\n\n* **Size.** This is the only route whose body is not a small fixed shape, so it gets an\n  explicit ceiling instead of reading whatever arrives — enforced *while* reading, by\n  :func:`_read_bounded`, not after.\n* **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``\n  (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,\n  which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body\n  parameter it escaped as a 500 with a traceback. Validating inside the handler is what\n  lets both become ``error.save_schema_mismatch``.\n\nThe OpenAPI request body is declared by hand above, so the contract still says\n``GameState`` and ``generated.ts`` still types it.",
         "operationId": "load_game_games_load_post",
         "requestBody": {
           "content": {
@@ -2801,8 +2801,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 64,
-                "minLength": 1
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
               },
               {
                 "type": "null"

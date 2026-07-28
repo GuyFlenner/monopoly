@@ -90,3 +90,14 @@ def invalid_new_game() -> ApiError:
 
 def unknown_board(board_id: str) -> ApiError:
     return ApiError(UNPROCESSABLE, "error.unknown_board", board_id=board_id)
+
+
+def invalid_game_id() -> ApiError:
+    """A save whose ``game_id`` could not be addressed once the game existed.
+
+    See ``schemas.GAME_ID_PATTERN``: an id carrying a path separator produced a game that
+    occupied a session slot and could not be fetched or deleted. Deliberately without params —
+    the offending id arrives from inside an attacker-supplied body and may be as long as the
+    body allows, so it is not echoed at all rather than echoed truncated.
+    """
+    return ApiError(UNPROCESSABLE, "error.invalid_game_id")

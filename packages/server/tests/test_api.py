@@ -295,6 +295,47 @@ def test_a_client_may_name_its_game(client: TestClient) -> None:
     assert view["state"]["game_id"] == "kitchen-table"
 
 
+UNADDRESSABLE_GAME_IDS: Final = [
+    "kitchen/table",  # 201, listed, then unreachable by GET, POST, %2F *or* DELETE
+    "..",  # 201, then 404 to both GET and DELETE
+    ".",  # 201, 200 to GET, and 405 to DELETE
+    "../etc",
+    "  ",
+    "a b",
+    "a\n",
+    "a" * 65,
+    "",
+]
+"""Ids that cannot survive a URL path segment. Each one used to occupy a session slot that
+no route could reach or free — see ``schemas.GAME_ID_PATTERN``."""
+
+
+@pytest.mark.parametrize("game_id", UNADDRESSABLE_GAME_IDS)
+def test_a_game_id_that_could_not_be_addressed_is_refused(client: TestClient, game_id: str) -> None:
+    response = client.post("/games", json=new_game_payload(game_id=game_id))
+    assert response.status_code == UNPROCESSABLE, f"{game_id!r} was accepted"
+    assert response.json() == {"reason_key": "error.malformed_request", "params": {"fields": "game_id"}}
+
+
+def test_the_session_cap_cannot_be_wedged_by_ids_that_cannot_be_deleted(client: TestClient) -> None:
+    """The security condition, stated as the thing an attacker wanted (MON-303 review).
+
+    A one-slot server: every unaddressable id must leave the slot free, because a game under
+    such an id could never be deleted and 503 would then be permanent.
+    """
+    store = SessionStore(max_sessions=1, clock=FakeClock())
+    app.dependency_overrides[get_store] = lambda: store
+
+    for game_id in UNADDRESSABLE_GAME_IDS:
+        assert client.post("/games", json=new_game_payload(game_id=game_id)).status_code == UNPROCESSABLE
+    assert len(store) == 0, "an id nobody can delete took the only slot"
+
+    assert client.post("/games", json=new_game_payload(game_id="kitchen-table")).status_code == 201
+    assert client.post("/games", json=new_game_payload(game_id="second")).status_code == 503
+    assert client.delete("/games/kitchen-table").status_code == status.HTTP_204_NO_CONTENT
+    assert client.post("/games", json=new_game_payload(game_id="second")).status_code == 201
+
+
 def test_a_duplicate_game_id_is_a_conflict_not_a_silent_overwrite(client: TestClient) -> None:
     client.post("/games", json=new_game_payload(game_id="dup"))
     response = client.post("/games", json=new_game_payload(game_id="dup", seats=[seat("Cal"), seat("Dot")]))
@@ -538,6 +579,16 @@ def test_a_save_naming_an_unknown_board_does_not_escape_as_a_500(client: TestCli
     response = client.post("/games/load", json=saved)
     assert response.status_code == UNPROCESSABLE
     assert response.json()["reason_key"] == "error.save_schema_mismatch"
+
+
+@pytest.mark.parametrize("game_id", ["kitchen/table", "  ", "..", ".", "../etc", "a" * 65])
+def test_a_save_naming_an_unaddressable_game_is_refused(client: TestClient, game_id: str) -> None:
+    """The load route takes its id from inside the body, where no field constraint reaches."""
+    saved = minimal_state(game_id=game_id).model_dump(mode="json")
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == UNPROCESSABLE, f"{game_id!r} was accepted"
+    assert response.json() == {"reason_key": "error.invalid_game_id", "params": {}}
+    assert client.get("/games").json() == [], "the refused save must not have taken a slot"
 
 
 def test_a_structurally_broken_save_is_a_keyed_422(client: TestClient) -> None:
