@@ -258,11 +258,55 @@ _DICE = frozenset(
 )
 """MON-404's English-only keys — the dice tray and the animation switch."""
 
-AWAITING_HEBREW = _NARRATION_AWAITING_HEBREW | _EVENT_LOG_AWAITING_HEBREW | _SETUP_AWAITING_HEBREW | _BOARD | _DICE
+_PANELS = frozenset(
+    {
+        # MON-405's ActionBar. Five of these are labels for command kinds the catalogue never had
+        # a leaf for at all (``respond_to_trade`` and ``cancel_trade``), or for a payload variant
+        # of one it did (``sell_house`` with ``demolish_hotel``), or a price-free replacement for
+        # ``action.buy`` whose ``{{price}}`` nothing on the wire can supply — see
+        # ``panels/ActionLabels.ts``. Every one is an imperative verb addressed to a player, and
+        # Hebrew inflects the imperative for the addressee's gender (GAP G-42), which is exactly
+        # the i18next gender context MON-501 owns.
+        "action.buy_property",
+        "action.cancel_trade",
+        "action.respond_to_trade_accept",
+        "action.respond_to_trade_decline",
+        "action.sellHouse_hotel",
+        "actionbar.choose_square",
+        "actionbar.label",
+        "actionbar.none",
+        # The terminal-command confirm step (GAP C3). These are full sentences explaining a
+        # consequence to a child, which is the hardest register in the product to get right in a
+        # second language and the worst place to ship a machine-plausible guess: the whole point
+        # of the step is that the player understands what they are about to lose.
+        "confirm.cancel",
+        "confirm.consequence.declare_bankruptcy",
+        "confirm.consequence.decline_purchase",
+        "confirm.consequence.withdraw_from_auction",
+        "confirm.proceed",
+        "confirm.title",
+        # MON-406's dossier. ``dossier.title``/``completeSet``/``setProgress``/``empty`` already
+        # have Hebrew and are reused as they are; only the three new leaves are here.
+        "dossier.bot",
+        "dossier.other_holdings",
+        "dossier.seat",
+        # Shared labels both panels interpolate a count into. Hebrew pluralises on one/two/many
+        # rather than one/other, so the plural *shape* differs and not just the words — i18next
+        # needs ``_one``/``_two``/``_many`` keys here, which is a catalogue decision MON-501 owns.
+        "label.squares_one",
+        "label.squares_other",
+        "label.unknown_square",
+    }
+)
+"""MON-405/MON-406's English-only keys — the action bar, the confirm step and the dossier."""
+
+AWAITING_HEBREW = (
+    _NARRATION_AWAITING_HEBREW | _EVENT_LOG_AWAITING_HEBREW | _SETUP_AWAITING_HEBREW | _BOARD | _DICE | _PANELS
+)
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 
 Split by the item that added them, because the *reason* is what has to survive review, and the
-three groups share one: every sentence has a subject, and Hebrew conjugates the verb to the
+groups share one: every sentence has a subject, and Hebrew conjugates the verb to the
 subject's gender (GAP G-42). ``רותי עבר`` is wrong for every Hebrew speaker, and wrong in a
 children's game is worse than absent. MON-501/MON-506 own the Hebrew catalogue and the i18next
 gender context that makes these sayable.

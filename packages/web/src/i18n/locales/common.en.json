@@ -6,19 +6,39 @@
   "action": {
     "roll": "Roll the dice",
     "buy": "Buy for {{price}}",
+    "buy_property": "Buy this square",
     "decline": "Don't buy",
     "endTurn": "End turn",
     "build": "Build a house",
     "sellHouse": "Sell a house",
+    "sellHouse_hotel": "Sell the hotel",
     "mortgage": "Mortgage",
     "unmortgage": "Pay off mortgage",
     "trade": "Offer a trade",
+    "respond_to_trade_accept": "Accept the trade",
+    "respond_to_trade_decline": "Turn down the trade",
+    "cancel_trade": "Take the offer back",
     "bid": "Bid {{amount}}",
     "withdraw": "Drop out of the auction",
     "payFine": "Pay {{amount}} bail",
     "useCard": "Use Get Out of Jail card",
     "rollForDoubles": "Roll for doubles",
     "declareBankruptcy": "Give up"
+  },
+  "actionbar": {
+    "label": "Moves",
+    "none": "No moves right now.",
+    "choose_square": "Choose a square"
+  },
+  "confirm": {
+    "title": "Are you sure?",
+    "cancel": "No, go back",
+    "proceed": "Yes — {{action}}",
+    "consequence": {
+      "decline_purchase": "The square goes up for auction instead. Anyone at the table can buy it, and it may go for less than you would have paid.",
+      "withdraw_from_auction": "You will not be able to bid on this square again.",
+      "declare_bankruptcy": "You are out of the game. Everything you own goes to whoever you owe. This cannot be undone."
+    }
   },
   "label": {
     "cash": "Cash",
@@ -35,7 +55,10 @@
     "inJail": "In jail",
     "bankrupt": "Out of the game",
     "bank": "the bank",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "squares_one": "{{count}} square",
+    "squares_other": "{{count}} squares",
+    "unknown_square": "a square on the board"
   },
   "group": {
     "brown": "Brown",
@@ -163,7 +186,10 @@
     "unpin": "Unpin",
     "completeSet": "Complete set",
     "setProgress": "{{owned}} of {{total}}",
-    "empty": "No properties yet"
+    "empty": "No properties yet",
+    "seat": "Seat {{seat}}",
+    "bot": "Bot",
+    "other_holdings": "Railroads and utilities"
   },
   "cash_reason": {
     "go_salary": "GO salary",
