@@ -24,7 +24,7 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
-AWAITING_HEBREW = frozenset(
+_NARRATION_AWAITING_HEBREW = frozenset(
     {
         "a11y.moved",
         "a11y.passed_go",
@@ -43,17 +43,177 @@ AWAITING_HEBREW = frozenset(
         "group.utility",
     }
 )
+"""MON-411's narration sentences. Every one has a subject, and Hebrew conjugates the verb to the
+subject's gender (GAP G-42): ``רותי עבר`` is wrong for every Hebrew speaker, and wrong in a
+children's game is worse than absent."""
+
+_EVENT_LOG_AWAITING_HEBREW = frozenset(
+    {
+        # The written history (MON-407) — one sentence per event type, plus the enum labels the
+        # sentences interpolate. Same reason as the narration above: `log.token_moved` is
+        # "{{name}} moved to {{tile}}", a verb agreeing with a person, so its Hebrew needs the
+        # i18next gender context MON-501 owns rather than a machine-plausible masculine.
+        "log.auction_ended",
+        "log.auction_ended_unsold",
+        "log.auction_started",
+        "log.bid_placed",
+        "log.bidder_withdrew",
+        "log.building_built_one",
+        "log.building_built_other",
+        "log.building_sold_one",
+        "log.building_sold_other",
+        "log.card_drawn",
+        "log.cash_gained",
+        "log.cash_paid",
+        "log.debt_incurred",
+        "log.debt_settled",
+        "log.dice_rolled_jail",
+        "log.dice_rolled_move",
+        "log.dice_rolled_rent",
+        "log.empty",
+        "log.game_ended",
+        "log.game_ended_no_winner",
+        "log.left_jail_card",
+        "log.left_jail_doubles",
+        "log.left_jail_fine",
+        "log.left_jail_time_served",
+        "log.mortgaged",
+        "log.player_bankrupted",
+        "log.property_acquired_auction",
+        "log.property_acquired_bankruptcy",
+        "log.property_acquired_purchase",
+        "log.property_acquired_trade",
+        "log.rent_charged",
+        "log.sent_to_jail_card",
+        "log.sent_to_jail_three_doubles",
+        "log.sent_to_jail_tile",
+        "log.title",
+        "log.token_moved",
+        "log.token_moved_back",
+        "log.token_moved_passed_go",
+        "log.trade_cancelled_proposer",
+        "log.trade_cancelled_system",
+        "log.trade_declined",
+        "log.trade_executed",
+        "log.trade_proposed",
+        "log.turn_started",
+        "log.unknown_tile",
+        "log.unmortgaged",
+        # Enum labels. A ``CashReason`` interpolated raw would print the English
+        # ``mortgage_transfer_fee`` inside a Hebrew sentence (GAP A5), so each enum member gets a
+        # key — and each key needs a noun phrase that agrees with the sentence carrying it,
+        # which is the same MON-501 pass.
+        "auction_reason.bankruptcy_to_bank",
+        "auction_reason.building_shortage",
+        "auction_reason.declined_purchase",
+        "building.hotel",
+        "building.house",
+        "cash_reason.auction_win",
+        "cash_reason.bankruptcy_transfer",
+        "cash_reason.build",
+        "cash_reason.card",
+        "cash_reason.free_parking_pot",
+        "cash_reason.go_salary",
+        "cash_reason.jail_fine",
+        "cash_reason.mortgage",
+        "cash_reason.mortgage_transfer_fee",
+        "cash_reason.purchase",
+        "cash_reason.rent",
+        "cash_reason.sell_building",
+        "cash_reason.tax",
+        "cash_reason.trade",
+        "cash_reason.unmortgage",
+        "deck.chance",
+        "deck.community_chest",
+        "game_end_reason.concession",
+        "game_end_reason.last_solvent",
+        "game_end_reason.no_survivors",
+        "game_end_reason.time_limit",
+        # The snake_case form the engine actually emits (``rules/rent.py``). The catalogue's
+        # ``rent.note.fullGroupDoubled`` is the camelCase key GAP G-40 says resolves against
+        # nothing; both spellings exist until that rename lands, and only the new one is listed
+        # here because the old one already has Hebrew.
+        "rent.note.full_group_doubled",
+    }
+)
+
+_SETUP_AWAITING_HEBREW = frozenset(
+    {
+        # The setup screen (MON-408). The rule-flag labels exist so Kids mode can show what it
+        # changes by rendering ``/rulesets`` instead of a hardcoded sentence; Hebrew needs
+        # gendered adjective agreement per flag, not a word-for-word pass.
+        "ruleset.auctions_enabled",
+        "ruleset.building_shortage_auction",
+        "ruleset.double_salary_on_exact_go",
+        "ruleset.even_build_enforced",
+        "ruleset.free_parking_pot_enabled",
+        "ruleset.go_salary",
+        "ruleset.hints_enabled",
+        "ruleset.hotels_available",
+        "ruleset.houses_available",
+        "ruleset.jail_fine",
+        "ruleset.max_jail_turns",
+        "ruleset.mortgages_enabled",
+        "ruleset.name",
+        "ruleset.previous",
+        "ruleset.simplified_trades",
+        "ruleset.starting_cash",
+        "ruleset.starting_cash_denominations",
+        "ruleset.target_duration_minutes",
+        "ruleset.trading_enabled",
+        "ruleset.value.none",
+        "ruleset.value.off",
+        "ruleset.value.on",
+        "setup.cannotStart",
+        "setup.kidsChanges",
+        "setup.kidsNoChanges",
+        "setup.playerType",
+        "setup.pronoun",
+        "setup.seat",
+        "setup.seats",
+        "setup.seed",
+        "setup.seedHint",
+        "setup.starting",
+        "setup.table",
+        "setup.token",
+        # The pronoun picker's labels. ``grammatical_gender`` exists on ``SeatConfig`` precisely
+        # so Hebrew narration can agree (owner decision 5) — these three labels are the *first*
+        # thing MON-501 needs, and guessing them here would prejudge that work.
+        "gender.f",
+        "gender.m",
+        "gender.n",
+        # Server rejection keys the setup screen renders. The engine and the transport own the
+        # wording of *why* a game would not start; the Hebrew arrives with the rest of
+        # ``error.*``, which is still half camelCase (G-40).
+        "error.invalid_new_game",
+        "error.malformed_request",
+        "error.unknown_board",
+        # The playing pieces. Each is a common noun with a gender in Hebrew, and the noun's
+        # gender is what the sentences naming it have to agree with — so these belong with the
+        # rest of MON-501 rather than beside their English, and they are a MON-412 stand-in in
+        # any case (see ``SetupScreen.tsx``).
+        "token.bicycle",
+        "token.boat",
+        "token.drum",
+        "token.kite",
+        "token.rocket",
+        "token.umbrella",
+    }
+)
+
+AWAITING_HEBREW = _NARRATION_AWAITING_HEBREW | _EVENT_LOG_AWAITING_HEBREW | _SETUP_AWAITING_HEBREW
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 
-MON-411 added the narration sentences the ``<Announcer>`` reads aloud. Their Hebrew is not a
-translation task that can be done alongside them: every one of these has a subject, and Hebrew
-conjugates the verb to the subject's gender (GAP G-42) — ``רותי עבר`` is wrong for every Hebrew
-speaker, and wrong in a children's game is worse than absent. MON-501/MON-506 own the Hebrew
-catalogue and the i18next gender context that makes these sayable.
+Split by the item that added them, because the *reason* is what has to survive review, and the
+three groups share one: every sentence has a subject, and Hebrew conjugates the verb to the
+subject's gender (GAP G-42). ``רותי עבר`` is wrong for every Hebrew speaker, and wrong in a
+children's game is worse than absent. MON-501/MON-506 own the Hebrew catalogue and the i18next
+gender context that makes these sayable.
 
-A per-key list rather than an ``a11y.*`` prefix exemption, and a tripwire test below, so the
-exemption cannot outlive its reason: a key that gains Hebrew, or that stops existing in English,
-fails the build until it is removed from here."""
+A per-key list rather than a ``log.*``/``ruleset.*`` prefix exemption, and a tripwire test below,
+so the exemption cannot outlive its reason: a key that gains Hebrew, or that stops existing in
+English, fails the build until it is removed from here. A prefix would let the next key added
+under it inherit an excuse nobody re-read."""
 
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
