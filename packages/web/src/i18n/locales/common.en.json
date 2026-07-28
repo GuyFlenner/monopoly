@@ -1,7 +1,8 @@
 {
   "app": {
     "title": "Kesef Street",
-    "tagline": "Buy streets. Charge rent. Try not to gloat."
+    "tagline": "Buy streets. Charge rent. Try not to gloat.",
+    "new_game": "New game"
   },
   "action": {
     "roll": "Roll the dice",
@@ -58,7 +59,9 @@
     "loading": "Loading…",
     "squares_one": "{{count}} square",
     "squares_other": "{{count}} squares",
-    "unknown_square": "a square on the board"
+    "unknown_square": "a square on the board",
+    "retry": "Try again",
+    "selected_square": "Selected square"
   },
   "group": {
     "brown": "Brown",
@@ -138,7 +141,8 @@
     "kidsChanges": "What Kids mode changes",
     "kidsNoChanges": "Kids mode plays by the full rules here.",
     "cannotStart": "Can't start yet",
-    "starting": "Starting…"
+    "starting": "Starting…",
+    "no_boards": "The server has no boards to play on."
   },
   "ruleset": {
     "name": "Rule set",
@@ -189,11 +193,16 @@
     "empty": "No properties yet",
     "seat": "Seat {{seat}}",
     "bot": "Bot",
-    "other_holdings": "Railroads and utilities"
+    "other_holdings": "Railroads and utilities",
+    "all_players": "Everyone's properties"
   },
   "panel": {
     "close": "Close",
     "goBack": "No, go back"
+  },
+  "status": {
+    "reconnecting": "Reconnecting to the table. The game is still playable.",
+    "offline": "Not connected to the table. What you see may be out of date."
   },
   "auction": {
     "title": "Auction",
@@ -349,6 +358,7 @@
     "gameEnded": "{{name}} wins!"
   },
   "error": {
+    "title": "Something went wrong",
     "notYourTurn": "It isn't your turn yet.",
     "insufficientFunds": "Not enough cash for that.",
     "gameNotFound": "That game no longer exists.",

@@ -361,6 +361,29 @@ _PANELS = frozenset(
 )
 """MON-405/MON-406's English-only keys — the action bar, the confirm step and the dossier."""
 
+_APP_SHELL = frozenset(
+    {
+        # M4's integration shell (``App.tsx`` / ``game/GameScreen.tsx``): the chrome that holds the
+        # eleven components together. Two sentences about the transport, four labels and a heading.
+        #
+        # ``status.reconnecting``/``status.offline`` are full sentences addressed to the player and
+        # both name "the table"; the Hebrew wants a noun phrase that agrees with the verb, which is
+        # the same MON-501 pass the narration keys wait for (GAP G-42). The rest are short labels
+        # whose Hebrew is cheap but must still be written by the native-speaker pass rather than
+        # guessed here, since a possessive ("Everyone's properties") and an imperative
+        # ("Try again") both inflect.
+        "app.new_game",
+        "dossier.all_players",
+        "error.title",
+        "label.retry",
+        "label.selected_square",
+        "setup.no_boards",
+        "status.offline",
+        "status.reconnecting",
+    }
+)
+"""The M4 app shell's English-only keys — the two-screen chrome, its states and its headings."""
+
 AWAITING_HEBREW = (
     _NARRATION_AWAITING_HEBREW
     | _EVENT_LOG_AWAITING_HEBREW
@@ -369,6 +392,7 @@ AWAITING_HEBREW = (
     | _DICE
     | _AUCTION_AND_TRADE
     | _PANELS
+    | _APP_SHELL
 )
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 
