@@ -40,6 +40,10 @@ class SessionLimitReachedError(RuntimeError):
     """The server is holding as many games as it will."""
 
 
+class SubscriberLimitReachedError(RuntimeError):
+    """This game is carrying as many WebSocket listeners as it will."""
+
+
 class UnknownGameError(KeyError):
     """No game with that id."""
 
@@ -50,6 +54,36 @@ class DuplicateGameError(KeyError):
     Raised rather than overwriting: the store is keyed by ``game_id``, so a silent
     overwrite would end somebody's game from another client's new-game screen (MON-301).
     """
+
+
+@dataclass
+class Subscriber:
+    """One live socket's mailbox, bounded in both dimensions (MON-303 security review).
+
+    The liveness design is unchanged and deliberate: the writer never blocks, so a client that
+    has stopped reading cannot stall the game for everybody else. What was wrong was the
+    *memory*. The queue was unbounded, so a stalled reader's mailbox grew until the process
+    died, and the commit that introduced it said "unbounded on purpose" without naming that
+    cost.
+
+    An overflow is not a reason to drop an event quietly — the socket would then be silently
+    telling a lie, and the animation queue on the other end would replay a game that never
+    happened. So the writer records the overflow and the *reader* closes its own socket.
+    """
+
+    queue: asyncio.Queue[LoggedEvent]
+    overflowed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def offer(self, entry: LoggedEvent) -> None:
+        """Hand an event to this listener without ever waiting for it.
+
+        Called from whichever coroutine applied the command, so it must not block: a slow
+        socket is a slow socket, not a slow game.
+        """
+        try:
+            self.queue.put_nowait(entry)
+        except asyncio.QueueFull:
+            self.overflowed.set()
 
 
 @dataclass
@@ -64,8 +98,9 @@ class Session:
     ``started_at`` would evict a long game that is being played."""
     log: list[LoggedEvent] = field(default_factory=list)
     """Append-only. Replaying it against the initial state reproduces the game exactly."""
-    _subscribers: list[asyncio.Queue[LoggedEvent]] = field(default_factory=list)
-    """Live WebSocket listeners (MON-303). A dropped client removes its own queue."""
+    _subscribers: list[Subscriber] = field(default_factory=list)
+    """Live WebSocket listeners (MON-303). Capped, and a dropped client removes its own
+    mailbox. See :meth:`subscribe`."""
 
     @property
     def cursor(self) -> int:
@@ -73,7 +108,7 @@ class Session:
         return self.log[-1].seq if self.log else 0
 
     @property
-    def subscribers(self) -> tuple[asyncio.Queue[LoggedEvent], ...]:
+    def subscribers(self) -> tuple[Subscriber, ...]:
         return tuple(self._subscribers)
 
     def touch(self, now: float) -> None:
@@ -85,18 +120,26 @@ class Session:
         return tuple(entry for entry in self.log if entry.seq > cursor)
 
     @contextmanager
-    def subscribe(self) -> Iterator[asyncio.Queue[LoggedEvent]]:
+    def subscribe(self, *, max_subscribers: int, queue_size: int) -> Iterator[Subscriber]:
         """Listen for appended events for the duration of the block.
 
         A context manager rather than a pair of methods so that a disconnect — however it
-        happens — cannot leave a queue behind that the store would fill forever.
+        happens — cannot leave a mailbox behind that the store would fill forever.
+
+        Both bounds are arguments rather than constants because they are operator settings
+        (``max_subscribers_per_game``, ``subscriber_queue_size``) and this module holds no
+        configuration. Raising on the N+1 listener rather than accepting it is what makes the
+        cap a cap: a silently-dropped subscription is a socket that stays open and never
+        receives, which is worse than a close code.
         """
-        queue: asyncio.Queue[LoggedEvent] = asyncio.Queue()
-        self._subscribers.append(queue)
+        if len(self._subscribers) >= max_subscribers:
+            raise SubscriberLimitReachedError(f"game is carrying {max_subscribers} listeners")
+        subscriber = Subscriber(queue=asyncio.Queue(maxsize=queue_size))
+        self._subscribers.append(subscriber)
         try:
-            yield queue
+            yield subscriber
         finally:
-            self._subscribers.remove(queue)
+            self._subscribers.remove(subscriber)
 
 
 class SessionStore:
@@ -158,8 +201,8 @@ class SessionStore:
             seq += 1
             entry = LoggedEvent(seq=seq, event=event)
             session.log.append(entry)
-            for queue in session.subscribers:
-                queue.put_nowait(entry)
+            for subscriber in session.subscribers:
+                subscriber.offer(entry)
         return session
 
     def delete(self, game_id: str) -> None:

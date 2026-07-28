@@ -18,6 +18,7 @@ from kesef_server.sessions import (
     DuplicateGameError,
     SessionLimitReachedError,
     SessionStore,
+    SubscriberLimitReachedError,
     UnknownGameError,
 )
 
@@ -166,13 +167,60 @@ def test_elapsed_seconds_come_from_the_stores_clock_and_are_floored_at_zero() ->
 
 
 def test_subscribers_receive_appended_events_and_unsubscribe_cleanly() -> None:
-    """MON-303's fan-out seam. A dropped client must not leave a queue behind."""
+    """MON-303's fan-out seam. A dropped client must not leave a mailbox behind."""
     store = _store()
     session = store.create(minimal_state())
-    with session.subscribe() as queue:
+    with session.subscribe(max_subscribers=4, queue_size=8) as subscriber:
         store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
-        assert queue.get_nowait().seq == 1
+        assert subscriber.queue.get_nowait().seq == 1
     assert session.subscribers == ()
+
+
+# --- The two bounds on a listener (MON-303 security review) -----------------
+
+
+def test_the_subscriber_cap_refuses_the_next_listener() -> None:
+    """Uncapped, sixty sockets on one game all registered and the list grew without bound."""
+    session = _store().create(minimal_state())
+    with (
+        session.subscribe(max_subscribers=2, queue_size=4),
+        session.subscribe(max_subscribers=2, queue_size=4),
+    ):
+        assert len(session.subscribers) == 2
+        with pytest.raises(SubscriberLimitReachedError), session.subscribe(max_subscribers=2, queue_size=4):
+            pass
+        assert len(session.subscribers) == 2, "the refused listener must not have registered"
+    assert len(session.subscribers) == 0
+
+
+def test_a_full_mailbox_is_flagged_rather_than_grown_and_never_blocks_the_writer() -> None:
+    """The liveness half of MON-303 stays: ``offer`` never waits. What changes is that the
+    queue has a ceiling, so a client that stopped reading is a closed socket and not an
+    exhausted process."""
+    store = _store()
+    session = store.create(minimal_state())
+    with session.subscribe(max_subscribers=2, queue_size=2) as subscriber:
+        for turn in range(1, 6):
+            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+
+        assert subscriber.queue.qsize() == 2, "the mailbox grew past its ceiling"
+        assert subscriber.overflowed.is_set()
+        assert len(session.log) == 5, "the game itself carried on regardless"
+
+
+def test_one_overflowing_mailbox_does_not_touch_the_others() -> None:
+    store = _store()
+    session = store.create(minimal_state())
+    with (
+        session.subscribe(max_subscribers=2, queue_size=1) as small,
+        session.subscribe(max_subscribers=2, queue_size=8) as roomy,
+    ):
+        for turn in range(1, 5):
+            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+
+        assert small.overflowed.is_set()
+        assert not roomy.overflowed.is_set()
+        assert roomy.queue.qsize() == 4
 
 
 def test_events_are_logged_even_with_no_subscribers() -> None:

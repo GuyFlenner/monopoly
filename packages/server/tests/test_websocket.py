@@ -21,11 +21,22 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from kesef_engine.events import TurnStarted
-from kesef_server.api import WS_GAME_NOT_FOUND, stream_events
+from kesef_server.api import (
+    WS_GAME_NOT_FOUND,
+    WS_MALFORMED_REQUEST,
+    WS_TOO_MANY_WATCHERS,
+    WS_WATCHER_TOO_SLOW,
+    app,
+    get_settings,
+    next_entry,
+    stream_events,
+)
+from kesef_server.config import Settings
 from kesef_server.schemas import LoggedEvent
 from kesef_server.sessions import SessionStore
 
 ROLL = {"command": {"kind": "roll_dice", "player": 0}}
+BUY = {"command": {"kind": "buy_property", "player": 0}}
 
 
 def _create(client: TestClient) -> str:
@@ -116,7 +127,12 @@ def test_a_disconnect_leaves_the_game_untouched_and_removes_the_queue(client: Te
 
 
 def test_a_watcher_that_never_reads_does_not_block_the_game(client: TestClient) -> None:
-    """A stalled client must not become a stalled game — the queue is unbounded on purpose."""
+    """A stalled client must not become a stalled game.
+
+    The mailbox is bounded now (MON-303 security review), but the liveness property this test
+    pins is unchanged and is the reason it was bounded rather than made blocking: the writer
+    offers and never waits, so a slow socket is a slow socket and not a slow game.
+    """
     game_id = _create(client)
     with client.websocket_connect(f"/games/{game_id}/ws"):
         # One roll is enough: the point is that the POST returns while nobody is reading.
@@ -124,17 +140,116 @@ def test_a_watcher_that_never_reads_does_not_block_the_game(client: TestClient) 
     assert client.get(f"/games/{game_id}").json()["event_cursor"] > 0
 
 
+# --- The two bounds on a listener (MON-303 security review) -----------------
+
+
+def test_the_watcher_cap_closes_the_next_socket_with_a_key(client: TestClient) -> None:
+    """Uncapped, sixty sockets on one game all registered — memory unbounded in the count as
+    well as in each mailbox."""
+    app.dependency_overrides[get_settings] = lambda: Settings(max_subscribers_per_game=1)
+    game_id = _create(client)
+    with (
+        client.websocket_connect(f"/games/{game_id}/ws"),
+        client.websocket_connect(f"/games/{game_id}/ws") as extra,
+        pytest.raises(WebSocketDisconnect) as raised,
+    ):
+        extra.receive_json()
+    assert raised.value.code == WS_TOO_MANY_WATCHERS
+    assert raised.value.reason == "error.too_many_watchers"
+
+
+def test_the_cap_counts_only_live_watchers(client: TestClient, store: SessionStore) -> None:
+    """A cap that leaked a slot per disconnect would turn a page reload into a permanent
+    refusal — the cap has to bound concurrency, not lifetime connections."""
+    app.dependency_overrides[get_settings] = lambda: Settings(max_subscribers_per_game=1)
+    game_id = _create(client)
+    for turn in range(3):
+        with client.websocket_connect(f"/games/{game_id}/ws") as socket:
+            client.post(f"/games/{game_id}/commands", json=ROLL if turn == 0 else BUY)
+            assert socket.receive_json()["seq"] >= 1
+        assert store.get(game_id).subscribers == ()
+
+
+def test_an_invalid_cursor_closes_the_socket_with_a_key(client: TestClient) -> None:
+    """`?since=banana` used to close with 1008 and pydantic's English error list as the reason —
+    the same G-33 defect as `{"detail": ...}` on HTTP."""
+    game_id = _create(client)
+    with pytest.raises(WebSocketDisconnect) as raised, client.websocket_connect(f"/games/{game_id}/ws?since=banana"):
+        pass  # pragma: no cover - the handshake never completes
+    assert raised.value.code == WS_MALFORMED_REQUEST
+    assert raised.value.reason == "error.malformed_request"
+
+
+async def test_a_mailbox_that_overflows_closes_its_own_socket_and_nothing_else() -> None:
+    """The memory half of MON-303's fan-out, which the first pass left unbounded.
+
+    Driven through the helper for the same reason the de-duplication test below is: a socket
+    that has genuinely stopped reading cannot be built out of ``TestClient``, whose transport
+    drains whatever the server sends into an unbounded portal stream. So the stalled reader here
+    is a pump that has not been started, which is what a stalled reader *is* from the writer's
+    side.
+    """
+    store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
+    store.create(minimal_state())
+    session = store.get("g")
+    stalled, healthy = _FakeSocket(), _FakeSocket()
+
+    with (
+        session.subscribe(max_subscribers=2, queue_size=1) as small,
+        session.subscribe(max_subscribers=2, queue_size=64) as roomy,
+    ):
+        pump = asyncio.create_task(stream_events(cast(WebSocket, healthy), session, roomy, since=0))
+        for turn in range(1, 6):
+            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+        await _wait_for_frames(healthy, 5)
+        assert small.overflowed.is_set(), "queue_size=1 should not have absorbed five events"
+
+        # The stalled socket's own pump, run at last: it must leave, not carry on lying.
+        await stream_events(cast(WebSocket, stalled), session, small, since=0)
+        assert stalled.closed == (WS_WATCHER_TOO_SLOW, "error.watcher_too_slow")
+
+        # ... and the healthy neighbour is untouched, as is the game.
+        assert healthy.closed is None
+        assert [frame["seq"] for frame in healthy.sent] == [1, 2, 3, 4, 5]
+        pump.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pump
+
+    assert [entry.seq for entry in session.log] == [1, 2, 3, 4, 5]
+    assert store.get("g").state.game_id == "g"
+
+
+async def test_the_overflow_flag_wins_a_tie_with_a_waiting_event() -> None:
+    """A mailbox can be non-empty *and* already overflowed, in the same loop turn.
+
+    Draining it would begin a stream that is silently missing whatever the overflow ate, and a
+    silently incomplete stream is worse than a closed socket — so the flag wins the tie.
+    """
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS)
+    session = store.create(minimal_state())
+    with session.subscribe(max_subscribers=1, queue_size=1) as subscriber:
+        subscriber.offer(LoggedEvent(seq=1, event=TurnStarted(player=0, turn_number=1)))
+        subscriber.offer(LoggedEvent(seq=2, event=TurnStarted(player=1, turn_number=2)))
+        assert subscriber.queue.qsize() == 1 and subscriber.overflowed.is_set()
+
+        assert await next_entry(subscriber) is None
+
+
 # --- The de-duplication rule ------------------------------------------------
 
 
 class _FakeSocket:
-    """Records what was sent. The stream helper only ever sends."""
+    """Records what was sent, and whether the helper closed it."""
 
     def __init__(self) -> None:
         self.sent: list[dict[str, Any]] = []
+        self.closed: tuple[int, str | None] | None = None
 
     async def send_json(self, payload: dict[str, Any]) -> None:
         self.sent.append(payload)
+
+    async def close(self, code: int = 1000, reason: str | None = None) -> None:
+        self.closed = (code, reason)
 
 
 async def test_an_event_already_replayed_is_never_pushed_a_second_time() -> None:
@@ -152,11 +267,11 @@ async def test_an_event_already_replayed_is_never_pushed_a_second_time() -> None
     fresh = LoggedEvent(seq=2, event=TurnStarted(player=1, turn_number=2))
 
     socket = _FakeSocket()
-    with session.subscribe() as queue:
-        queue.put_nowait(already_seen)  # the duplicate the race would produce
-        queue.put_nowait(fresh)
-        pump = asyncio.create_task(stream_events(cast(WebSocket, socket), session, queue, since=0))
-        await asyncio.wait_for(_drain(queue), timeout=2)
+    with session.subscribe(max_subscribers=2, queue_size=8) as subscriber:
+        subscriber.offer(already_seen)  # the duplicate the race would produce
+        subscriber.offer(fresh)
+        pump = asyncio.create_task(stream_events(cast(WebSocket, socket), session, subscriber, since=0))
+        await _wait_for_frames(socket, 2)
         pump.cancel()
         with pytest.raises(asyncio.CancelledError):
             await pump
@@ -174,12 +289,21 @@ async def test_the_helper_stops_when_the_client_goes_away() -> None:
         async def send_json(self, payload: dict[str, Any]) -> None:
             raise WebSocketDisconnect(code=1001)
 
-    with session.subscribe() as queue:
-        await stream_events(cast(WebSocket, _GoneSocket()), session, queue, since=0)
+    with session.subscribe(max_subscribers=2, queue_size=8) as subscriber:
+        await stream_events(cast(WebSocket, _GoneSocket()), session, subscriber, since=0)
     assert session.subscribers == ()
 
 
-async def _drain(queue: asyncio.Queue[LoggedEvent]) -> None:
-    while not queue.empty():
-        await asyncio.sleep(0)
-    await asyncio.sleep(0)
+async def _wait_for_frames(socket: _FakeSocket, count: int, timeout: float = 2.0) -> None:
+    """Let the pump run until it has sent ``count`` frames.
+
+    Waiting on the socket rather than on the queue being empty: the helper takes several loop
+    turns per event now that it races the mailbox against its overflow flag, so "the queue is
+    empty" no longer means "the frame has been sent".
+    """
+
+    async def poll() -> None:
+        while len(socket.sent) < count:
+            await asyncio.sleep(0)
+
+    await asyncio.wait_for(poll(), timeout=timeout)

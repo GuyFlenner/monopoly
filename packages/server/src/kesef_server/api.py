@@ -22,7 +22,7 @@ import secrets
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket, WebSocketDisconnect, status
-from fastapi.exceptions import RequestValidationError
+from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
@@ -39,6 +39,7 @@ from kesef_engine.state import GameState
 from kesef_server import errors
 from kesef_server.config import Settings, settings
 from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
+from kesef_server.log import configure_logging, get_logger
 from kesef_server.schemas import (
     BoardSummary,
     BoardView,
@@ -57,8 +58,13 @@ from kesef_server.sessions import (
     Session,
     SessionLimitReachedError,
     SessionStore,
+    Subscriber,
+    SubscriberLimitReachedError,
     UnknownGameError,
 )
+
+configure_logging()
+log = get_logger()
 
 WS_EVENT_STREAM_PATH = "/games/{game_id}/ws"
 """Declared in the OpenAPI document by hand — see :func:`_openapi`."""
@@ -66,6 +72,18 @@ WS_EVENT_STREAM_PATH = "/games/{game_id}/ws"
 WS_GAME_NOT_FOUND = 4404
 """Close code for a socket opened against a game that does not exist. In the application
 range (4000-4999); it mirrors the HTTP 404 so a client can branch on one number."""
+
+WS_TOO_MANY_WATCHERS = 4429
+"""This game is already carrying ``max_subscribers_per_game`` listeners. Mirrors HTTP 429."""
+
+WS_WATCHER_TOO_SLOW = 4413
+"""This socket fell ``subscriber_queue_size`` events behind, so its mailbox overflowed and it
+is closed rather than grown. Mirrors HTTP 413 — the client asked for more than it would take."""
+
+WS_MALFORMED_REQUEST = 4422
+"""A handshake FastAPI's validation refused — an unparseable ``?since=``, say. Mirrors the 422
+``error.malformed_request`` the HTTP routes answer; without it FastAPI's default closed the
+socket with 1008 and pydantic's *English* error list as the reason (G-33)."""
 
 app = FastAPI(
     title="Kesef Street",
@@ -138,9 +156,22 @@ def _validation_error_handler(request: Request, exc: Exception) -> Response:
     return _api_error_handler(request, errors.malformed_request(fields))
 
 
+async def _ws_validation_error_handler(websocket: WebSocket, exc: Exception) -> None:
+    """A handshake pydantic refused, reported as a close code rather than as prose.
+
+    FastAPI's default closes with 1008 and ``str(exc.errors())`` as the reason — pydantic's
+    English, on a WebSocket, which is the same G-33 defect as ``{"detail": ...}`` on HTTP. An
+    unparseable ``?since=`` now gets exactly the treatment ``WS_GAME_NOT_FOUND`` gets.
+    """
+    assert isinstance(exc, WebSocketRequestValidationError)
+    log.info("ws.refused", reason_key="error.malformed_request")
+    await websocket.close(code=WS_MALFORMED_REQUEST, reason="error.malformed_request")
+
+
 app.add_exception_handler(ApiError, _api_error_handler)
 app.add_exception_handler(IllegalCommandError, _illegal_command_handler)
 app.add_exception_handler(RequestValidationError, _validation_error_handler)
+app.add_exception_handler(WebSocketRequestValidationError, _ws_validation_error_handler)
 
 
 def _wire_params(context: dict[str, object]) -> dict[str, int | str]:
@@ -376,6 +407,7 @@ async def game_event_stream(
     websocket: WebSocket,
     game_id: str,
     store: StoreDep,
+    config: SettingsDep,
     since: Annotated[int, Query(ge=0)] = 0,
 ) -> None:
     """Push every event this game produces, as ``LoggedEvent`` frames (MON-303).
@@ -385,7 +417,9 @@ async def game_event_stream(
     the replay already covered, is what closes the window in which a command applied between
     the two would be lost.
 
-    Nothing here touches game state: a disconnect only removes a queue.
+    Nothing here touches game state: a disconnect only removes a mailbox. Both refusals below
+    are keyed close codes rather than a silent drop, because a socket that is open and will
+    never receive anything is harder to diagnose than one that said why it left.
     """
     await websocket.accept()
     try:
@@ -393,14 +427,51 @@ async def game_event_stream(
     except UnknownGameError:
         await websocket.close(code=WS_GAME_NOT_FOUND, reason="error.game_not_found")
         return
-    with session.subscribe() as queue:
-        await stream_events(websocket, session, queue, since)
+    log.info("ws.connected", since=since)
+    try:
+        with session.subscribe(
+            max_subscribers=config.max_subscribers_per_game,
+            queue_size=config.subscriber_queue_size,
+        ) as subscriber:
+            await stream_events(websocket, session, subscriber, since)
+    except SubscriberLimitReachedError:
+        log.info("ws.refused", reason_key="error.too_many_watchers")
+        await websocket.close(code=WS_TOO_MANY_WATCHERS, reason="error.too_many_watchers")
+    finally:
+        log.info("ws.disconnected")
+
+
+async def next_entry(subscriber: Subscriber) -> LoggedEvent | None:
+    """Whichever comes first: the next event, or this mailbox overflowing (``None``).
+
+    Two waiters rather than a plain ``queue.get()`` because an overflow has to reach the socket
+    *now*. Checking the flag between gets would only notice once the client had drained the
+    backlog — and a client that drains its backlog is not the one that overflows.
+
+    Public for the same reason :func:`stream_events` is: a tie, where the mailbox is both
+    non-empty *and* already overflowed, is reachable in one loop turn and unreachable from a
+    test client, so the rule that the overflow wins it has to be assertable directly.
+    """
+    get = asyncio.ensure_future(subscriber.queue.get())
+    overflow = asyncio.ensure_future(subscriber.overflowed.wait())
+    done, pending = await asyncio.wait((get, overflow), return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    if overflow in done:
+        # The mailbox is full whenever the flag is set — ``offer`` only sets it on ``QueueFull``,
+        # and ``subscriber_queue_size`` is at least 1 — so ``get`` finished in the same turn.
+        # Its event is retrieved and dropped rather than sent on: a stream silently missing
+        # whatever the overflow ate is worse than a socket that said why it left.
+        assert get in done
+        get.result()
+        return None
+    return get.result()
 
 
 async def stream_events(
     websocket: WebSocket,
     session: Session,
-    queue: asyncio.Queue[LoggedEvent],
+    subscriber: Subscriber,
     since: int,
 ) -> None:
     """Replay the backlog after ``since``, then push everything that follows it.
@@ -412,6 +483,9 @@ async def stream_events(
     between the two would be lost. The cost of that ordering is that an event can reach both
     the snapshot and the queue, so anything at or below the high-water mark is dropped —
     without it the animation queue would play one event twice (G-34).
+
+    A mailbox that overflowed ends the stream here rather than in the writer: the writer must
+    never block on a socket, and this is the only coroutine that owns this one.
     """
     sent = since
     try:
@@ -419,11 +493,15 @@ async def stream_events(
             await websocket.send_json(entry.model_dump(mode="json"))
             sent = entry.seq
         while True:
-            entry = await queue.get()
-            if entry.seq <= sent:
+            pushed = await next_entry(subscriber)
+            if pushed is None:
+                log.info("ws.overflowed", reason_key="error.watcher_too_slow")
+                await websocket.close(code=WS_WATCHER_TOO_SLOW, reason="error.watcher_too_slow")
+                return
+            if pushed.seq <= sent:
                 continue  # already covered by the replay above
-            await websocket.send_json(entry.model_dump(mode="json"))
-            sent = entry.seq
+            await websocket.send_json(pushed.model_dump(mode="json"))
+            sent = pushed.seq
     except WebSocketDisconnect:
         return  # an ordinary end of stream: the client closed the tab
 
