@@ -13,6 +13,7 @@ from conftest import FakeClock, minimal_state
 
 from kesef_engine.events import PhaseChanged, TurnStarted
 from kesef_engine.phases import Phase
+from kesef_server.api import get_settings, get_store
 from kesef_server.sessions import (
     DuplicateGameError,
     SessionLimitReachedError,
@@ -21,8 +22,8 @@ from kesef_server.sessions import (
 )
 
 
-def _store(**overrides: object) -> SessionStore:
-    return SessionStore(max_sessions=int(overrides.get("max_sessions", 4)), clock=FakeClock())
+def _store(max_sessions: int = 4) -> SessionStore:
+    return SessionStore(max_sessions=max_sessions, clock=FakeClock())
 
 
 def test_a_new_session_has_an_empty_log_and_a_zero_cursor() -> None:
@@ -120,3 +121,11 @@ def test_events_are_logged_even_with_no_subscribers() -> None:
     store.create(minimal_state())
     session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
     assert len(session.log) == 1
+
+
+def test_the_process_wide_store_and_settings_are_shared_singletons() -> None:
+    """The defaults the tests override. One process holds one store, or two clients would
+    see two different games under one id."""
+    assert get_store() is get_store()
+    assert get_settings() is get_settings()
+    assert len(get_store()) == 0

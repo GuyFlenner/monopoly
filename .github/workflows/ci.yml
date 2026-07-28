@@ -62,6 +62,12 @@ jobs:
       - name: Pytest
         run: uv run pytest --cov --cov-report=term-missing
 
+      # MON-301 acceptance: `packages/server/src` coverage >= 95%, enforced rather than
+      # asserted in a backlog bullet. Scoped to the server package and its own tests, so
+      # the engine's much larger surface cannot carry a thin transport over the line.
+      - name: Server coverage floor
+        run: uv run pytest packages/server/tests -q --cov=kesef_server --cov-fail-under=95
+
       # MON-107: goldens are committed artifacts, never a test-run side effect. A diff
       # here means something regenerated them silently — that is a failure by design.
       # A plain `git diff` cannot see a *new* untracked golden, so the check is on the

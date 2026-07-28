@@ -18,5 +18,10 @@ class Settings(BaseSettings):
     session_ttl_minutes: int = 240
     """Idle games are evicted. Hotseat games are long, so this is generous."""
 
+    max_save_bytes: int = 512_000
+    """Ceiling on an uploaded save file. A real save is ~30 KB, so this is ample; the point
+    is that ``POST /games/load`` is the one route whose body is not a small fixed shape,
+    and an unbounded body read is a denial-of-service invitation (MON-100 security review)."""
+
 
 settings = Settings()

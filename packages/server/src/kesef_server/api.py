@@ -3,29 +3,67 @@
 The server owns sessions, serialization and fan-out. It owns no rules. If a conditional in
 this file starts to look like a rule, it belongs in :mod:`kesef_engine`.
 
-Endpoints marked 501 have their request and response schemas defined already, on purpose:
-the frontend generates its TypeScript from this app's OpenAPI document, so fixing the
-contract now unblocks UI work in parallel with the engine (MON-301, MON-302).
+Concretely, three things and only three things happen in every game route here:
+
+1. ``legal_commands(state)`` or ``is_legal(state, command)`` is asked — never answered.
+2. ``apply(state, command)`` is called, and whatever it returns is stored.
+3. The result is projected onto the wire shape in :mod:`kesef_server.schemas` (ADR-008).
+
+There is one deliberate exception to purity, and it is documented where it happens: the
+server stamps ``EndTurn.elapsed_seconds`` from its own clock. A client-supplied clock would
+let a player force or dodge Kids Mode's time limit, so the field is overwritten, never read
+(GAP G-6, MON-100 security review).
 """
 
 from __future__ import annotations
 
-from typing import Annotated
+import secrets
+from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from kesef_engine.board.loader import available_boards, load_board
+from kesef_engine.commands import Command, EndTurn
+from kesef_engine.errors import EngineError, IllegalCommandError
+from kesef_engine.events import Event
+from kesef_engine.factory import new_game
+from kesef_engine.legality import is_legal, legal_commands
+from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset, RulesetName
+from kesef_engine.state import GameState
+from kesef_server import errors
 from kesef_server.config import Settings, settings
+from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
 from kesef_server.schemas import (
     BoardSummary,
+    BoardView,
     CommandRequest,
+    ErrorResponse,
+    GameStateView,
     GameSummary,
     GameView,
+    LegalityView,
+    LoggedEvent,
     NewGameRequest,
 )
-from kesef_server.sessions import SessionStore, UnknownGameError
+from kesef_server.sessions import (
+    DuplicateGameError,
+    Session,
+    SessionLimitReachedError,
+    SessionStore,
+    UnknownGameError,
+)
+
+WS_EVENT_STREAM_PATH = "/games/{game_id}/ws"
+"""Declared in the OpenAPI document by hand — see :func:`_openapi`."""
+
+WS_GAME_NOT_FOUND = 4404
+"""Close code for a socket opened against a game that does not exist. In the application
+range (4000-4999); it mirrors the HTTP 404 so a client can branch on one number."""
 
 app = FastAPI(
     title="Kesef Street",
@@ -58,6 +96,59 @@ def get_settings() -> Settings:
 
 
 StoreDep = Annotated[SessionStore, Depends(get_store)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
+
+ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No game with that id."},
+    UNPROCESSABLE: {"model": ErrorResponse, "description": "Rejected, with an i18n key."},
+}
+"""Declared on the routes so the shape reaches ``generated.ts`` — a 422 the client cannot
+type is a 422 the client will render as prose (G-33)."""
+
+
+# --- Error handling ---------------------------------------------------------
+
+
+def _api_error_handler(request: Request, exc: Exception) -> Response:
+    assert isinstance(exc, ApiError)  # registered for ApiError only
+    body = ErrorResponse(reason_key=exc.reason_key, params=exc.params)
+    return JSONResponse(status_code=exc.status_code, content=body.model_dump(mode="json"))
+
+
+def _illegal_command_handler(request: Request, exc: Exception) -> Response:
+    """The engine's rejection, forwarded whole: key *and* context params (G-33)."""
+    assert isinstance(exc, IllegalCommandError)
+    body = ErrorResponse(reason_key=exc.reason_key, params=_wire_params(exc.context))
+    return JSONResponse(status_code=UNPROCESSABLE, content=body.model_dump(mode="json"))
+
+
+def _validation_error_handler(request: Request, exc: Exception) -> Response:
+    """A malformed body, reported as a key.
+
+    FastAPI's default renders pydantic's English ``msg`` fields. Those are developer prose,
+    so the client is given the offending field paths and a key instead.
+    """
+    assert isinstance(exc, RequestValidationError)
+    fields = ", ".join(".".join(str(part) for part in error["loc"][1:]) for error in exc.errors())
+    return _api_error_handler(request, errors.malformed_request(fields))
+
+
+app.add_exception_handler(ApiError, _api_error_handler)
+app.add_exception_handler(IllegalCommandError, _illegal_command_handler)
+app.add_exception_handler(RequestValidationError, _validation_error_handler)
+
+
+def _wire_params(context: dict[str, object]) -> dict[str, int | str]:
+    """Coerce an error's context to what the catalogue can interpolate.
+
+    ``IllegalCommandError`` is typed ``**context: object``; every rule in the engine passes
+    ints and strings, and anything else would be a bug in the *engine* rather than something
+    to hide here — so it is stringified rather than dropped.
+    """
+    return {key: value if isinstance(value, int | str) else str(value) for key, value in context.items()}
+
+
+# --- Meta ------------------------------------------------------------------
 
 
 @app.get("/health", tags=["meta"])
@@ -88,10 +179,38 @@ def list_rulesets() -> list[Ruleset]:
     return [Ruleset.by_name(name) for name in RulesetName]
 
 
-@app.post("/games", status_code=status.HTTP_201_CREATED, tags=["game"])
+# --- Games -----------------------------------------------------------------
+
+
+@app.post(
+    "/games",
+    status_code=status.HTTP_201_CREATED,
+    tags=["game"],
+    responses={
+        status.HTTP_409_CONFLICT: {"model": ErrorResponse, "description": "That game_id is already live."},
+        UNPROCESSABLE: {"model": ErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse, "description": "Session cap reached."},
+    },
+)
 def create_game(request: NewGameRequest, store: StoreDep) -> GameView:
     """Start a game and return the opening view."""
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="MON-301: game creation")
+    seed = request.seed if request.seed is not None else secrets.randbits(32)
+    try:
+        state = new_game(
+            [seat.to_seat() for seat in request.seats],
+            seed=seed,
+            game_id=request.game_id or f"game-{secrets.token_hex(8)}",
+            board_id=request.board_id,
+            ruleset=Ruleset.by_name(request.ruleset),
+            locale=request.locale,
+        )
+    except EngineError:
+        # An unknown board id. `new_game` loads the board up front precisely so that this
+        # fails here rather than on the first roll.
+        raise errors.unknown_board(request.board_id) from None
+    except ValueError:
+        raise errors.invalid_new_game() from None
+    return _view(_create(store, state))
 
 
 @app.get("/games", tags=["game"])
@@ -108,22 +227,263 @@ def list_games(store: StoreDep) -> list[GameSummary]:
     ]
 
 
-@app.get("/games/{game_id}", tags=["game"])
-def get_game(game_id: str, store: StoreDep) -> GameView:
-    """The current view. Safe to poll, and the reconnect path for the UI."""
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="MON-301: game view")
+@app.post(
+    "/games/load",
+    status_code=status.HTTP_201_CREATED,
+    tags=["game"],
+    responses={
+        status.HTTP_409_CONFLICT: {"model": ErrorResponse},
+        CONTENT_TOO_LARGE: {"model": ErrorResponse},
+        UNPROCESSABLE: {"model": ErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse},
+    },
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GameState"}}},
+        }
+    },
+)
+async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> GameView:
+    """Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.
 
+    The body is read raw rather than declared as a ``GameState`` parameter, for two reasons
+    carried forward from the MON-100 security review:
 
-@app.post("/games/{game_id}/commands", tags=["game"])
-def submit_command(game_id: str, request: CommandRequest, store: StoreDep) -> GameView:
-    """Apply one command. The only way a game changes."""
-    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, detail="MON-301: command submission")
+    * **Size.** This is the only route whose body is not a small fixed shape, so it gets an
+      explicit ceiling instead of reading whatever arrives.
+    * **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``
+      (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,
+      which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body
+      parameter it escaped as a 500 with a traceback. Validating inside the handler is what
+      lets both become ``error.save_schema_mismatch``.
 
-
-@app.delete("/games/{game_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["game"])
-def delete_game(game_id: str, store: StoreDep) -> None:
+    The OpenAPI request body is declared by hand above, so the contract still says
+    ``GameState`` and ``generated.ts`` still types it.
+    """
+    declared = request.headers.get("content-length")
+    if declared is not None and declared.isdigit() and int(declared) > config.max_save_bytes:
+        raise errors.save_too_large(config.max_save_bytes)
+    raw = await request.body()
+    if len(raw) > config.max_save_bytes:
+        raise errors.save_too_large(config.max_save_bytes)
     try:
-        store.get(game_id)
-    except UnknownGameError:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="error.game_not_found") from None
+        state = GameState.model_validate_json(raw)
+    except (ValidationError, ValueError, EngineError):
+        raise errors.save_schema_mismatch() from None
+    return _view(_create(store, state))
+
+
+@app.get("/games/{game_id}", tags=["game"], responses=ERROR_RESPONSES)
+def get_game(
+    game_id: str,
+    store: StoreDep,
+    since: Annotated[int | None, Query(ge=0, description="Replay the events after this cursor.")] = None,
+) -> GameView:
+    """The current view. Safe to poll, and the reconnect path for the UI.
+
+    ``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the
+    whole game, which is what a reconnecting client wants.
+    """
+    session = _session(store, game_id)
+    events = session.events_since(since) if since is not None else ()
+    return _view(session, events)
+
+
+@app.get("/games/{game_id}/save", tags=["game"], responses=ERROR_RESPONSES)
+def save_game(game_id: str, store: StoreDep) -> GameState:
+    """The complete state, RNG and deck order included — the save file.
+
+    This is the *only* route that returns hidden information, which is the whole of
+    ADR-008 §2: "the JSON is the save file" survives without being conflated with what a
+    client may see while playing.
+    """
+    return _session(store, game_id).state
+
+
+@app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)
+async def submit_command(game_id: str, request: CommandRequest, store: StoreDep) -> GameView:
+    """Apply one command. The only way a game changes.
+
+    ``async`` on purpose: it puts the handler on the event loop, so appending to a live
+    WebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from
+    a thread-pool worker.
+    """
+    session = _session(store, game_id)
+    state, events = apply(session.state, _stamped(store, session, request.command))
+    return _view(store.update(game_id, state, events), _logged(session, events))
+
+
+@app.post("/games/{game_id}/validate", tags=["game"], responses=ERROR_RESPONSES)
+def validate_command(game_id: str, request: CommandRequest, store: StoreDep) -> LegalityView:
+    """Ask whether a command would be accepted, changing nothing (G-32).
+
+    An illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder
+    asks this on every keystroke, and "not valid yet" is a normal answer, not an error.
+    """
+    session = _session(store, game_id)
+    result = is_legal(session.state, _stamped(store, session, request.command))
+    return LegalityView(legal=result.legal, reason_key=result.reason_key, params=result.params)
+
+
+@app.delete(
+    "/games/{game_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["game"],
+    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}},
+)
+def delete_game(game_id: str, store: StoreDep) -> None:
+    _session(store, game_id)
     store.delete(game_id)
+
+
+@app.websocket(WS_EVENT_STREAM_PATH)
+async def game_event_stream(
+    websocket: WebSocket,
+    game_id: str,
+    store: StoreDep,
+    since: Annotated[int, Query(ge=0)] = 0,
+) -> None:
+    """Push every event this game produces, as ``LoggedEvent`` frames (MON-303).
+
+    A late or reconnecting client passes ``?since=`` its last ``seq`` and is sent the
+    backlog before the live stream. Subscribing *before* replaying, then dropping anything
+    the replay already covered, is what closes the window in which a command applied between
+    the two would be lost.
+
+    Nothing here touches game state: a disconnect only removes a queue.
+    """
+    await websocket.accept()
+    try:
+        session = store.get(game_id)
+    except UnknownGameError:
+        await websocket.close(code=WS_GAME_NOT_FOUND, reason="error.game_not_found")
+        return
+    with session.subscribe() as queue:
+        sent = since
+        for entry in session.events_since(since):
+            await websocket.send_json(entry.model_dump(mode="json"))
+            sent = entry.seq
+        try:
+            while True:
+                entry = await queue.get()
+                if entry.seq <= sent:
+                    continue  # already covered by the replay above
+                await websocket.send_json(entry.model_dump(mode="json"))
+                sent = entry.seq
+        except WebSocketDisconnect:
+            return
+
+
+# --- Helpers ---------------------------------------------------------------
+
+
+def _session(store: SessionStore, game_id: str) -> Session:
+    try:
+        return store.get(game_id)
+    except UnknownGameError:
+        raise errors.game_not_found(game_id) from None
+
+
+def _create(store: SessionStore, state: GameState) -> Session:
+    try:
+        return store.create(state)
+    except DuplicateGameError:
+        raise errors.game_already_exists(state.game_id) from None
+    except SessionLimitReachedError:
+        raise errors.server_at_capacity(len(store)) from None
+
+
+def _view(session: Session, events: tuple[LoggedEvent, ...] = ()) -> GameView:
+    """The projection. Every field is a copy or an engine call (ADR-008)."""
+    return GameView(
+        board=BoardView.from_board(session.state.board),
+        state=GameStateView.from_state(session.state),
+        legal_commands=legal_commands(session.state),
+        events=events,
+        event_cursor=session.cursor,
+    )
+
+
+def _logged(session: Session, events: tuple[Event, ...]) -> tuple[LoggedEvent, ...]:
+    """The just-applied events, with the ``seq`` the store assigned them."""
+    return tuple(session.log[-len(events) :]) if events else ()
+
+
+def _stamped(store: SessionStore, session: Session, command: Command) -> Command:
+    """Overwrite ``EndTurn.elapsed_seconds`` with the server's own reading.
+
+    The engine owns no clock, but Kids Mode ends a game after
+    ``Ruleset.target_duration_minutes``, so the time has to arrive on a command (GAP G-6).
+    It arrives from *here*, never from the request: a client that chose its own number could
+    force the ending on the turn it happens to be winning, or postpone it forever. This is
+    the only clock read in the server, and ``SessionStore`` is the only thing that holds a
+    clock (see its module docstring).
+    """
+    if isinstance(command, EndTurn):
+        return command.model_copy(update={"elapsed_seconds": store.elapsed_seconds(session)})
+    return command
+
+
+def _retype_validation_errors(document: dict[str, Any]) -> None:
+    """Point FastAPI's auto-generated 422 at ``ErrorResponse``.
+
+    FastAPI declares ``HTTPValidationError`` on every route that validates anything — a
+    shape this app never returns, because ``_validation_error_handler`` rewrites a malformed
+    body into ``{reason_key, params}``. Leaving it in the document would export two TypeScript
+    types for one status code, one of which is a fiction, and the client would branch on the
+    wrong one (G-33).
+    """
+    error_ref = {"$ref": "#/components/schemas/ErrorResponse"}
+    for operations in document["paths"].values():
+        for operation in operations.values():
+            response = operation.get("responses", {}).get("422")
+            if response is not None:
+                response["content"] = {"application/json": {"schema": error_ref}}
+    for name in ("HTTPValidationError", "ValidationError"):
+        document.get("components", {}).get("schemas", {}).pop(name, None)
+
+
+def _openapi() -> dict[str, Any]:
+    """The generated document, plus the WebSocket route declared by hand.
+
+    FastAPI does not put ``@app.websocket`` routes into the OpenAPI document, so before this
+    the event stream was advertised in a docstring and typed nowhere — MON-402 had no
+    contract to build against (G-34). Declaring it as the GET that the handshake actually
+    is, with the ``LoggedEvent`` frame as its 101 body, gives ``generated.ts`` the real frame
+    type. ``LoggedEvent`` is the same envelope ``GameView.events`` carries, so one type
+    covers both transports.
+    """
+    document = _fastapi_openapi()
+    _retype_validation_errors(document)
+    document["paths"][WS_EVENT_STREAM_PATH] = {
+        "get": {
+            "tags": ["game"],
+            "summary": "WebSocket event stream",
+            "description": (
+                "Handshake for the WebSocket event stream. Each frame after the upgrade is one "
+                "LoggedEvent; `since` replays the backlog from a cursor. Not a JSON GET — the "
+                "operation is declared so the frame type reaches the generated client (MON-303)."
+            ),
+            "operationId": "game_event_stream",
+            "parameters": [
+                {"name": "game_id", "in": "path", "required": True, "schema": {"type": "string"}},
+                {"name": "since", "in": "query", "required": False, "schema": {"type": "integer", "minimum": 0}},
+            ],
+            "responses": {
+                "101": {
+                    "description": "Switching protocols. Every frame that follows is one LoggedEvent.",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LoggedEvent"}}},
+                },
+                "404": {
+                    "description": f"No such game; the socket closes with code {WS_GAME_NOT_FOUND}.",
+                    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}},
+                },
+            },
+        }
+    }
+    return document
+
+
+_fastapi_openapi = app.openapi
+app.openapi = _openapi  # type: ignore[method-assign]

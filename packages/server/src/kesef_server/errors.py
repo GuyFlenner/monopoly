@@ -1,0 +1,92 @@
+"""One error shape for the whole API (ADR-008 §4, GAP G-33).
+
+Every failure a client can cause leaves this server as ``{reason_key, params}``. Two
+reasons that is worth a module of its own:
+
+* **No prose crosses the wire.** The engine's rule is that it returns i18n keys, never
+  sentences; a transport that answers ``{"detail": "Value error, a bot seat needs a
+  bot_level"}`` has re-introduced hardcoded English one layer up, and a Hebrew-speaking
+  child sees it.
+* **The context survives.** ``IllegalCommandError`` carries the params its catalogue
+  sentence interpolates. A bare string body drops them, so ``error.insufficient_funds``
+  could never say how much short.
+"""
+
+from __future__ import annotations
+
+from fastapi import status
+
+UNPROCESSABLE = 422
+"""Spelled as a number, like ``test_api.py``: starlette has renamed this constant twice
+already (``HTTP_422_UNPROCESSABLE_ENTITY`` -> ``HTTP_422_UNPROCESSABLE_CONTENT``), and a
+status code is not the sort of thing that needs a name to be readable."""
+
+CONTENT_TOO_LARGE = 413
+"""Renamed for the same reason. See ``UNPROCESSABLE``."""
+
+
+class ApiError(Exception):
+    """A failure to report to the client, already in wire shape.
+
+    Deliberately not ``HTTPException``: that class's ``detail`` is a free-form string and
+    FastAPI's default handler renders it as ``{"detail": ...}``, which is the shape this
+    module exists to replace.
+    """
+
+    def __init__(self, status_code: int, reason_key: str, **params: int | str) -> None:
+        self.status_code = status_code
+        self.reason_key = reason_key
+        self.params = params
+        super().__init__(reason_key)
+
+
+def game_not_found(game_id: str) -> ApiError:
+    return ApiError(status.HTTP_404_NOT_FOUND, "error.game_not_found", game_id=game_id)
+
+
+def game_already_exists(game_id: str) -> ApiError:
+    """409 rather than an overwrite: the store is keyed by ``game_id``, so accepting a
+    duplicate would end whatever game is already under that key."""
+    return ApiError(status.HTTP_409_CONFLICT, "error.game_already_exists", game_id=game_id)
+
+
+def server_at_capacity(limit: int) -> ApiError:
+    return ApiError(status.HTTP_503_SERVICE_UNAVAILABLE, "error.server_at_capacity", limit=limit)
+
+
+def malformed_request(fields: str) -> ApiError:
+    """A body pydantic refused. ``fields`` names the offending paths — no prose, and no
+    pydantic message, which would be English."""
+    return ApiError(UNPROCESSABLE, "error.malformed_request", fields=fields)
+
+
+def save_schema_mismatch() -> ApiError:
+    """Any failure to read a save file, whatever the underlying exception.
+
+    The engine reports a stale ``schema_version`` with this key already. A save naming an
+    unknown board raises ``BoardDataError`` instead — which is not a ``ValueError``, so
+    pydantic does not wrap it, and before MON-301 it escaped as a 500 with a traceback
+    (carried forward from the MON-100 security review). One key covers both: from the
+    player's side, the file does not load.
+    """
+    return ApiError(UNPROCESSABLE, "error.save_schema_mismatch")
+
+
+def save_too_large(limit_bytes: int) -> ApiError:
+    return ApiError(CONTENT_TOO_LARGE, "error.save_too_large", limit_bytes=limit_bytes)
+
+
+def invalid_new_game() -> ApiError:
+    """The factory refused the seats — duplicate names, most likely.
+
+    Deliberately one coarse key. The server could look for duplicate names itself and
+    report a precise one, but "two players may not share a name" is a rule, and a second
+    copy of a rule in the transport is a defect even while it agrees. A precise key needs
+    ``kesef_engine.factory`` to raise a *keyed* error rather than a bare ``ValueError``;
+    that is an engine change, noted here rather than worked around here.
+    """
+    return ApiError(UNPROCESSABLE, "error.invalid_new_game")
+
+
+def unknown_board(board_id: str) -> ApiError:
+    return ApiError(UNPROCESSABLE, "error.unknown_board", board_id=board_id)
