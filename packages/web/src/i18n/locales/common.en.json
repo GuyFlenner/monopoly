@@ -45,7 +45,9 @@
     "red": "Red",
     "yellow": "Yellow",
     "green": "Green",
-    "dark_blue": "Dark blue"
+    "dark_blue": "Dark blue",
+    "railroad": "Railroads",
+    "utility": "Utilities"
   },
   "board": {
     "classic": { "name": "Classic (Atlantic City)" },

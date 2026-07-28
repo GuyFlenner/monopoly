@@ -24,6 +24,14 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
+# Individual keys that exist in English and are *deliberately* not yet in Hebrew, for the same
+# reason as ENGLISH_ONLY_CATALOGUES: the Hebrew must come from a native speaker rather than a
+# machine-plausible guess. `group.railroad` / `group.utility` arrived with MON-412, which themed
+# the six ownable tiles the engine leaves `group=None` (GAP §5, G-A3); the Hebrew belongs to
+# MON-501, which owns the catalogue and its adjective agreement. The tripwire test below asserts
+# each of these is still missing from Hebrew, so the exemption cannot outlive its reason.
+PENDING_HEBREW_KEYS = frozenset({"group.railroad", "group.utility"})
+
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
     flat: dict[str, str] = {}
@@ -53,10 +61,24 @@ def test_languages_define_exactly_the_same_keys(catalogue: str) -> None:
     if catalogue in ENGLISH_ONLY_CATALOGUES:
         pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
     english, hebrew = _load(catalogue, "en"), _load(catalogue, "he")
-    missing_in_hebrew = sorted(set(english) - set(hebrew))
+    missing_in_hebrew = sorted(set(english) - set(hebrew) - PENDING_HEBREW_KEYS)
     extra_in_hebrew = sorted(set(hebrew) - set(english))
     assert not missing_in_hebrew, f"untranslated: {missing_in_hebrew}"
     assert not extra_in_hebrew, f"orphaned Hebrew keys: {extra_in_hebrew}"
+
+
+def test_pending_hebrew_keys_are_still_pending() -> None:
+    """The tripwire on PENDING_HEBREW_KEYS: an exemption that outlives its reason is a hole.
+
+    When MON-501 translates one of these, this test fails and the key must be removed from
+    PENDING_HEBREW_KEYS — at which point the parity test above starts guarding it for real.
+    """
+    hebrew = _load("common", "he")
+    english = _load("common", "en")
+    translated = sorted(key for key in PENDING_HEBREW_KEYS if key in hebrew)
+    assert not translated, f"translated — remove from PENDING_HEBREW_KEYS: {translated}"
+    stale = sorted(key for key in PENDING_HEBREW_KEYS if key not in english)
+    assert not stale, f"no longer in the English catalogue either — drop the exemption: {stale}"
 
 
 @pytest.mark.parametrize("catalogue", CATALOGUES)
