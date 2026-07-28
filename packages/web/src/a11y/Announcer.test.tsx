@@ -115,7 +115,7 @@ describe("Announcer", () => {
 
     act(() => {
       push([
-        polite("a11y.diceResult", { first: 2, second: 5, total: 7 }),
+        polite("a11y.dice_result", { first: 2, second: 5, total: 7 }),
         polite("a11y.moved", { name: "Ruti", tile: "Jail" }),
         { politeness: "assertive", key: "a11y.turn", params: { name: "Dan" } },
       ]);

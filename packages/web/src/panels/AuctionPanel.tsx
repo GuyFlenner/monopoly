@@ -76,7 +76,7 @@ export interface AuctionPanelProps {
   readonly onSend: (command: Command) => void;
   /**
    * How to leave, when leaving is possible at all. An auction is a phase, so this is normally
-   * omitted and Escape narrates `auction.cannotLeave` instead (GAP E1).
+   * omitted and Escape narrates `auction.cannot_leave` instead (GAP E1).
    */
   readonly onClose?: (() => void) | undefined;
 }
@@ -187,12 +187,12 @@ export function AuctionPanel({
     <ModalDialog
       title={t("auction.title")}
       onClose={onClose}
-      cannotCloseKey="auction.cannotLeave"
+      cannotCloseKey="auction.cannot_leave"
       headline={
         <span>
           {t("auction.lot", { lot: lotName })} · {t(`auction_reason.${frame.reason}`)}
           {frame.queue.length > 0 &&
-            ` · ${t("auction.queueRemaining", { lots: frame.queue.length })}`}
+            ` · ${t("auction.queue_remaining", { lots: frame.queue.length })}`}
         </span>
       }
       footer={
@@ -213,7 +213,7 @@ export function AuctionPanel({
                 className="target flex items-center gap-2 rounded-2xl border-2 border-hairline px-4 font-semibold"
               >
                 <Icon name="paddle" size={20} />
-                {t("action.withdraw")}
+                {t("action.withdraw_from_auction")}
               </button>
             )}
             <button
@@ -223,7 +223,7 @@ export function AuctionPanel({
               className="target flex items-center gap-2 rounded-2xl border-2 border-hairline bg-ink px-5 text-lg font-bold text-tile disabled:opacity-40"
             >
               <Icon name="paddle" size={22} />
-              {t("action.bid", { amount })}
+              {t("action.place_bid", { amount })}
             </button>
           </>
         ) : (
@@ -231,13 +231,13 @@ export function AuctionPanel({
             ref={confirmRef}
             question={
               pending.kind === "withdraw"
-                ? t("auction.confirmWithdraw")
-                : t("auction.confirmWholeCash", { amount: pending.amount })
+                ? t("auction.confirm_withdraw")
+                : t("auction.confirm_whole_cash", { amount: pending.amount })
             }
             confirmLabel={
               pending.kind === "withdraw"
-                ? t("action.withdraw")
-                : t("action.bid", { amount: pending.amount })
+                ? t("action.withdraw_from_auction")
+                : t("action.place_bid", { amount: pending.amount })
             }
             onConfirm={() => {
               if (pending.kind === "withdraw") {
@@ -258,8 +258,8 @@ export function AuctionPanel({
       <section className="mt-5" aria-labelledby="auction-bid-heading">
         <h3 id="auction-bid-heading" className="text-lg font-bold">
           {bidder === null
-            ? t("auction.nobodyToBid")
-            : t("auction.yourTurnToBid", { name: playerName(bidder) })}
+            ? t("auction.nobody_to_bid")
+            : t("auction.your_turn_to_bid", { name: playerName(bidder) })}
         </h3>
 
         <p className="mt-1 text-sm opacity-80">
@@ -289,7 +289,7 @@ export function AuctionPanel({
         </div>
 
         <label className="mt-4 flex flex-wrap items-center gap-2 text-sm font-medium">
-          {t("auction.typeAmount")}
+          {t("auction.type_amount")}
           <input
             type="number"
             inputMode="numeric"
@@ -312,16 +312,16 @@ export function AuctionPanel({
 
         {aboveCeiling && (
           <p className="mt-2 text-sm font-semibold">
-            {t("auction.aboveCeiling", { amount: ceiling })}
+            {t("auction.above_ceiling", { amount: ceiling })}
           </p>
         )}
         {belowFloor && (
           <p className="mt-2 text-sm font-semibold">
-            {t("auction.belowFloor", { amount: frame.min_bid })}
+            {t("auction.below_floor", { amount: frame.min_bid })}
           </p>
         )}
         {overWarn && !needsBidConfirm && (
-          <p className="mt-2 text-sm font-semibold">{t("auction.warnHalfCash")}</p>
+          <p className="mt-2 text-sm font-semibold">{t("auction.warn_half_cash")}</p>
         )}
       </section>
     </ModalDialog>
@@ -374,11 +374,11 @@ function BidderRail({
                 </p>
                 <p className="text-xs">
                   {isWithdrawn
-                    ? t("auction.droppedOut")
+                    ? t("auction.dropped_out")
                     : isTurn
-                      ? t("auction.biddingNow")
+                      ? t("auction.bidding_now")
                       : isActive
-                        ? t("auction.stillBidding")
+                        ? t("auction.still_bidding")
                         : ""}
                 </p>
               </div>
@@ -398,8 +398,8 @@ function BidderRail({
       </ol>
       <p className="mt-2 text-sm">
         {highBidder === null
-          ? t("auction.noBidsYet", { amount: frame.min_bid })
-          : t("auction.standingBid", { amount: frame.high_bid, name: playerName(highBidder) })}
+          ? t("auction.no_bids_yet", { amount: frame.min_bid })
+          : t("auction.standing_bid", { amount: frame.high_bid, name: playerName(highBidder) })}
       </p>
     </section>
   );
@@ -431,7 +431,7 @@ function CashMeter({
         />
       </div>
       <p className="mt-1 text-sm tabular-nums opacity-80">
-        {t("auction.shareOfCash", { percent: pct, cash })}
+        {t("auction.share_of_cash", { percent: pct, cash })}
       </p>
     </div>
   );
@@ -468,7 +468,7 @@ function ConfirmStrip({
         onClick={onCancel}
         className="target rounded-2xl border-2 border-hairline px-4 font-semibold"
       >
-        {t("panel.goBack")}
+        {t("panel.go_back")}
       </button>
       <button
         ref={ref}

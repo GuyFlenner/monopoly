@@ -193,7 +193,7 @@ describe("App — the setup screen", () => {
 
   it("renders the server's own reason key when a list cannot be fetched", async () => {
     const edge = makeEdge({
-      "GET /api/boards": refusal(404, "error.gameNotFound"),
+      "GET /api/boards": refusal(404, "error.game_not_found"),
       "GET /api/rulesets": ok(RULESETS),
     });
     renderApp(edge);
@@ -320,7 +320,7 @@ describe("App — the game screen", () => {
     const edge = makeEdge({
       "GET /api/boards": ok(BOARDS),
       "GET /api/rulesets": ok(RULESETS),
-      "GET /api/games/g1": refusal(404, "error.gameNotFound"),
+      "GET /api/games/g1": refusal(404, "error.game_not_found"),
     });
     renderApp(edge);
 

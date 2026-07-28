@@ -141,7 +141,7 @@ describe("useEventNarration", () => {
     const container = renderNarration();
 
     await waitFor(() => {
-      expect(announced).toEqual(["a11y.diceResult", "a11y.moved"]);
+      expect(announced).toEqual(["a11y.dice_result", "a11y.moved"]);
     });
     // The first sentence is in the region; the second is queued behind it (Announcer.test.tsx
     // owns the dwell).
@@ -175,7 +175,7 @@ describe("useEventNarration", () => {
       }
     });
 
-    expect(announced).toEqual(["a11y.diceResult", "a11y.moved"]);
+    expect(announced).toEqual(["a11y.dice_result", "a11y.moved"]);
   });
 
   it("narrates a genuinely new frame that arrives over the socket", async () => {
@@ -188,6 +188,6 @@ describe("useEventNarration", () => {
       sockets[0]?.push(loggedEvent(3, { type: "turn_started", player: 1, turn_number: 2 }));
     });
 
-    expect(announced).toEqual(["a11y.diceResult", "a11y.moved", "a11y.turn"]);
+    expect(announced).toEqual(["a11y.dice_result", "a11y.moved", "a11y.turn"]);
   });
 });

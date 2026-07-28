@@ -11,7 +11,7 @@
  *    request with an empty string in it is not a rejected game, it is an unfinished form.
  *
  * 2. **Kids mode shows what it changes, computed from `/rulesets`.** Not from
- *    `setup.kidsExplainer`, which is prose that goes stale the first time a flag moves. See
+ *    `setup.kids_explainer`, which is prose that goes stale the first time a flag moves. See
  *    `SetupScreenRuleset.ts` for the diff and for the server-side seam that would delete it.
  *
  * 3. **A seat's identity is shape + colour + icon + name**, four channels, because a
@@ -239,7 +239,7 @@ export function SetupScreen({
             }}
             className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
           >
-            + {t("setup.addPlayer")}
+            + {t("setup.add_player")}
           </button>
         )}
       </fieldset>
@@ -309,7 +309,7 @@ export function SetupScreen({
             className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
           />
           <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
-            {t("setup.seedHint")}
+            {t("setup.seed_hint")}
           </p>
         </div>
       </fieldset>
@@ -317,9 +317,9 @@ export function SetupScreen({
       {rejection !== null && (
         <Rejection
           error={rejection}
-          heading={t("setup.cannotStart")}
+          heading={t("setup.cannot_start")}
           resolve={(key, params) =>
-            i18n.exists(key) ? t(key, params) : t("error.illegalMove", params)
+            i18n.exists(key) ? t(key, params) : t("error.illegal_move", params)
           }
         />
       )}
@@ -376,7 +376,7 @@ function SeatCard({
               onClick={onRemove}
               className="ms-auto min-h-11 min-w-11 rounded-xl border border-current/30 px-4 text-sm"
             >
-              {t("setup.removePlayer")}
+              {t("setup.remove_player")}
               <span className="sr-only"> — {seatLabel}</span>
             </button>
           )}
@@ -384,7 +384,7 @@ function SeatCard({
 
         <div className="flex flex-col gap-1">
           <label htmlFor={`${fieldId}-name`} className="text-sm font-medium">
-            {t("setup.playerName")}
+            {t("setup.player_name")}
           </label>
           <input
             id={`${fieldId}-name`}
@@ -400,7 +400,7 @@ function SeatCard({
 
         <Choice
           name={`${fieldId}-kind`}
-          label={t("setup.playerType")}
+          label={t("setup.player_type")}
           options={[
             { value: "human", label: t("setup.human") },
             { value: "bot", label: t("setup.bot") },
@@ -414,7 +414,7 @@ function SeatCard({
         {seat.isBot && (
           <Picker
             id={`${fieldId}-level`}
-            label={t("setup.botLevel")}
+            label={t("setup.bot_level_label")}
             value={seat.botLevel}
             options={BOT_LEVELS.map((level) => ({ value: level, label: t(BOT_LEVEL_KEYS[level]) }))}
             onChange={(value) => {
@@ -558,12 +558,12 @@ function RuleDiff({
 }): React.JSX.Element {
   const { t } = useTranslation();
   if (differences.length === 0) {
-    return <p className="text-sm opacity-70">{t("setup.kidsNoChanges")}</p>;
+    return <p className="text-sm opacity-70">{t("setup.kids_no_changes")}</p>;
   }
   return (
     <div className="flex flex-col gap-2 rounded-xl border-s-4 border-[oklch(72%_0.14_70)] bg-current/5 p-3">
       <h3 className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
-        {t("setup.kidsChanges")}
+        {t("setup.kids_changes")}
       </h3>
       <ul className="flex flex-col gap-1.5">
         {differences.map((difference) => (

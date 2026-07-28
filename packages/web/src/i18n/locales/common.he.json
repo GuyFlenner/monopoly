@@ -4,21 +4,20 @@
     "tagline": "לקנות רחובות. לגבות שכר דירה. לא להתרברב יותר מדי."
   },
   "action": {
-    "roll": "הטל קוביות",
-    "buy": "קנה ב-{{price}}",
-    "decline": "לא קונה",
-    "endTurn": "סיים תור",
-    "build": "בנה בית",
-    "sellHouse": "מכור בית",
-    "mortgage": "משכן",
-    "unmortgage": "פדה משכנתא",
-    "trade": "הצע עסקה",
-    "bid": "הצע {{amount}}",
-    "withdraw": "צא מהמכירה",
-    "payFine": "שלם ערבות {{amount}}",
-    "useCard": "השתמש בכרטיס יציאה",
-    "rollForDoubles": "הטל לזוגי",
-    "declareBankruptcy": "אני נפרש"
+    "roll_dice": "הטל קוביות",
+    "decline_purchase": "לא קונה",
+    "end_turn": "סיים תור",
+    "build_house": "בנה בית",
+    "sell_house": "מכור בית",
+    "mortgage_property": "משכן",
+    "unmortgage_property": "פדה משכנתא",
+    "propose_trade": "הצע עסקה",
+    "place_bid": "הצע {{amount}}",
+    "withdraw_from_auction": "צא מהמכירה",
+    "pay_jail_fine": "שלם ערבות {{amount}}",
+    "use_jail_card": "השתמש בכרטיס יציאה",
+    "roll_for_jail": "הטל לזוגי",
+    "declare_bankruptcy": "אני נפרש"
   },
   "label": {
     "cash": "מזומן",
@@ -30,9 +29,9 @@
     "houses": "בתים",
     "hotel": "מלון",
     "mortgaged": "ממושכן",
-    "netWorth": "שווי נקי",
-    "jailCards": "כרטיסי יציאה מהכלא",
-    "inJail": "בכלא",
+    "net_worth": "שווי נקי",
+    "jail_cards": "כרטיסי יציאה מהכלא",
+    "in_jail": "בכלא",
     "bankrupt": "מחוץ למשחק",
     "bank": "הבנק",
     "loading": "טוען…"
@@ -48,18 +47,22 @@
     "dark_blue": "כחול כהה"
   },
   "board": {
-    "classic": { "name": "קלאסי (אטלנטיק סיטי)" },
-    "israel": { "name": "ישראל" }
+    "classic": {
+      "name": "קלאסי (אטלנטיק סיטי)"
+    },
+    "israel": {
+      "name": "ישראל"
+    }
   },
   "setup": {
     "title": "משחק חדש",
     "players": "שחקנים",
-    "addPlayer": "הוסף שחקן",
-    "removePlayer": "הסר",
-    "playerName": "שם",
+    "add_player": "הוסף שחקן",
+    "remove_player": "הסר",
+    "player_name": "שם",
     "human": "אדם",
     "bot": "מחשב",
-    "botLevel": "דרגת קושי",
+    "bot_level_label": "דרגת קושי",
     "easy": "קל",
     "normal": "בינוני",
     "hard": "קשה",
@@ -67,63 +70,42 @@
     "ruleset": "חוקים",
     "universal": "חוקים מלאים",
     "kids": "מצב ילדים",
-    "kidsExplainer": "בלי מכירות פומביות ובלי משכנתאות, עסקאות פשוטות, רמזים דולקים, והמשחק נגמר תוך כ-{{minutes}} דקות.",
+    "kids_explainer": "בלי מכירות פומביות ובלי משכנתאות, עסקאות פשוטות, רמזים דולקים, והמשחק נגמר תוך כ-{{minutes}} דקות.",
     "language": "שפה",
-    "start": "התחל משחק",
-    "tooFewPlayers": "צריך לפחות {{min}} שחקנים.",
-    "tooManyPlayers": "עד {{max}} שחקנים יכולים לשחק."
+    "start": "התחל משחק"
   },
   "dossier": {
     "title": "הנכסים של {{name}}",
     "compare": "השווה שחקנים",
     "pin": "הצמד זה לזה",
     "unpin": "בטל הצמדה",
-    "completeSet": "סדרה שלמה",
-    "setProgress": "{{owned}} מתוך {{total}}",
+    "complete_set": "סדרה שלמה",
+    "set_progress": "{{owned}} מתוך {{total}}",
     "empty": "אין נכסים עדיין"
   },
   "rent": {
     "note": {
-      "fullGroupDoubled": "שכר הדירה כפול: {{name}} מחזיק בכל הסדרה ה{{group}}ה.",
-      "railroads": "{{count}} רכבות בבעלות.",
-      "utilityOne": "מפעל אחד: פי 4 מתוצאת הקוביות.",
-      "utilityTwo": "שני המפעלים: פי 10 מתוצאת הקוביות.",
-      "mortgagedNoRent": "אין שכר דירה — הנכס ממושכן.",
-      "withHouses": "{{houses}} בתים עליו.",
       "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}}).",
       "card_utility_multiplier": "הקלף תמיד גובה פי {{multiplier}} מתוצאת הקוביות, לא משנה כמה מפעלים בבעלות.",
       "railroad_count": "{{count}} רכבות בבעלות.",
       "card_doubled": "הקלף מכפיל את שכר הדירה הזה."
     }
   },
-  "event": {
-    "passedGo": "{{name}} עבר בהתחלה וקיבל {{amount}}.",
-    "rentPaid": "{{payer}} שילם ל{{owner}} {{amount}} שכר דירה.",
-    "bought": "{{name}} קנה את {{tile}} ב-{{price}}.",
-    "wentToJail": "{{name}} נכנס לכלא.",
-    "leftJail": "{{name}} יצא מהכלא.",
-    "built": "{{name}} בנה על {{tile}}.",
-    "bankrupted": "{{name}} מחוץ למשחק.",
-    "gameEnded": "{{name}} ניצח!"
-  },
   "error": {
-    "notYourTurn": "זה עוד לא התור שלך.",
-    "insufficientFunds": "אין מספיק מזומן לזה.",
-    "gameNotFound": "המשחק הזה לא קיים יותר.",
+    "not_your_turn": "זה עוד לא התור שלך.",
+    "insufficient_funds": "אין מספיק מזומן לזה.",
+    "game_not_found": "המשחק הזה לא קיים יותר.",
     "network": "שגיאת רשת. נסו שוב.",
-    "illegalMove": "המהלך הזה לא אפשרי כרגע.",
-    "mustOwnWholeGroup": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
-    "evenBuild": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
-    "noHousesLeft": "נגמרו הבתים בבנק.",
-    "mustSellFirst": "צריך למכור את הבתים בסדרה לפני משכון.",
+    "illegal_move": "המהלך הזה לא אפשרי כרגע.",
+    "group_incomplete": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
+    "uneven_build": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
+    "group_has_buildings": "צריך למכור את הבתים בסדרה לפני משכון.",
     "no_houses_left": "נגמרו הבתים בבנק.",
     "no_hotel_to_demolish": "אין כאן מלון לפרק."
   },
   "a11y": {
-    "diceResult": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
-    "turnAnnouncement": "התור של {{name}}.",
-    "cashChange": "{{name}} {{direction}} {{amount}}.",
-    "boardTile": "{{name}}, {{kind}}{{owner}}",
-    "ownedBy": ", בבעלות {{name}}"
+    "dice_result": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
+    "board_tile": "{{name}}, {{kind}}{{owner}}",
+    "owned_by": ", בבעלות {{name}}"
   }
 }

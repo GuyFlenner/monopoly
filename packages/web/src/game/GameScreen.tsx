@@ -88,7 +88,7 @@ export function useReasonText(): (error: ApiError) => string {
         return t(error.reasonKey, error.params);
       }
       const fallback =
-        error.status >= 400 && error.status < 500 ? "error.illegalMove" : "error.network";
+        error.status >= 400 && error.status < 500 ? "error.illegal_move" : "error.network";
       return t(fallback, error.params);
     },
     [t, i18n],
@@ -370,7 +370,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             }}
             className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
           >
-            {t("action.trade")}
+            {t("action.propose_trade")}
           </button>
 
           <section aria-labelledby={playersHeadingId} className="flex flex-col gap-2">
@@ -419,7 +419,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
       {/*
         An auction is a phase, so the panel has no `onClose`: `ModalDialog` narrates
-        `auction.cannotLeave` on Escape rather than dropping a player onto a board that is not
+        `auction.cannot_leave` on Escape rather than dropping a player onto a board that is not
         taking commands.
       */}
       {auctionFrame !== undefined && (

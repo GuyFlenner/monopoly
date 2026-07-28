@@ -72,7 +72,7 @@ export interface ActionBarProps {
   /** The board, for naming the square a tile-scoped command acts on. */
   readonly board: BoardView | undefined;
   /**
-   * `state.ruleset.jail_fine` — the figure `action.payFine` states.
+   * `state.ruleset.jail_fine` — the figure `action.pay_jail_fine` states.
    *
    * A projected field passed in rather than looked up, because `PayJailFine` carries no amount and
    * the bar must not decide what bail costs. See `ActionLabels.ts`.

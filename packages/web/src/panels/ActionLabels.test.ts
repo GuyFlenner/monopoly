@@ -141,17 +141,17 @@ describe("the kind → label-key map", () => {
     // failure names the module to delete. That is the intended lifetime of this file.
     const derivable = COMMAND_KINDS.filter((kind) => ACTION_LABEL_KEY[kind] === `action.${kind}`);
     expect(derivable.length).toBeLessThan(COMMAND_KINDS.length);
-    expect(ACTION_LABEL_KEY.roll_dice).toBe("action.roll");
+    expect(ACTION_LABEL_KEY.roll_dice).toBe("action.roll_dice");
   });
 });
 
 describe("payload variants", () => {
   it("says which building is being sold", () => {
     expect(labelKeyFor({ kind: "sell_house", player: 0, tile: 3, demolish_hotel: false })).toBe(
-      "action.sellHouse",
+      "action.sell_house",
     );
     expect(labelKeyFor({ kind: "sell_house", player: 0, tile: 3, demolish_hotel: true })).toBe(
-      "action.sellHouse_hotel",
+      "action.sell_house_hotel",
     );
   });
 

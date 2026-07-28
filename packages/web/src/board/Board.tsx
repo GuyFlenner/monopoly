@@ -236,7 +236,7 @@ export function Board({
 
   // `{{hidden}}` rather than i18next's `{{count}}`: a `count` param triggers plural resolution and
   // would need a suffixed key per CLDR category in every language, and "+3" needs no grammar at all.
-  const overflowLabel = useCallback((hidden: number) => t("board.moreTokens", { hidden }), [t]);
+  const overflowLabel = useCallback((hidden: number) => t("board.more_tokens", { hidden }), [t]);
 
   const rows = useMemo(() => {
     const grouped = new Map<number, typeof tiles>();
@@ -261,11 +261,11 @@ export function Board({
         href={`#${actionsRegionId}`}
         className="target bg-tile text-ink border-hairline sr-only rounded-lg border px-4 py-2 font-semibold focus:not-sr-only"
       >
-        {t("board.skipToActions")}
+        {t("board.skip_to_actions")}
       </a>
 
       <p id="kesef-board-hint" className="sr-only">
-        {t("board.keyboardHint")}
+        {t("board.keyboard_hint")}
       </p>
 
       <div
@@ -402,7 +402,7 @@ export function Board({
         }}
         className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 font-semibold shadow-sm"
       >
-        {t("board.openTile", { name: tileName(active) })}
+        {t("board.open_tile", { name: tileName(active) })}
       </button>
     </div>
   );

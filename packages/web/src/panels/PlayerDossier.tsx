@@ -216,7 +216,7 @@ function DeedRow({
           onClick={() => {
             onSelect(deed.index);
           }}
-          aria-label={t("board.openTile", { name: deed.name })}
+          aria-label={t("board.open_tile", { name: deed.name })}
           className="target focus-visible:z-10 flex w-full items-center gap-2 rounded-lg px-1 py-1 text-start text-sm hover:bg-current/5"
         >
           {marks}
@@ -247,8 +247,8 @@ function GroupRow({
     holdings === undefined
       ? undefined
       : holdings.complete
-        ? t("dossier.completeSet")
-        : t("dossier.setProgress", { owned: holdings.owned, total: holdings.total });
+        ? t("dossier.complete_set")
+        : t("dossier.set_progress", { owned: holdings.owned, total: holdings.total });
 
   return (
     <li
@@ -269,7 +269,7 @@ function GroupRow({
               <SetPips
                 owned={holdings.owned}
                 total={holdings.total}
-                label={t("dossier.setProgress", {
+                label={t("dossier.set_progress", {
                   owned: holdings.owned,
                   total: holdings.total,
                 })}
@@ -434,7 +434,7 @@ export function PlayerDossier({
           <p className="flex flex-wrap items-center gap-2 text-[0.625rem] font-semibold tracking-[0.1em] uppercase opacity-70">
             {seat !== undefined && <span>{t("dossier.seat", { seat })}</span>}
             {player.is_bot && <span data-testid="dossier-bot">{t("dossier.bot")}</span>}
-            {player.in_jail && <span data-testid="dossier-jailed">{t("label.inJail")}</span>}
+            {player.in_jail && <span data-testid="dossier-jailed">{t("label.in_jail")}</span>}
             {player.bankrupt && <span data-testid="dossier-bankrupt">{t("label.bankrupt")}</span>}
           </p>
         </div>
@@ -442,14 +442,14 @@ export function PlayerDossier({
 
       <div className="border-current/15 grid grid-cols-2 gap-3 border-y py-2 sm:grid-cols-4">
         <Figure label={t("label.cash")} value={player.cash} testId="dossier-cash" />
-        <Figure label={t("label.netWorth")} value={player.net_worth} testId="dossier-net-worth" />
+        <Figure label={t("label.net_worth")} value={player.net_worth} testId="dossier-net-worth" />
         <Figure
           label={t("label.properties")}
           value={player.tiles_owned.length}
           testId="dossier-squares"
         />
         <Figure
-          label={t("label.jailCards")}
+          label={t("label.jail_cards")}
           value={player.jail_cards.length}
           testId="dossier-jail-cards"
         />

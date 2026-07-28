@@ -92,28 +92,28 @@ export const HOTEL_LEVEL = 5;
  */
 export function describeTile(description: TileDescription, t: Translate): string {
   const owner =
-    description.ownerName === undefined ? "" : t("a11y.ownedBy", { name: description.ownerName });
+    description.ownerName === undefined ? "" : t("a11y.owned_by", { name: description.ownerName });
 
-  let sentence = t("a11y.boardTile", {
+  let sentence = t("a11y.board_tile", {
     name: description.name,
-    kind: t(`tileKind.${description.kind}`),
+    kind: t(`tile_kind.${description.kind}`),
     owner,
   });
 
   if (description.houses >= HOTEL_LEVEL) {
-    sentence += t("a11y.tileHotel");
+    sentence += t("a11y.tile_hotel");
   } else if (description.houses === 1) {
-    sentence += t("a11y.tileOneHouse");
+    sentence += t("a11y.tile_one_house");
   } else if (description.houses > 1) {
-    sentence += t("a11y.tileHouses", { houses: description.houses });
+    sentence += t("a11y.tile_houses", { houses: description.houses });
   }
 
   if (description.mortgaged) {
-    sentence += t("a11y.tileMortgaged");
+    sentence += t("a11y.tile_mortgaged");
   }
 
   if (description.occupantNames.length > 0) {
-    sentence += t("a11y.tileOccupants", { names: description.occupantNames.join(", ") });
+    sentence += t("a11y.tile_occupants", { names: description.occupantNames.join(", ") });
   }
 
   return sentence;

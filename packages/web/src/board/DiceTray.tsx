@@ -136,16 +136,16 @@ export function SkipAnimationsToggle({ className }: SkipAnimationsToggleProps): 
         // stream; announcing it here as well would be the double-speak defect.
         announce({
           politeness: "polite",
-          key: chosen ? "a11y.animationsOn" : "a11y.animationsOff",
+          key: chosen ? "a11y.animations_on" : "a11y.animations_off",
           params: {},
         });
       }}
       className={`target bg-tile text-ink border-hairline rounded-xl border px-3 py-2 text-sm font-semibold aria-pressed:font-bold ${className ?? ""}`}
     >
-      {t("dice.skipAnimations")}
+      {t("dice.skip_animations")}
       {/* When the OS already asked for stillness the switch is redundant but not disabled: a
           disabled control that looks off would misreport the state the player is actually in. */}
-      {reduced && <span className="sr-only"> {t("dice.reducedMotionActive")}</span>}
+      {reduced && <span className="sr-only"> {t("dice.reduced_motion_active")}</span>}
     </button>
   );
 }
@@ -193,7 +193,7 @@ export function DiceTray({
       </h2>
 
       {dice === null || dice === undefined ? (
-        <p className="text-on-table text-sm opacity-80">{t("dice.notRolled")}</p>
+        <p className="text-on-table text-sm opacity-80">{t("dice.not_rolled")}</p>
       ) : (
         <>
           <span className="flex items-center gap-3">

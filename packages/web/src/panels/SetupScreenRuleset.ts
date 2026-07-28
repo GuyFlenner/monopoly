@@ -2,7 +2,7 @@
  * What Kids mode changes, worked out from `/rulesets` rather than written down.
  *
  * MON-408's acceptance criterion is that the explanation is **sourced from the endpoint**, and
- * the catalogue's `setup.kidsExplainer` — "No auctions or mortgages, simpler trades, hints on,
+ * the catalogue's `setup.kids_explainer` — "No auctions or mortgages, simpler trades, hints on,
  * and games end in about {{minutes}} minutes" — is precisely the hardcoded sentence it forbids.
  * It is prose that was true when someone typed it, cannot be true after a flag changes, and
  * gives the reader no way to tell which of the two it is.

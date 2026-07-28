@@ -227,7 +227,7 @@ export function TradeBuilder({
     <ModalDialog
       title={t("trade.title")}
       onClose={onClose}
-      cannotCloseKey="trade.cannotLeave"
+      cannotCloseKey="trade.cannot_leave"
       headline={
         recipientPlayer === undefined
           ? undefined
@@ -291,7 +291,7 @@ export function TradeBuilder({
 
       {simplifiedTrades && (
         <p className="mt-3 rounded-2xl border-2 border-hairline p-3 text-sm font-medium">
-          {t("trade.simplifiedHint")}
+          {t("trade.simplified_hint")}
         </p>
       )}
 
@@ -346,10 +346,10 @@ function Tray({
 
   return (
     <section
-      aria-label={t("trade.sideGives", { name: owner.name })}
+      aria-label={t("trade.side_gives", { name: owner.name })}
       className="rounded-2xl border-2 border-hairline p-3"
     >
-      <h3 className="text-base font-bold">{t("trade.sideGives", { name: owner.name })}</h3>
+      <h3 className="text-base font-bold">{t("trade.side_gives", { name: owner.name })}</h3>
 
       {renderDossier !== undefined && <div className="mt-2">{renderDossier(owner.id)}</div>}
 
@@ -365,7 +365,7 @@ function Tray({
             className="target rounded-2xl border-2 border-hairline px-3 font-bold disabled:opacity-40"
           >
             <Icon name="minus" size={16} />
-            <span className="sr-only">{t("trade.removeCash", { amount: CASH_STEP })}</span>
+            <span className="sr-only">{t("trade.remove_cash", { amount: CASH_STEP })}</span>
           </button>
           <input
             type="number"
@@ -373,7 +373,7 @@ function Tray({
             min={0}
             dir="ltr"
             value={draft.cash}
-            aria-label={t("trade.sideCash", { name: owner.name })}
+            aria-label={t("trade.side_cash", { name: owner.name })}
             onChange={(event) => {
               const next = Number.parseInt(event.target.value, 10);
               // Zero for junk, never a negative: a negative side is not an offer. Note what is
@@ -390,7 +390,7 @@ function Tray({
             className="target rounded-2xl border-2 border-hairline px-3 font-bold"
           >
             <Icon name="plus" size={16} />
-            <span className="sr-only">{t("trade.addCash", { amount: CASH_STEP })}</span>
+            <span className="sr-only">{t("trade.add_cash", { amount: CASH_STEP })}</span>
           </button>
         </div>
       </div>
@@ -398,7 +398,7 @@ function Tray({
       <fieldset className="mt-3 border-0 p-0">
         <legend className="text-sm font-semibold">{t("trade.properties")}</legend>
         {owner.tiles_owned.length === 0 ? (
-          <p className="mt-1 text-sm opacity-80">{t("trade.noProperties")}</p>
+          <p className="mt-1 text-sm opacity-80">{t("trade.no_properties")}</p>
         ) : (
           <ul className="mt-1">
             {owner.tiles_owned.map((index) => (
@@ -420,9 +420,9 @@ function Tray({
       </fieldset>
 
       <fieldset className="mt-3 border-0 p-0">
-        <legend className="text-sm font-semibold">{t("trade.jailCards")}</legend>
+        <legend className="text-sm font-semibold">{t("trade.jail_cards")}</legend>
         {decks.length === 0 ? (
-          <p className="mt-1 text-sm opacity-80">{t("trade.noJailCards")}</p>
+          <p className="mt-1 text-sm opacity-80">{t("trade.no_jail_cards")}</p>
         ) : (
           <ul className="mt-1">
             {decks.map((deck) => (

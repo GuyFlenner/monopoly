@@ -6,7 +6,7 @@
  *
  * The engine's vocabulary is snake_case command kinds (`build_house`, `declare_bankruptcy`).
  * The catalogue's action leaves are camelCase and named after *verbs a designer chose*
- * (`action.build`, `action.declareBankruptcy`) — so not one of them can be reached by
+ * (`action.build_house`, `action.declare_bankruptcy`) — so not one of them can be reached by
  * concatenating `"action." + command.kind`. That is GAP G-40, it is owned by MON-501, and the
  * accepted resolution is snake_case everywhere. When that rename lands, `action.<command_kind>`
  * resolves directly, {@link ACTION_LABEL_KEY} becomes an identity function, and this module is
@@ -23,8 +23,8 @@
  * It never decides whether a command is legal, and it never invents a figure. Two labels want a
  * number the command itself does not carry:
  *
- * - `action.bid` wants `{{amount}}` — `PlaceBid.amount` carries it. Fine.
- * - `action.payFine` wants `{{amount}}` — `PayJailFine` carries nothing, so the figure comes in
+ * - `action.place_bid` wants `{{amount}}` — `PlaceBid.amount` carries it. Fine.
+ * - `action.pay_jail_fine` wants `{{amount}}` — `PayJailFine` carries nothing, so the figure comes in
  *   as `jailFine`, which the caller reads from `state.ruleset.jail_fine`. A projected field, not
  *   a derivation.
  * - `action.buy` wants `{{price}}` and **nothing on the wire can supply it**. `BuyProperty`
@@ -47,26 +47,26 @@ import type { Command } from "@/api";
  * the rename is heading for.
  */
 export const ACTION_LABEL_KEY: Readonly<Record<CommandKind, string>> = {
-  roll_dice: "action.roll",
-  end_turn: "action.endTurn",
+  roll_dice: "action.roll_dice",
+  end_turn: "action.end_turn",
   // New: price-free, because no field on the wire can supply the price. See the module docstring.
   buy_property: "action.buy_property",
-  decline_purchase: "action.decline",
-  place_bid: "action.bid",
-  withdraw_from_auction: "action.withdraw",
-  build_house: "action.build",
-  sell_house: "action.sellHouse",
-  mortgage_property: "action.mortgage",
-  unmortgage_property: "action.unmortgage",
-  propose_trade: "action.trade",
+  decline_purchase: "action.decline_purchase",
+  place_bid: "action.place_bid",
+  withdraw_from_auction: "action.withdraw_from_auction",
+  build_house: "action.build_house",
+  sell_house: "action.sell_house",
+  mortgage_property: "action.mortgage_property",
+  unmortgage_property: "action.unmortgage_property",
+  propose_trade: "action.propose_trade",
   // New. `respond_to_trade` is one kind with two opposite meanings, so it has no usable base
   // label — see VARIANT_SUFFIX.
   respond_to_trade: "action.respond_to_trade",
   cancel_trade: "action.cancel_trade",
-  pay_jail_fine: "action.payFine",
-  use_jail_card: "action.useCard",
-  roll_for_jail: "action.rollForDoubles",
-  declare_bankruptcy: "action.declareBankruptcy",
+  pay_jail_fine: "action.pay_jail_fine",
+  use_jail_card: "action.use_jail_card",
+  roll_for_jail: "action.roll_for_jail",
+  declare_bankruptcy: "action.declare_bankruptcy",
 };
 
 /**
@@ -116,7 +116,7 @@ const NO_PARAMS: LabelParams = {};
 /**
  * The interpolation values one command's label needs.
  *
- * @param jailFine `state.ruleset.jail_fine`. The projected figure `action.payFine` states; the
+ * @param jailFine `state.ruleset.jail_fine`. The projected figure `action.pay_jail_fine` states; the
  *   ActionBar has no business working out what bail costs.
  */
 export function labelParamsFor(command: Command, jailFine: number): LabelParams {
