@@ -1982,6 +1982,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Session cap reached. */
             503: {
                 headers: {
@@ -2042,6 +2051,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Service Unavailable */
             503: {
                 headers: {
@@ -2094,6 +2112,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     delete_game_games__game_id__delete: {
@@ -2125,6 +2152,15 @@ export interface operations {
             };
             /** @description Validation Error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2165,6 +2201,15 @@ export interface operations {
             };
             /** @description Rejected, with an i18n key. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2216,6 +2261,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
         };
     };
     validate_command_games__game_id__validate_post: {
@@ -2253,6 +2307,15 @@ export interface operations {
             };
             /** @description Rejected, with an i18n key. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

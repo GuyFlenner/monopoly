@@ -122,9 +122,19 @@ def get_settings() -> Settings:
 StoreDep = Annotated[SessionStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
+SERVER_ERROR_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_500_INTERNAL_SERVER_ERROR: {
+        "model": ErrorResponse,
+        "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+    },
+}
+"""``_engine_error_handler``'s answer, declared for the same reason the 422 is: a keyed body the
+document does not mention is a body the generated client cannot branch on."""
+
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
     status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No game with that id."},
     UNPROCESSABLE: {"model": ErrorResponse, "description": "Rejected, with an i18n key."},
+    **SERVER_ERROR_RESPONSE,
 }
 """Declared on the routes so the shape reaches ``generated.ts`` — a 422 the client cannot
 type is a 422 the client will render as prose (G-33)."""
@@ -315,6 +325,7 @@ def list_rulesets() -> list[Ruleset]:
         status.HTTP_409_CONFLICT: {"model": ErrorResponse, "description": "That game_id is already live."},
         UNPROCESSABLE: {"model": ErrorResponse},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse, "description": "Session cap reached."},
+        **SERVER_ERROR_RESPONSE,
     },
 )
 def create_game(request: NewGameRequest, store: StoreDep) -> GameView:
@@ -364,6 +375,7 @@ def list_games(store: StoreDep) -> list[GameSummary]:
         CONTENT_TOO_LARGE: {"model": ErrorResponse},
         UNPROCESSABLE: {"model": ErrorResponse},
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse},
+        **SERVER_ERROR_RESPONSE,
     },
     openapi_extra={
         "requestBody": {
@@ -468,7 +480,7 @@ def validate_command(game_id: str, request: CommandRequest, store: StoreDep) -> 
     "/games/{game_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["game"],
-    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}},
+    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}, **SERVER_ERROR_RESPONSE},
 )
 def delete_game(game_id: str, store: StoreDep) -> None:
     _session(store, game_id)

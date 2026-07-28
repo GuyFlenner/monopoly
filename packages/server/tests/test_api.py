@@ -265,6 +265,10 @@ def test_an_engine_failure_that_is_not_an_illegal_command_is_still_a_key(
     assert response.json() == {"reason_key": "error.engine_failure", "params": {}}
     assert "board" not in response.text, "the exception's own text must not reach the client"
 
+    # And the document says so, or the generated client cannot branch on it (G-33).
+    responses = client.get("/openapi.json").json()["paths"]["/games/{game_id}/commands"]["post"]["responses"]
+    assert "ErrorResponse" in str(responses["500"])
+
 
 def test_an_unknown_board_key_is_not_pinned_on_every_engine_failure(
     client: TestClient, monkeypatch: pytest.MonkeyPatch

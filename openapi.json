@@ -165,6 +165,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -230,6 +240,16 @@
           },
           "503": {
             "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
             "content": {
               "application/json": {
                 "schema": {
@@ -309,6 +329,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       },
@@ -342,6 +372,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -398,6 +438,16 @@
           },
           "422": {
             "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
             "content": {
               "application/json": {
                 "schema": {
@@ -468,6 +518,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -524,6 +584,16 @@
           },
           "422": {
             "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
             "content": {
               "application/json": {
                 "schema": {
