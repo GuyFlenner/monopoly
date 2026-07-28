@@ -12,6 +12,9 @@ code alone would pass against a handler that returned an empty object.
 
 from __future__ import annotations
 
+import json
+import tracemalloc
+from collections.abc import MutableMapping
 from typing import Any, Final
 
 import pytest
@@ -550,12 +553,106 @@ def test_an_oversized_save_is_refused_before_it_is_parsed(client: TestClient) ->
     assert response.json() == {"reason_key": "error.save_too_large", "params": {"limit_bytes": 64}}
 
 
-def test_an_oversized_save_is_refused_even_without_a_content_length(client: TestClient) -> None:
-    """A chunked upload declares no length, so the read itself has to be bounded too."""
-    app.dependency_overrides[get_settings] = lambda: Settings(max_save_bytes=64)
-    payload = minimal_state().model_dump_json().encode()
-    response = client.post("/games/load", content=iter([payload]), headers={"content-type": "application/json"})
-    assert response.status_code == CONTENT_TOO_LARGE
+# --- The bounded body read (MON-303 security review) ------------------------
+#
+# These two go straight at the ASGI app rather than through ``TestClient``, because the test
+# client's transport calls ``request.read()`` and hands the app the whole body as one
+# ``http.request`` message. Measuring the server's allocation through a client that has
+# already buffered the upload would measure nothing.
+
+CHUNK_BYTES: Final = 4096
+"""One upload chunk. Also the ceiling below, so "one chunk over the line" is exact."""
+
+OVERSIZED_CHUNKS: Final = 1024
+"""4 MB sent against a 4 KB ceiling — a thousand times the limit."""
+
+
+async def _post_load_chunked(chunks: int, ceiling: int) -> tuple[list[dict[str, Any]], int]:
+    """POST a chunked ``/games/load`` body, returning the ASGI messages and chunks consumed.
+
+    ``consumed`` is the falsifier: an app that buffers before checking asks for every chunk,
+    an app that checks while reading stops at the first one over the line.
+    """
+    app.dependency_overrides[get_settings] = lambda: Settings(max_save_bytes=ceiling)
+    consumed = 0
+
+    async def receive() -> dict[str, Any]:
+        nonlocal consumed
+        if consumed >= chunks:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        consumed += 1
+        # A fresh buffer per chunk: one shared object would make the accumulation that
+        # ``test_the_bounded_read_never_buffers_the_whole_body`` measures invisible.
+        return {"type": "http.request", "body": b"x" * CHUNK_BYTES, "more_body": True}
+
+    messages: list[dict[str, Any]] = []
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        messages.append(dict(message))
+
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/games/load",
+        "raw_path": b"/games/load",
+        "root_path": "",
+        "scheme": "http",
+        "query_string": b"",
+        # No content-length: a chunked upload declares none, which is exactly the case the
+        # header fast path cannot cover.
+        "headers": [(b"host", b"testserver"), (b"content-type", b"application/json")],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+    await app(scope, receive, send)
+    return messages, consumed
+
+
+def _status_and_body(messages: list[dict[str, Any]]) -> tuple[int, Any]:
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+    return int(start["status"]), json.loads(body)
+
+
+async def test_an_oversized_save_is_refused_even_without_a_content_length() -> None:
+    """A chunked upload declares no length, so the read itself has to be bounded too.
+
+    The 413 was never the interesting half. This asserts the *ceiling was never exceeded*:
+    the app stops pulling chunks at the first one that crosses the line, so it read two of
+    the thousand that were on offer.
+    """
+    messages, consumed = await _post_load_chunked(chunks=OVERSIZED_CHUNKS, ceiling=CHUNK_BYTES)
+    status_code, body = _status_and_body(messages)
+    assert status_code == CONTENT_TOO_LARGE
+    assert body == {"reason_key": "error.save_too_large", "params": {"limit_bytes": CHUNK_BYTES}}
+    assert consumed == 2, "one chunk fits at exactly the ceiling; the second crosses it and ends the read"
+
+
+async def test_the_bounded_read_never_buffers_the_whole_body() -> None:
+    """The 413 was arriving *after* the allocation it was meant to prevent.
+
+    Before this fix ``await request.body()`` buffered the upload and then compared its length
+    to the ceiling: the reviewer measured a 120 MB ``tracemalloc`` peak for a 60 MB body sent
+    against a 1 KB limit — 60 MB in the accumulated chunks and 60 MB again in the join. So the
+    assertion here is on *memory*, not on the status code, because the status code was already
+    right while the defect was live.
+    """
+    body_bytes = OVERSIZED_CHUNKS * CHUNK_BYTES
+    tracemalloc.start()
+    try:
+        messages, _ = await _post_load_chunked(chunks=OVERSIZED_CHUNKS, ceiling=CHUNK_BYTES)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert _status_and_body(messages)[0] == CONTENT_TOO_LARGE
+    # Generous in absolute terms — a request costs a few tens of KB in framework objects —
+    # and still two orders of magnitude below the body, which is the only thing that matters:
+    # the pre-fix implementation peaks at ~2x the body.
+    assert peak < 100 * CHUNK_BYTES, f"peaked at {peak} bytes reading a {body_bytes}-byte body"
+    assert peak < body_bytes // 8
 
 
 def test_the_load_route_still_declares_a_gamestate_body(client: TestClient) -> None:

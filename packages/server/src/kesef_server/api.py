@@ -149,6 +149,31 @@ def _wire_params(context: dict[str, object]) -> dict[str, int | str]:
     return {key: value if isinstance(value, int | str) else str(value) for key, value in context.items()}
 
 
+async def _read_bounded(request: Request, limit: int) -> bytes:
+    """Read the request body, refusing the moment it crosses ``limit`` bytes.
+
+    ``await request.body()`` buffers the *whole* upload and only then permits a comparison
+    against the ceiling, so a 60 MB body sent against a 1 KB limit still allocated 60 MB —
+    twice over, because starlette joins the accumulated chunks — and answered 413 only after
+    the damage was done. N concurrent uploads from an unauthenticated client were therefore an
+    arbitrary allocation primitive: ``config.py`` calls an unbounded body read "a denial-of-
+    service invitation" and the code performed one (MON-303 security review).
+
+    Streaming and aborting on the first chunk that crosses the line means the process never
+    holds more than the ceiling plus one chunk. The ``Content-Length`` check in the caller is
+    a fast path only — a chunked upload declares no length, so *this* is the authoritative
+    guard and ``test_the_bounded_read_never_buffers_more_than_the_ceiling`` measures it.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise errors.save_too_large(limit)
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 # --- Meta ------------------------------------------------------------------
 
 
@@ -252,7 +277,8 @@ async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> G
     carried forward from the MON-100 security review:
 
     * **Size.** This is the only route whose body is not a small fixed shape, so it gets an
-      explicit ceiling instead of reading whatever arrives.
+      explicit ceiling instead of reading whatever arrives — enforced *while* reading, by
+      :func:`_read_bounded`, not after.
     * **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``
       (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,
       which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body
@@ -265,9 +291,7 @@ async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> G
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > config.max_save_bytes:
         raise errors.save_too_large(config.max_save_bytes)
-    raw = await request.body()
-    if len(raw) > config.max_save_bytes:
-        raise errors.save_too_large(config.max_save_bytes)
+    raw = await _read_bounded(request, config.max_save_bytes)
     try:
         state = GameState.model_validate_json(raw)
     except (ValidationError, ValueError, EngineError):
