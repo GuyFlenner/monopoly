@@ -26,6 +26,7 @@ from fastapi.exceptions import RequestValidationError, WebSocketRequestValidatio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from kesef_engine.board.loader import available_boards, load_board
 from kesef_engine.commands import Command, EndTurn
@@ -156,6 +157,38 @@ def _validation_error_handler(request: Request, exc: Exception) -> Response:
     return _api_error_handler(request, errors.malformed_request(fields))
 
 
+HTTP_ERROR_KEYS: dict[int, str] = {
+    status.HTTP_404_NOT_FOUND: "error.not_found",
+    status.HTTP_405_METHOD_NOT_ALLOWED: "error.method_not_allowed",
+}
+"""Keys for the failures starlette itself raises, before any handler of ours runs."""
+
+UNKEYED_HTTP_ERROR = "error.http_error"
+"""The fallback for a status starlette raises that :data:`HTTP_ERROR_KEYS` does not name. The
+``status`` param is what makes one catalogue entry enough for all of them."""
+
+
+def _http_exception_handler(request: Request, exc: Exception) -> Response:
+    """Starlette's own refusals, in this API's one error shape.
+
+    ``errors.py`` opens by asserting that "every failure a client can cause leaves this server
+    as ``{reason_key, params}``", and that was false: with no handler registered for
+    ``StarletteHTTPException``, ``GET /nope`` answered ``{"detail":"Not Found"}``,
+    ``GET /games/a/b`` the same, and ``PUT /games`` ``{"detail":"Method Not Allowed"}``. That
+    shape is declared nowhere in the document, so a generated client cannot branch on it — the
+    G-33 / ADR-008 §4 defect, one layer below the routes that had already fixed it.
+
+    ``exc.headers`` is forwarded because a 405's ``Allow`` is part of the answer, not decoration.
+    """
+    assert isinstance(exc, StarletteHTTPException)
+    body = ErrorResponse(
+        reason_key=HTTP_ERROR_KEYS.get(exc.status_code, UNKEYED_HTTP_ERROR),
+        params={"status": exc.status_code},
+    )
+    log.info("request.rejected", reason_key=body.reason_key, status=exc.status_code)
+    return JSONResponse(status_code=exc.status_code, content=body.model_dump(mode="json"), headers=exc.headers)
+
+
 async def _ws_validation_error_handler(websocket: WebSocket, exc: Exception) -> None:
     """A handshake pydantic refused, reported as a close code rather than as prose.
 
@@ -168,6 +201,7 @@ async def _ws_validation_error_handler(websocket: WebSocket, exc: Exception) -> 
     await websocket.close(code=WS_MALFORMED_REQUEST, reason="error.malformed_request")
 
 
+app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
 app.add_exception_handler(ApiError, _api_error_handler)
 app.add_exception_handler(IllegalCommandError, _illegal_command_handler)
 app.add_exception_handler(RequestValidationError, _validation_error_handler)

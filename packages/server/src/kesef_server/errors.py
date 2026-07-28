@@ -1,7 +1,9 @@
 """One error shape for the whole API (ADR-008 §4, GAP G-33).
 
-Every failure a client can cause leaves this server as ``{reason_key, params}``. Two
-reasons that is worth a module of its own:
+Every failure a client can cause leaves this server as ``{reason_key, params}``, including the
+ones starlette raises before any route is reached — ``api._http_exception_handler`` covers the
+404 for an unrouted path and the 405 for a wrong method, which used to escape as
+``{"detail": ...}``. Two reasons that is worth a module of its own:
 
 * **No prose crosses the wire.** The engine's rule is that it returns i18n keys, never
   sentences; a transport that answers ``{"detail": "Value error, a bot seat needs a

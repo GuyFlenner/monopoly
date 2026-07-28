@@ -27,6 +27,7 @@ from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
 from kesef_engine.state import MAX_PLAYERS, SCHEMA_VERSION
 from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
 from kesef_server.config import Settings
+from kesef_server.schemas import ErrorResponse
 from kesef_server.sessions import SessionStore
 
 UNPROCESSABLE = 422
@@ -189,6 +190,49 @@ def test_every_game_route_declares_the_structured_error_shape(client: TestClient
         for code in failures:
             body = responses[code].get("content", {}).get("application/json", {}).get("schema", {})
             assert "ErrorResponse" in str(body), f"{method.upper()} {path} {code} is untyped"
+
+
+UNDECLARED_FAILURES: Final = [
+    ("get", "/nope", status.HTTP_404_NOT_FOUND),
+    ("get", "/games/a/b", status.HTTP_404_NOT_FOUND),
+    ("get", "/games/kitchen-table/nonsense", status.HTTP_404_NOT_FOUND),
+    ("put", "/games", status.HTTP_405_METHOD_NOT_ALLOWED),
+    ("delete", "/health", status.HTTP_405_METHOD_NOT_ALLOWED),
+    ("post", "/games/anything/save", status.HTTP_405_METHOD_NOT_ALLOWED),
+]
+"""Failures the document does not declare, which is exactly why they escaped.
+
+The test above walks the *declared* operations and structurally could not catch these: with no
+`StarletteHTTPException` handler, `GET /nope` answered `{"detail":"Not Found"}` and `PUT /games`
+`{"detail":"Method Not Allowed"}` — a shape declared nowhere, so a generated client could not
+branch on it (G-33 / ADR-008 §4)."""
+
+
+@pytest.mark.parametrize(("method", "path", "expected"), UNDECLARED_FAILURES)
+def test_a_failure_the_document_never_declared_still_answers_in_the_one_shape(
+    client: TestClient, method: str, path: str, expected: int
+) -> None:
+    response = client.request(method, path)
+    assert response.status_code == expected
+    body = response.json()
+    assert set(body) == {"reason_key", "params"}, f"{method.upper()} {path} answered {body}"
+    assert body["reason_key"].startswith("error.")
+    ErrorResponse.model_validate(body)
+
+
+def test_the_two_starlette_failures_carry_the_keys_the_catalogue_will_need(client: TestClient) -> None:
+    """Named rather than merely well-shaped: a client that cannot tell 404 from 405 by key is
+    back to branching on a status code and guessing at the sentence."""
+    assert client.get("/nope").json() == {"reason_key": "error.not_found", "params": {"status": 404}}
+    refused = client.put("/games")
+    assert refused.json() == {"reason_key": "error.method_not_allowed", "params": {"status": 405}}
+    assert "Allow" in refused.headers, "a 405 without Allow is a 405 the client cannot act on"
+
+
+def test_a_route_specific_key_is_not_flattened_into_the_generic_one(client: TestClient) -> None:
+    """The handler must only cover what starlette raises. A 404 a *route* answered still says
+    which game was missing."""
+    assert client.get("/games/nope").json()["reason_key"] == "error.game_not_found"
 
 
 # --- Meta -------------------------------------------------------------------
