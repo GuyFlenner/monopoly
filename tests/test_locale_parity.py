@@ -8,6 +8,7 @@ text in front of a Hebrew-speaking child. A JSON diff catches it in a second.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -24,44 +25,19 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
-_NARRATION_AWAITING_HEBREW = frozenset(
+AWAITING_HEBREW = frozenset(
     {
+        # Spoken by ``<Announcer>`` (MON-411).
+        "a11y.cash_gained",
+        "a11y.cash_paid",
         "a11y.moved",
         "a11y.passed_go",
         "a11y.rent_charged",
-        "a11y.cash_gained",
-        "a11y.cash_paid",
         "a11y.turn",
-        "a11y.phase_auction",
-        "a11y.phase_debt_settlement",
-        "a11y.phase_trade_review",
-        # MON-412 themed the six ownable tiles the engine leaves ``group=None`` (GAP G-A3).
-        # Their Hebrew needs adjective agreement, which MON-501 owns — see G-F8: the Hebrew
-        # catalogue inflects a colour name across an interpolation boundary and gets three of
-        # eight groups wrong, so guessing two more here would add to a known defect.
-        "group.railroad",
-        "group.utility",
-    }
-)
-"""MON-411's narration sentences. Every one has a subject, and Hebrew conjugates the verb to the
-subject's gender (GAP G-42): ``רותי עבר`` is wrong for every Hebrew speaker, and wrong in a
-children's game is worse than absent."""
-
-_EVENT_LOG_AWAITING_HEBREW = frozenset(
-    {
-        # The written history (MON-407) — one sentence per event type, plus the enum labels the
-        # sentences interpolate. Same reason as the narration above: `log.token_moved` is
-        # "{{name}} moved to {{tile}}", a verb agreeing with a person, so its Hebrew needs the
-        # i18next gender context MON-501 owns rather than a machine-plausible masculine.
+        # The written history (MON-407). The bulk of it, because every line is a sentence about somebody.
         "log.auction_ended",
-        "log.auction_ended_unsold",
-        "log.auction_started",
         "log.bid_placed",
         "log.bidder_withdrew",
-        "log.building_built_one",
-        "log.building_built_other",
-        "log.building_sold_one",
-        "log.building_sold_other",
         "log.card_drawn",
         "log.cash_gained",
         "log.cash_paid",
@@ -70,14 +46,11 @@ _EVENT_LOG_AWAITING_HEBREW = frozenset(
         "log.dice_rolled_jail",
         "log.dice_rolled_move",
         "log.dice_rolled_rent",
-        "log.empty",
         "log.game_ended",
-        "log.game_ended_no_winner",
         "log.left_jail_card",
         "log.left_jail_doubles",
         "log.left_jail_fine",
         "log.left_jail_time_served",
-        "log.mortgaged",
         "log.player_bankrupted",
         "log.property_acquired_auction",
         "log.property_acquired_bankruptcy",
@@ -87,7 +60,6 @@ _EVENT_LOG_AWAITING_HEBREW = frozenset(
         "log.sent_to_jail_card",
         "log.sent_to_jail_three_doubles",
         "log.sent_to_jail_tile",
-        "log.title",
         "log.token_moved",
         "log.token_moved_back",
         "log.token_moved_passed_go",
@@ -97,373 +69,42 @@ _EVENT_LOG_AWAITING_HEBREW = frozenset(
         "log.trade_executed",
         "log.trade_proposed",
         "log.turn_started",
-        "log.unknown_tile",
-        "log.unmortgaged",
-        # Enum labels. A ``CashReason`` interpolated raw would print the English
-        # ``mortgage_transfer_fee`` inside a Hebrew sentence (GAP A5), so each enum member gets a
-        # key — and each key needs a noun phrase that agrees with the sentence carrying it,
-        # which is the same MON-501 pass.
-        "auction_reason.bankruptcy_to_bank",
-        "auction_reason.building_shortage",
-        "auction_reason.declined_purchase",
-        "building.hotel",
-        "building.house",
-        "cash_reason.auction_win",
-        "cash_reason.bankruptcy_transfer",
-        "cash_reason.build",
-        "cash_reason.card",
-        "cash_reason.free_parking_pot",
-        "cash_reason.go_salary",
-        "cash_reason.jail_fine",
-        "cash_reason.mortgage",
-        "cash_reason.mortgage_transfer_fee",
-        "cash_reason.purchase",
-        "cash_reason.rent",
-        "cash_reason.sell_building",
-        "cash_reason.tax",
-        "cash_reason.trade",
-        "cash_reason.unmortgage",
-        "deck.chance",
-        "deck.community_chest",
-        "game_end_reason.concession",
-        "game_end_reason.last_solvent",
-        "game_end_reason.no_survivors",
-        "game_end_reason.time_limit",
-        # The snake_case form the engine actually emits (``rules/rent.py``). The catalogue's
-        # ``rent.note.fullGroupDoubled`` is the camelCase key GAP G-40 says resolves against
-        # nothing; both spellings exist until that rename lands, and only the new one is listed
-        # here because the old one already has Hebrew.
-        "rent.note.full_group_doubled",
-    }
-)
-
-_SETUP_AWAITING_HEBREW = frozenset(
-    {
-        # The setup screen (MON-408). The rule-flag labels exist so Kids mode can show what it
-        # changes by rendering ``/rulesets`` instead of a hardcoded sentence; Hebrew needs
-        # gendered adjective agreement per flag, not a word-for-word pass.
-        "ruleset.auctions_enabled",
-        "ruleset.building_shortage_auction",
-        "ruleset.double_salary_on_exact_go",
-        "ruleset.even_build_enforced",
-        "ruleset.free_parking_pot_enabled",
-        "ruleset.go_salary",
-        "ruleset.hints_enabled",
-        "ruleset.hotels_available",
-        "ruleset.houses_available",
-        "ruleset.jail_fine",
-        "ruleset.max_jail_turns",
-        "ruleset.mortgages_enabled",
-        "ruleset.name",
-        "ruleset.previous",
-        "ruleset.simplified_trades",
-        "ruleset.starting_cash",
-        "ruleset.starting_cash_denominations",
-        "ruleset.target_duration_minutes",
-        "ruleset.trading_enabled",
-        "ruleset.value.none",
-        "ruleset.value.off",
-        "ruleset.value.on",
-        "setup.cannot_start",
-        "setup.kids_changes",
-        "setup.kids_no_changes",
-        "setup.player_type",
-        "setup.pronoun",
-        "setup.seat",
-        "setup.seats",
-        "setup.seed",
-        "setup.seed_hint",
-        "setup.starting",
-        "setup.table",
-        "setup.token",
-        # The pronoun picker's labels. ``grammatical_gender`` exists on ``SeatConfig`` precisely
-        # so Hebrew narration can agree (owner decision 5) — these three labels are the *first*
-        # thing MON-501 needs, and guessing them here would prejudge that work.
-        "gender.f",
-        "gender.m",
-        "gender.n",
-        # Server rejection keys the setup screen renders. The engine and the transport own the
-        # wording of *why* a game would not start; the Hebrew arrives with the rest of
-        # ``error.*``, which is still half camelCase (G-40).
-        "error.invalid_new_game",
-        "error.malformed_request",
-        "error.unknown_board",
-        # The playing pieces. Each is a common noun with a gender in Hebrew, and the noun's
-        # gender is what the sentences naming it have to agree with — so these belong with the
-        # rest of MON-501 rather than beside their English, and they are a MON-412 stand-in in
-        # any case (see ``SetupScreen.tsx``).
-        "token.bicycle",
-        "token.boat",
-        "token.drum",
-        "token.kite",
-        "token.rocket",
-        "token.umbrella",
-    }
-)
-
-_BOARD = frozenset(
-    {
-        # MON-403's board chrome and the ten tile-kind names. Hebrew is withheld rather than guessed
-        # for the same reason as the narration below: "street", "railroad" and "utility" all take a
-        # definite article that agrees with the noun's gender, and G-F8 records that the existing
-        # Hebrew catalogue already inflects a colour name across an interpolation boundary and gets
-        # three of eight groups wrong. Adding ten more inflected nouns from a non-speaker would
-        # deepen a known defect. MON-501 owns the Hebrew catalogue and the i18next gender context.
-        "board.label",
-        "board.skip_to_actions",
-        "board.keyboard_hint",
-        "board.open_tile",
-        "board.more_tokens",
-        "tile_kind.go",
-        "tile_kind.property",
-        "tile_kind.railroad",
-        "tile_kind.utility",
-        "tile_kind.chance",
-        "tile_kind.community_chest",
-        "tile_kind.tax",
-        "tile_kind.jail",
-        "tile_kind.free_parking",
-        "tile_kind.go_to_jail",
-        # The square's spoken description. Every one of these is a clause appended to a sentence
-        # about a named square, so word order and agreement are a translator's decision, not a
-        # concatenation a developer can guess at.
-        "a11y.tile_one_house",
-        "a11y.tile_houses",
-        "a11y.tile_hotel",
-        "a11y.tile_mortgaged",
-        "a11y.tile_occupants",
-    }
-)
-"""MON-403's English-only keys — the board's chrome, tile kinds and spoken square description."""
-
-_DICE = frozenset(
-    {
-        # MON-404's dice tray and the persistent "skip animations" switch. Same reason as _BOARD:
-        # "roll for doubles to leave jail" and "your device already asks for reduced motion" are
-        # sentences, not labels, and MON-501 owns the Hebrew catalogue.
-        "dice.label",
-        "dice.total",
-        "dice.doubles",
-        "dice.not_rolled",
-        "dice.purpose.move",
-        "dice.purpose.jail",
-        "dice.purpose.rent",
-        "dice.skip_animations",
-        "dice.reduced_motion_active",
-        # Announced through the Announcer when the player flips the switch, so these carry the same
-        # gender-agreement problem as every other narration key (G-42).
-        "a11y.animations_on",
-        "a11y.animations_off",
-    }
-)
-"""MON-404's English-only keys — the dice tray and the animation switch."""
-
-_AUCTION_AND_TRADE = frozenset(
-    {
-        # The shared modal chrome (MON-409/410). "No, go back" is an answer to a question, and the
-        # Hebrew for a refusal is not a word-for-word pass.
-        "panel.close",
-        "panel.go_back",
-        # The auction panel (MON-409). Every one of these is a sentence addressed *to* a named
-        # player — "{{name}}, it's your turn to bid", "That is more than half of your money" — so
-        # they carry the same verb- and possessive-agreement problem as the narration above
-        # (GAP G-42): Hebrew inflects "your" for the addressee's gender, and ``grammatical_gender``
-        # exists on ``SeatConfig`` precisely so MON-501 can do that properly. Guessing a masculine
-        # form here would put the error in front of a child rather than a translator.
-        "auction.title",
-        "auction.cannot_leave",
-        "auction.lot",
-        "auction.queue_remaining",
-        "auction.bidders",
-        "auction.bidding_now",
-        "auction.still_bidding",
-        "auction.dropped_out",
-        "auction.no_bids_yet",
+        # The auction panel (MON-409), where a bid is attributed to a bidder.
         "auction.standing_bid",
         "auction.your_turn_to_bid",
-        "auction.nobody_to_bid",
-        "auction.floor",
-        "auction.ceiling",
-        "auction.type_amount",
-        "auction.below_floor",
-        "auction.above_ceiling",
-        "auction.share_of_cash",
-        "auction.warn_half_cash",
-        "auction.confirm_whole_cash",
-        "auction.confirm_withdraw",
-        # The trade builder (MON-410). "{{name}} gives" is a verb agreeing with a named subject and
-        # "Put something on the table" is an imperative, which Hebrew inflects for the addressee's
-        # gender — the same MON-501 pass. The *refusal* sentences a player actually reads are the
-        # engine's ``error.*`` keys, rendered from ``{reason_key, params}``, so they are not listed
-        # here: this panel adds no wording of its own for why a trade is illegal.
-        "trade.title",
-        "trade.cannot_leave",
+        # The trade builder (MON-410): ``{{name}} gives`` is a verb agreeing with a named subject.
         "trade.between",
-        "trade.recipient",
-        "trade.side_gives",
-        "trade.cash",
         "trade.side_cash",
-        "trade.add_cash",
-        "trade.remove_cash",
-        "trade.properties",
-        "trade.no_properties",
-        "trade.jail_cards",
-        "trade.no_jail_cards",
-        "trade.checking",
-        "trade.ready",
-        "trade.refused",
-        "trade.empty",
-        "trade.send",
-        "trade.simplified_hint",
+        "trade.side_gives",
     }
 )
-"""MON-409/410's English-only keys — the auction panel, the trade builder and the modal chrome."""
+"""The 45 keys whose Hebrew is the owner's, and the only reason left for an exemption.
 
-_PANELS = frozenset(
-    {
-        # MON-405's ActionBar. Five of these are labels for command kinds the catalogue never had
-        # a leaf for at all (``respond_to_trade`` and ``cancel_trade``), or for a payload variant
-        # of one it did (``sell_house`` with ``demolish_hotel``), or a price-free replacement for
-        # ``action.buy`` whose ``{{price}}`` nothing on the wire can supply — see
-        # ``panels/ActionLabels.ts``. Every one is an imperative verb addressed to a player, and
-        # Hebrew inflects the imperative for the addressee's gender (GAP G-42), which is exactly
-        # the i18next gender context MON-501 owns.
-        "action.buy_property",
-        "action.cancel_trade",
-        "action.respond_to_trade_accept",
-        "action.respond_to_trade_decline",
-        "action.sell_house_hotel",
-        "actionbar.choose_square",
-        "actionbar.label",
-        "actionbar.none",
-        # The terminal-command confirm step (GAP C3). These are full sentences explaining a
-        # consequence to a child, which is the hardest register in the product to get right in a
-        # second language and the worst place to ship a machine-plausible guess: the whole point
-        # of the step is that the player understands what they are about to lose.
-        "confirm.cancel",
-        "confirm.consequence.declare_bankruptcy",
-        "confirm.consequence.decline_purchase",
-        "confirm.consequence.withdraw_from_auction",
-        "confirm.proceed",
-        "confirm.title",
-        # MON-406's dossier. ``dossier.title``/``completeSet``/``setProgress``/``empty`` already
-        # have Hebrew and are reused as they are; only the three new leaves are here.
-        "dossier.bot",
-        "dossier.other_holdings",
-        "dossier.seat",
-        # Shared labels both panels interpolate a count into. Hebrew pluralises on one/two/many
-        # rather than one/other, so the plural *shape* differs and not just the words — i18next
-        # needs ``_one``/``_two``/``_many`` keys here, which is a catalogue decision MON-501 owns.
-        "label.squares_one",
-        "label.squares_other",
-        "label.unknown_square",
-    }
-)
-"""MON-405/MON-406's English-only keys — the action bar, the confirm step and the dossier."""
+Every one of these **names a person and hangs a verb or a possessive off them**, and Hebrew
+conjugates to the subject's gender (GAP G-42). ``רותי עבר`` is wrong to every Hebrew speaker, and
+wrong in a children's game is worse than absent. ``grammatical_gender`` exists on ``SeatConfig`` and
+``PlayerState`` and reaches the wire (owner decision 5) precisely so i18next can select between a
+masculine and a feminine form once the owner supplies the pairs — see
+``docs/MON-501_HEBREW_WORKSHEET.md``.
 
-_APP_SHELL = frozenset(
-    {
-        # M4's integration shell (``App.tsx`` / ``game/GameScreen.tsx``): the chrome that holds the
-        # eleven components together. Two sentences about the transport, four labels and a heading.
-        #
-        # ``status.reconnecting``/``status.offline`` are full sentences addressed to the player and
-        # both name "the table"; the Hebrew wants a noun phrase that agrees with the verb, which is
-        # the same MON-501 pass the narration keys wait for (GAP G-42). The rest are short labels
-        # whose Hebrew is cheap but must still be written by the native-speaker pass rather than
-        # guessed here, since a possessive ("Everyone's properties") and an imperative
-        # ("Try again") both inflect.
-        "app.new_game",
-        "dossier.all_players",
-        "error.title",
-        "label.retry",
-        "label.selected_square",
-        "setup.no_boards",
-        "status.offline",
-        "status.reconnecting",
-    }
-)
-"""The M4 app shell's English-only keys — the two-screen chrome, its states and its headings."""
+This used to be nine sets covering roughly 270 keys, one per item that added English-only text. Eight
+of them are gone: MON-501 translated 225 of those keys, and the reason the other sets gave for
+withholding turned out not to survive examination. Two examples worth keeping, because the same
+mistake is easy to make again:
 
-_REJECTION_REASONS = frozenset(
-    {
-        # The 39 keys MON-501 added once ``tests/test_key_contract.py`` showed that 45 of the 50
-        # ``error.*`` reasons the engine and server can return resolved against nothing at all.
-        # Six of the missing ones were recovered by renaming their camelCase corpses
-        # (``error.evenBuild`` -> ``error.uneven_build``) and kept the Hebrew they already had;
-        # these are the ones that had to be written from scratch, so they have no Hebrew yet.
-        #
-        # They are listed here rather than translated in the same pass for one reason: half of them
-        # are sentences addressed to a player ("You don't own this square", "It isn't your turn to
-        # bid"), and Hebrew inflects both the possessive and the verb for the addressee's gender
-        # (GAP G-42). The other half interpolate a figure, and bidi isolation is still unsolved
-        # (G-43) — a bare ``{{minimum}}`` inside a Hebrew sentence scrambles. Both are MON-501's
-        # remaining work, and neither is improved by a machine-plausible guess landing first.
-        "error.already_mortgaged",
-        "error.at_maximum_development",
-        "error.bankrupt",
-        "error.bid_above_ceiling",
-        "error.bid_too_low",
-        "error.engine_failure",
-        "error.game_already_exists",
-        "error.game_over",
-        "error.group_mortgaged",
-        "error.http_error",
-        "error.invalid_game_id",
-        "error.jail_card_not_held",
-        "error.method_not_allowed",
-        "error.mortgages_disabled",
-        "error.no_buildings",
-        "error.no_hotels_left",
-        "error.no_jail_card",
-        "error.not_buildable",
-        "error.not_found",
-        "error.not_in_jail",
-        "error.not_mortgaged",
-        "error.not_owner",
-        "error.not_the_debtor",
-        "error.not_trade_proposer",
-        "error.not_trade_recipient",
-        "error.not_your_bid_turn",
-        "error.not_your_offer",
-        "error.recipient_bankrupt",
-        "error.save_schema_mismatch",
-        "error.save_too_large",
-        "error.server_at_capacity",
-        "error.tile_already_owned",
-        "error.tile_not_ownable",
-        "error.too_many_watchers",
-        "error.trade_too_complex",
-        "error.trading_disabled",
-        "error.unknown_player",
-        "error.watcher_too_slow",
-        "error.wrong_phase",
-    }
-)
-"""The rejection reasons MON-501 wrote English for. Hebrew follows in the same item."""
+* **Second person is not a gender problem in unpointed Hebrew.** ``setup.seed_hint``,
+  ``error.not_owner`` and ``confirm.consequence.*`` were withheld for carrying "you"/"your", but
+  ``שלך`` and ``שלכם`` read as either gender once niqqud is off (owner decision 4), and an impersonal
+  construction — the style ``error.group_incomplete`` already used — has no verb to agree at all.
+* **A reason interpolated into a sentence should be a noun, not a verb.** The ``cash_reason.*`` and
+  ``auction_reason.*`` labels were withheld because a past-tense English verb ("won an auction")
+  would need to agree with whoever won. Rendered as Hebrew noun phrases (``זכייה במכירה פומבית``)
+  there is nothing to agree with, and they read better in the carrying sentence.
 
-AWAITING_HEBREW = (
-    _NARRATION_AWAITING_HEBREW
-    | _EVENT_LOG_AWAITING_HEBREW
-    | _SETUP_AWAITING_HEBREW
-    | _BOARD
-    | _DICE
-    | _AUCTION_AND_TRADE
-    | _PANELS
-    | _APP_SHELL
-    | _REJECTION_REASONS
-)
-"""Individual English keys whose Hebrew is owned by a later item, listed one by one.
-
-Split by the item that added them, because the *reason* is what has to survive review, and the
-three groups share one: every sentence has a subject, and Hebrew conjugates the verb to the
-subject's gender (GAP G-42). ``רותי עבר`` is wrong for every Hebrew speaker, and wrong in a
-children's game is worse than absent. MON-501/MON-506 own the Hebrew catalogue and the i18next
-gender context that makes these sayable.
-
-A per-key list rather than a ``log.*``/``ruleset.*`` prefix exemption, and a tripwire test below,
-so the exemption cannot outlive its reason: a key that gains Hebrew, or that stops existing in
-English, fails the build until it is removed from here. A prefix would let the next key added
-under it inherit an excuse nobody re-read."""
+A per-key list rather than a ``log.*`` prefix exemption, and a tripwire test below, so the exemption
+cannot outlive its reason: a key that gains Hebrew, or that stops existing in English, fails the
+build until it is removed from here. A prefix would let the next key added under it inherit an excuse
+nobody re-read."""
 
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
@@ -481,6 +122,38 @@ def _load(catalogue: str, language: str) -> dict[str, str]:
     return _flatten(json.loads((LOCALES_DIR / f"{catalogue}.{language}.json").read_text(encoding="utf-8")))
 
 
+CLDR_PLURAL_CATEGORIES = frozenset({"zero", "one", "two", "few", "many", "other"})
+"""The six plural categories CLDR defines. Which of them a *language* uses is not this file's
+business — see the note on :func:`_plural_base`."""
+
+
+def _plural_base(key: str) -> str:
+    """``label.squares_one`` -> ``label.squares``; anything else unchanged.
+
+    Why parity is checked on bases rather than on whole keys: **the languages genuinely do not have
+    the same plural keys, and must not.** English needs `one`/`other`; Hebrew has a dual, so it needs
+    `one`/`two`/`other`. Comparing key sets directly would report ``label.squares_two`` as an
+    orphaned Hebrew key and force the catalogue to be wrong to keep the test green.
+
+    So this test asks the question that *is* language-independent — does each language say something
+    about this base at all — and the question it deliberately does not ask is whether the right
+    categories are present. That needs `Intl.PluralRules`, the same resolver i18next uses at runtime,
+    so it is asserted in `packages/web/src/i18n/plurals.test.ts` rather than guessed from a
+    hardcoded table here. A table in this file would be a second opinion about CLDR, and CLDR is the
+    one that moves: Hebrew's `many` category was removed from it, which is why the older note in this
+    file calling for ``_many`` keys was wrong.
+
+    Only a suffix that is an actual category is stripped, so ``a11y.tile_one_house`` and
+    ``action.sell_house_hotel`` are left alone.
+    """
+    base, separator, suffix = key.rpartition("_")
+    return base if separator and suffix in CLDR_PLURAL_CATEGORIES else key
+
+
+def _plural_bases(keys: Iterable[str]) -> set[str]:
+    return {_plural_base(key) for key in keys}
+
+
 @pytest.mark.parametrize("catalogue", CATALOGUES)
 def test_every_catalogue_exists_in_every_language(catalogue: str) -> None:
     for language in LANGUAGES:
@@ -494,10 +167,27 @@ def test_languages_define_exactly_the_same_keys(catalogue: str) -> None:
     if catalogue in ENGLISH_ONLY_CATALOGUES:
         pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
     english, hebrew = _load(catalogue, "en"), _load(catalogue, "he")
-    missing_in_hebrew = sorted(set(english) - set(hebrew) - AWAITING_HEBREW)
-    extra_in_hebrew = sorted(set(hebrew) - set(english))
+    # Compared as plural bases: the two languages have different plural categories by design, so
+    # `label.squares_two` is a correct Hebrew key with no English counterpart. See `_plural_base`.
+    english_bases = _plural_bases(english)
+    hebrew_bases = _plural_bases(hebrew)
+    exempt = _plural_bases(AWAITING_HEBREW)
+    missing_in_hebrew = sorted(english_bases - hebrew_bases - exempt)
+    extra_in_hebrew = sorted(hebrew_bases - english_bases)
     assert not missing_in_hebrew, f"untranslated: {missing_in_hebrew}"
     assert not extra_in_hebrew, f"orphaned Hebrew keys: {extra_in_hebrew}"
+
+
+# There is deliberately no test here for "every plural suffix is a real CLDR category".
+#
+# The first attempt flagged `setup.kids_changes`, `action.sell_house_hotel` and five others on a
+# clean tree, because any key `X_suffix` sitting beside a key `X` looks identical to a plural family
+# from this side — `setup.kids` exists as a ruleset name, so `setup.kids_changes` reads as a plural
+# form of it. A check that cannot tell a typo from a naming coincidence is not worth its output.
+#
+# The risk it was aiming at is covered where the answer is knowable: a misspelled `label.squares_ohter`
+# leaves the required `other` category missing, and `packages/web/src/i18n/plurals.test.ts` asks
+# `Intl.PluralRules` — the resolver i18next actually uses — which categories each language requires.
 
 
 def test_the_awaiting_hebrew_exemption_has_not_rotted() -> None:
@@ -525,17 +215,29 @@ def test_no_empty_strings(catalogue: str, language: str) -> None:
 
 
 @pytest.mark.parametrize("catalogue", CATALOGUES)
-def test_interpolation_placeholders_match_across_languages(catalogue: str) -> None:
-    """`{{amount}}` in English and `{{sum}}` in Hebrew renders a literal brace to a child."""
+def test_no_translation_names_a_placeholder_nobody_supplies(catalogue: str) -> None:
+    """A translation may use fewer placeholders than English, never a different one.
+
+    The defect is a Hebrew string naming a parameter the call site does not pass: ``{{amount}}`` in
+    English and ``{{sum}}`` in Hebrew renders a literal ``{{sum}}`` to a child, because the params
+    are supplied once, by shared code, and English is the reference for what is in them.
+
+    Subset rather than equality, which is a deliberate loosening of what this test used to assert.
+    Requiring the same set forbade correct translations: English ``label.squares_one`` is
+    "{{count}} square" and reads "1 square", where Hebrew says ``משבצת אחת`` — "one square", with the
+    numeral spelled into the word, which is how Hebrew counts one of something. Dropping a
+    placeholder can only ever fail to show a value; naming an unsupplied one puts braces on screen.
+    That asymmetry is the whole reason this direction is the one worth enforcing.
+    """
     if catalogue in ENGLISH_ONLY_CATALOGUES:
         pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
     english, hebrew = _load(catalogue, "en"), _load(catalogue, "he")
-    mismatched = {
-        key: (_placeholders(english[key]), _placeholders(hebrew[key]))
+    unsupplied = {
+        key: sorted(_placeholders(hebrew[key]) - _placeholders(english[key]))
         for key in english.keys() & hebrew.keys()
-        if _placeholders(english[key]) != _placeholders(hebrew[key])
+        if _placeholders(hebrew[key]) - _placeholders(english[key])
     }
-    assert not mismatched, f"placeholder mismatch: {mismatched}"
+    assert not unsupplied, f"Hebrew names placeholders nothing passes: {unsupplied}"
 
 
 @pytest.mark.parametrize("board_id", ("classic", "israel"))
