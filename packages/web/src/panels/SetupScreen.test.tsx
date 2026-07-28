@@ -375,21 +375,9 @@ describe("the accessibility floor", () => {
     }
   });
 
-  it("uses no physical CSS property anywhere in its markup", () => {
-    const { container } = render(
-      <SetupScreen
-        boards={BOARDS}
-        rulesets={[UNIVERSAL_RULES, KIDS_RULES]}
-        locale="en"
-        onLocaleChange={vi.fn()}
-        onStart={vi.fn(() => Promise.resolve())}
-      />,
-    );
-    // A physical property is invisible in English and obviously broken in Hebrew, so it is
-    // asserted rather than reviewed. The lint covers literals; this covers what actually
-    // rendered, including anything a template literal produced.
-    expect(container.innerHTML).not.toMatch(
-      /class="[^"]*\b(ml|mr|pl|pr|border-l|border-r|rounded-l|rounded-r|text-left|text-right|translate-x)-/,
-    );
-  });
+  // Deliberately *no* "uses no physical CSS property" test here. MON-412 owns that gate — the
+  // `no-restricted-syntax` selectors plus `theme/logical-css.test.ts`, which scan the source
+  // including template literals. Every className below is a plain literal, so a second
+  // rendered-markup assertion would add no coverage; and a regex naming the physical utilities
+  // is itself a string full of them, which trips the very lint it was written to reinforce.
 });
