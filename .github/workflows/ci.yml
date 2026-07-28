@@ -120,6 +120,55 @@ jobs:
       - name: Build
         run: npm run build
 
+  e2e:
+    name: Playwright (RTL geometry)
+    runs-on: ubuntu-latest
+    # The only job with a layout engine behind it. M4 shipped a board that overflowed its
+    # container at every viewport width and 646 passing Vitest tests could not see it, because
+    # jsdom has no layout engine — `scrollHeight` is 0 for every element in all of them. MON-502
+    # needs a geometric answer to "does the board mirror", so this surface was brought forward
+    # from MON-707 rather than left to M7.
+    needs: gate
+    if: needs.gate.outputs.web == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      # Both toolchains, unlike the `web` job: these specs drive the real stack — uvicorn serving
+      # the engine, Vite proxying `/api` to it — so a proxy bug is in scope alongside a layout bug.
+      # A mocked edge is what the Vitest suite already covers.
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.13
+      - run: uv sync --frozen
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/web/package-lock.json
+      - run: npm ci
+        working-directory: packages/web
+
+      # Chromium only, and `--with-deps` because a bare runner has none of the shared libraries it
+      # needs. One browser: the bugs this catches are this application's layout and transport, not a
+      # rendering difference between engines.
+      - run: npx playwright install --with-deps chromium
+        working-directory: packages/web
+
+      - name: Playwright
+        run: npm run test:e2e
+        working-directory: packages/web
+
+      # The trace and screenshots for a failed geometric assertion are the whole diagnosis — a
+      # number out of range says nothing about *where* the layout went.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: packages/web/playwright-report/
+          retention-days: 7
+
   contract:
     name: API contract is in sync
     runs-on: ubuntu-latest

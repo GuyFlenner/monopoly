@@ -14,6 +14,7 @@ import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import { isolateForDirection } from "./bidi";
+import { DIRECTION, isLocale, type Locale } from "./direction";
 
 import boardClassicEn from "./locales/board-classic.en.json";
 import boardClassicHe from "./locales/board-classic.he.json";
@@ -23,23 +24,9 @@ import cardsEn from "./locales/cards.en.json";
 import commonEn from "./locales/common.en.json";
 import commonHe from "./locales/common.he.json";
 
-export const LOCALES = ["en", "he"] as const;
-export type Locale = (typeof LOCALES)[number];
-
-/** Text direction per locale. The single source of truth for RTL. */
-export const DIRECTION: Readonly<Record<Locale, "ltr" | "rtl">> = {
-  en: "ltr",
-  he: "rtl",
-};
-
-export const LOCALE_LABEL: Readonly<Record<Locale, string>> = {
-  en: "English",
-  he: "עברית",
-};
-
-export function isLocale(value: string): value is Locale {
-  return (LOCALES as readonly string[]).includes(value);
-}
+// Re-exported so `@/i18n` stays the one import path for the language layer. The definitions live in
+// `direction.ts` because they must be importable without the catalogues attached — see that file.
+export { DIRECTION, isLocale, LOCALE_LABEL, LOCALES, type Locale } from "./direction";
 
 /**
  * Every interpolated value, on its way into a sentence.

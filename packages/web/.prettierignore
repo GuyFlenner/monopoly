@@ -6,3 +6,7 @@ tsconfig.tsbuildinfo
 # prettier over it would make that diff fail forever — the two gates would be enforcing
 # different files. Nobody edits this by hand, so nobody reads its formatting.
 src/api/generated.ts
+
+# Playwright run output, not authored files.
+test-results
+playwright-report
