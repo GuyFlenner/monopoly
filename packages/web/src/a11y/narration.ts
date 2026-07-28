@@ -48,7 +48,11 @@ export function narrate(event: GameEvent, context: NarrationContext): readonly A
 
     case "dice_rolled":
       return [
-        polite("a11y.dice_result", { first: event.first, second: event.second, total: event.total }),
+        polite("a11y.dice_result", {
+          first: event.first,
+          second: event.second,
+          total: event.total,
+        }),
       ];
 
     case "token_moved": {
