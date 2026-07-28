@@ -15,6 +15,7 @@ import { initReactI18next } from "react-i18next";
 
 import boardClassicEn from "./locales/board-classic.en.json";
 import boardClassicHe from "./locales/board-classic.he.json";
+import cardsEn from "./locales/cards.en.json";
 import commonEn from "./locales/common.en.json";
 import commonHe from "./locales/common.he.json";
 
@@ -60,10 +61,15 @@ export async function initI18n(locale: Locale = "en"): Promise<void> {
     // "board-israel" stays out of this array until MON-503 supplies its catalogue —
     // a declared namespace with no resources would let the picker select an unreadable
     // board (GAP G-46).
-    ns: ["common", "board-classic"],
+    // "cards" is English-only on purpose: MON-206 shipped the 31 card texts, and MON-506
+    // owns the Hebrew (31 strings needing a native speaker, tripwired in
+    // tests/test_locale_parity.py). It is registered for *both* languages against the same
+    // English resource so a Hebrew game shows the card in English rather than raising on a
+    // missing key — the deck is unreadable without it, which is what MON-407 found.
+    ns: ["common", "board-classic", "cards"],
     resources: {
-      en: { common: commonEn, "board-classic": boardClassicEn },
-      he: { common: commonHe, "board-classic": boardClassicHe },
+      en: { common: commonEn, "board-classic": boardClassicEn, cards: cardsEn },
+      he: { common: commonHe, "board-classic": boardClassicHe, cards: cardsEn },
     },
     interpolation: { escapeValue: false },
     // A missing key must be loud, not a `console.error` nobody watches (GAP G-F17). Both

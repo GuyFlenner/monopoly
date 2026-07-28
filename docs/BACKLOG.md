@@ -616,6 +616,31 @@ applies to the Israeli board (cross-reference MON-503).
 
 ---
 
+## E4b — Contract gaps found while building the UI (M4)
+
+Each was found by a component that then had to work around it. Every workaround is either
+a passive-voice sentence, a translation at the render boundary, or a client-side diff — i.e.
+a place where the UI is doing something the engine or the projection should do. **Tier**:
+Opus unless noted · **Size**: S each unless noted.
+
+| ID | Gap | Found by | Fix |
+|---|---|---|---|
+| MON-413 | **`BuildingChanged` cannot say "hotel"** — it carries `tile`, `houses`, `delta` but no building level, so the log says "building". Saying "hotel" in the client would encode "five houses is a hotel" in TypeScript. | MON-407 | Add `level`/`kind` to the event. |
+| MON-414 | **`MortgageChanged` carries no player**, so the log cannot name who mortgaged and renders in the passive voice. | MON-407 | Add `player`. |
+| MON-415 | **`rent.note.full_group_doubled` interpolates a raw `ColorGroup`** (`note_params={"group": group.value}`), so the client translates an engine enum at the render boundary; its catalogue sentence also wants a `{{name}}` the event does not carry. | MON-407 | Send a key, not a value; add the missing param. |
+| MON-416 | **Spec §5.5's "every rent has a note key, including the plain base-rent case" is unmet** — `_property_rent` emits `note_keys=()` when nothing doubles, so the most common rent a child pays has no explanation. | MON-407 | Emit a base note key always. |
+| MON-417 | **`/rulesets` returns raw flags** (G-36 still open), so MON-408 diffs the two rulesets client-side and maintains its own `ruleset.<field>` label map. | MON-408 | `RulesetView` with `label_key` + `differs_from_universal` per flag; deletes both client-side pieces. |
+| MON-418 | **"At least two players" surfaces as `error.malformed_request`** because the constraint is a pydantic `min_length` on the seats field, so the screen cannot tell a parent *what* is wrong. Duplicate names get the barely-better `error.invalid_new_game`. | MON-408 | Keyed errors from the factory (it raises bare `ValueError` today — see the M3 note in `errors.py`). |
+| MON-419 | **`BoardSummary` has no `catalogue_ready`** (G-46 still open), so the picker can offer the Israeli board whose tile keys resolve to nothing and which paints blanks. | MON-408 | Add the flag; filter the picker; server test. |
+| MON-420 | **`TileView` carries no effective current rent** — the multipliers live in private `rules/rent.py::_property_rent`, so MON-405/406's "explain this rent" screen has nothing to render. **Size M.** | M3 review | Engine accessor `state.rent_due(tile, *, payer_id) -> RentQuote \| None` carrying the fields `RentCharged` already does, so quote and charge share one shape; utilities need the throw. |
+| MON-421 | **`GroupHoldings` computes 3 of its 6 numbers by server-side arithmetic**, the third copy of the `properties[i].owner == player` predicate. | M3 review | `state.group_holdings(player, group)` in the engine; the projection becomes a pure copy. |
+
+Not filed as items because they are already owned: the catalogue's remaining camelCase leaves
+(G-40 → MON-501), Hebrew for every English-only key added in M4 (MON-501/506), and the
+MON-901 network-play exposures listed in the M3 review.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |
