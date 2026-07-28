@@ -15,6 +15,8 @@ import { initReactI18next } from "react-i18next";
 
 import boardClassicEn from "./locales/board-classic.en.json";
 import boardClassicHe from "./locales/board-classic.he.json";
+import boardIsraelEn from "./locales/board-israel.en.json";
+import boardIsraelHe from "./locales/board-israel.he.json";
 import commonEn from "./locales/common.en.json";
 import commonHe from "./locales/common.he.json";
 
@@ -57,13 +59,14 @@ export async function initI18n(locale: Locale = "en"): Promise<void> {
     lng: locale,
     fallbackLng: "en",
     defaultNS: "common",
-    // "board-israel" stays out of this array until MON-503 supplies its catalogue —
-    // a declared namespace with no resources would let the picker select an unreadable
-    // board (GAP G-46).
-    ns: ["common", "board-classic"],
+    // "board-israel" was held out of this array until MON-503 supplied a verified
+    // catalogue — a declared namespace with no resources would let the picker select an
+    // unreadable board (GAP G-46). MON-503 landed both languages from the physical board,
+    // so it is registered here like any other board namespace.
+    ns: ["common", "board-classic", "board-israel"],
     resources: {
-      en: { common: commonEn, "board-classic": boardClassicEn },
-      he: { common: commonHe, "board-classic": boardClassicHe },
+      en: { common: commonEn, "board-classic": boardClassicEn, "board-israel": boardIsraelEn },
+      he: { common: commonHe, "board-classic": boardClassicHe, "board-israel": boardIsraelHe },
     },
     interpolation: { escapeValue: false },
     // A missing key must be loud, not a `console.error` nobody watches (GAP G-F17). Both

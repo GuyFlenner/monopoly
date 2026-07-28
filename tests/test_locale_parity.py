@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 
 LOCALES_DIR = Path(__file__).resolve().parent.parent / "packages" / "web" / "src" / "i18n" / "locales"
-CATALOGUES = ("common", "board-classic", "cards")
+CATALOGUES = ("common", "board-classic", "board-israel", "cards")
 LANGUAGES = ("en", "he")
 
 # "cards" ships English-only for now: 31 cards of Hebrew need a native-speaker pass rather
@@ -83,25 +83,16 @@ def test_interpolation_placeholders_match_across_languages(catalogue: str) -> No
     assert not mismatched, f"placeholder mismatch: {mismatched}"
 
 
-def test_the_classic_board_catalogue_covers_every_tile() -> None:
+@pytest.mark.parametrize("board_id", ("classic", "israel"))
+def test_the_board_catalogue_covers_every_tile(board_id: str) -> None:
     """Each of the 40 board tiles needs a name in each language, or the board renders blanks."""
     from kesef_engine.board.loader import load_board
 
-    board = load_board("classic")
+    board = load_board(board_id)
     for language in LANGUAGES:
-        catalogue = _load("board-classic", language)
+        catalogue = _load(f"board-{board_id}", language)
         for tile in board.tiles:
-            assert tile.name_key in catalogue, f"{tile.name_key} missing from board-classic.{language}.json"
-
-
-def test_the_israeli_board_has_no_catalogue_yet() -> None:
-    """Documents a known gap rather than leaving it to be discovered mid-demo.
-
-    The Israeli edition's city list must come from a verified source, not from a guess —
-    see MON-503. When that catalogue lands, delete this test and add `board-israel` to
-    CATALOGUES above.
-    """
-    assert not (LOCALES_DIR / "board-israel.en.json").exists()
+            assert tile.name_key in catalogue, f"{tile.name_key} missing from board-{board_id}.{language}.json"
 
 
 def test_the_hebrew_card_catalogue_has_no_catalogue_yet() -> None:
