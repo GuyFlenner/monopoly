@@ -58,6 +58,19 @@
     "openTile": "Open {{name}}",
     "moreTokens": "+{{hidden}}"
   },
+  "dice": {
+    "label": "Dice",
+    "total": "Total {{total}}",
+    "doubles": "Doubles",
+    "notRolled": "No roll yet",
+    "purpose": {
+      "move": "Roll to move",
+      "jail": "Roll for doubles to leave jail",
+      "rent": "Roll for rent"
+    },
+    "skipAnimations": "Skip animations",
+    "reducedMotionActive": "Your device already asks for reduced motion."
+  },
   "tileKind": {
     "go": "GO",
     "property": "street",
@@ -157,6 +170,8 @@
     "tileHouses": ", with {{houses}} houses",
     "tileHotel": ", with a hotel",
     "tileMortgaged": ", mortgaged",
-    "tileOccupants": ". Standing here: {{names}}."
+    "tileOccupants": ". Standing here: {{names}}.",
+    "animationsOn": "Animations on.",
+    "animationsOff": "Animations off."
   }
 }

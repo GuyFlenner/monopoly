@@ -14,6 +14,12 @@
 export { Board } from "./Board";
 export type { BoardProps } from "./Board";
 
+export { DiceTray, SkipAnimationsToggle, TUMBLE_MS } from "./DiceTray";
+export type { DiceTrayProps, SkipAnimationsToggleProps } from "./DiceTray";
+
+export { MOTION_STORAGE_KEY, useMotionPreference, useReducedMotion } from "./motion";
+export type { MotionPreference } from "./motion";
+
 export { Tile } from "./Tile";
 export type { TileProps } from "./Tile";
 

@@ -59,24 +59,50 @@ _BOARD = frozenset(
 )
 """MON-403's English-only keys — the board's chrome, tile kinds and spoken square description."""
 
-AWAITING_HEBREW = _BOARD | frozenset(
+_DICE = frozenset(
     {
-        "a11y.moved",
-        "a11y.passed_go",
-        "a11y.rent_charged",
-        "a11y.cash_gained",
-        "a11y.cash_paid",
-        "a11y.turn",
-        "a11y.phase_auction",
-        "a11y.phase_debt_settlement",
-        "a11y.phase_trade_review",
-        # MON-412 themed the six ownable tiles the engine leaves ``group=None`` (GAP G-A3).
-        # Their Hebrew needs adjective agreement, which MON-501 owns — see G-F8: the Hebrew
-        # catalogue inflects a colour name across an interpolation boundary and gets three of
-        # eight groups wrong, so guessing two more here would add to a known defect.
-        "group.railroad",
-        "group.utility",
+        # MON-404's dice tray and the persistent "skip animations" switch. Same reason as _BOARD:
+        # "roll for doubles to leave jail" and "your device already asks for reduced motion" are
+        # sentences, not labels, and MON-501 owns the Hebrew catalogue.
+        "dice.label",
+        "dice.total",
+        "dice.doubles",
+        "dice.notRolled",
+        "dice.purpose.move",
+        "dice.purpose.jail",
+        "dice.purpose.rent",
+        "dice.skipAnimations",
+        "dice.reducedMotionActive",
+        # Announced through the Announcer when the player flips the switch, so these carry the same
+        # gender-agreement problem as every other narration key (G-42).
+        "a11y.animationsOn",
+        "a11y.animationsOff",
     }
+)
+"""MON-404's English-only keys — the dice tray and the animation switch."""
+
+AWAITING_HEBREW = (
+    _BOARD
+    | _DICE
+    | frozenset(
+        {
+            "a11y.moved",
+            "a11y.passed_go",
+            "a11y.rent_charged",
+            "a11y.cash_gained",
+            "a11y.cash_paid",
+            "a11y.turn",
+            "a11y.phase_auction",
+            "a11y.phase_debt_settlement",
+            "a11y.phase_trade_review",
+            # MON-412 themed the six ownable tiles the engine leaves ``group=None`` (GAP G-A3).
+            # Their Hebrew needs adjective agreement, which MON-501 owns — see G-F8: the Hebrew
+            # catalogue inflects a colour name across an interpolation boundary and gets three of
+            # eight groups wrong, so guessing two more here would add to a known defect.
+            "group.railroad",
+            "group.utility",
+        }
+    )
 )
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 
