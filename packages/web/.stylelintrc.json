@@ -1,0 +1,34 @@
+{
+  "comment": [
+    "Logical-property enforcement over CSS. ESLint does not parse CSS at all, so until this",
+    "file existed a `margin-left` in src/index.css passed every gate in the repo in silence",
+    "(GAP §3, G-45). Stylelint's core rules are enough — no third-party plugin, and therefore",
+    "no extra supply-chain surface for a check this small.",
+    "",
+    "The list is scoped to *direction-sensitive* declarations, which is the actual bug class:",
+    "`width` and `height` are the same axes in Hebrew, `margin-left` is not. `float` and",
+    "`clear` are banned by value rather than by property, because `float: inline-start` is the",
+    "correct spelling and the rule should not stand in its way.",
+    "",
+    "Nothing else about CSS style is policed here; prettier already owns formatting and",
+    "Tailwind owns the utility layer. This config has exactly one job."
+  ],
+  "ignoreFiles": ["dist/**", "node_modules/**"],
+  "rules": {
+    "property-disallowed-list": [
+      "/^(?:margin|padding|inset|border|scroll-margin|scroll-padding)-(?:left|right)(?:$|-)/",
+      "/^border-(?:top|bottom)-(?:left|right)-radius$/",
+      "left",
+      "right"
+    ],
+    "declaration-property-value-disallowed-list": {
+      "text-align": ["left", "right"],
+      "float": ["left", "right"],
+      "clear": ["left", "right"],
+      "background-position": ["/\\b(?:left|right)\\b/"],
+      "object-position": ["/\\b(?:left|right)\\b/"],
+      "transform-origin": ["/\\b(?:left|right)\\b/"],
+      "transform": ["/translateX/"]
+    }
+  }
+}

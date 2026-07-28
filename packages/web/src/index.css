@@ -1,21 +1,51 @@
 @import "tailwindcss";
 
 /*
- * Design tokens. Colour-group values live in src/theme/groups.ts because they are data the
- * components read; everything here is surface-level chrome.
+ * Design tokens.
+ *
+ * Tile-band, seat-token and action-tone colours live in `src/theme/` because they are data the
+ * components read and the contrast test measures. What lives here is the chrome those things sit
+ * on: the felt, the card face, the ink, the keyline and the focus ring.
+ *
+ * The values below are duplicated from `src/theme/surfaces.ts`, which is the only duplication in
+ * the theme and the only one a browser forces on us — CSS cannot import TypeScript. It cannot
+ * rot: `surfaces.test.ts` parses this file and fails if a single value drifts.
+ *
+ * Colours are hex rather than `oklch()` so that the numbers a designer reads here, the numbers
+ * `surfaces.ts` exports, and the numbers `contrast.test.ts` measures are the *same numbers* with
+ * no colour-space conversion in between to be subtly wrong in.
  *
  * Both themes are required — families play in the evening.
  */
 @theme {
   --font-sans: "Rubik", "Heebo", ui-sans-serif, system-ui, sans-serif;
 
-  --color-table: oklch(45% 0.09 155); /* the felt-green playing surface */
-  --color-tile: oklch(97% 0.01 95);
-  --color-ink: oklch(22% 0.02 260);
+  --color-table: #33754f; /* the felt playing surface */
+  --color-on-table: #f2f8f3; /* ink for text directly on the felt */
+  --color-tile: #fbf6ec; /* a card face: tiles, dossiers, panels, buttons */
+  --color-ink: #1f1b16; /* ink for text on a card face */
+  --color-hairline: #1c1712; /* the keyline drawn around every painted area */
+
+  /* Two concentric focus rings, theme-invariant. See the proof in surfaces.ts: for any
+   * surface luminance, at least one of these clears 3:1, so the ring is visible on the felt,
+   * on a card, on a yellow band and on a dark blue one. */
+  --color-focus-inner: #101a2e;
+  --color-focus-outer: #fffdf7;
 }
 
 :root {
   color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-table: #10281c;
+    --color-on-table: #e8f2ea;
+    --color-tile: #332d26;
+    --color-ink: #f6efe2;
+    /* The keyline inverts: on a dark card, a near-black rim draws nothing. */
+    --color-hairline: #b3a692;
+  }
 }
 
 /* Respect the player's motion preference globally, not per-animation. */
@@ -29,8 +59,27 @@
   }
 }
 
-/* A visible focus ring is a hard requirement, so it is styled once, globally. */
+/*
+ * A visible focus ring is a hard requirement, so it is styled once, globally.
+ *
+ * The geometry is a sandwich: the box-shadow fills 0–5px out from the border box, and the
+ * outline sits at 2–5px on top of it, leaving a 2px band of the light ring inside the dark one.
+ * Whichever of the two the surface swallows, the other one shows.
+ */
 :focus-visible {
-  outline: 3px solid oklch(70% 0.18 250);
+  outline: 3px solid var(--color-focus-inner);
   outline-offset: 2px;
+  box-shadow: 0 0 0 5px var(--color-focus-outer);
+}
+
+/*
+ * The minimum hit target, as one utility.
+ *
+ * Both axes, because a 44px-tall control 20px wide passes a naive height check and still cannot
+ * be hit by a six-year-old (GAP §5, G-C6). Logical property names throughout: `min-inline-size`
+ * is the width in Hebrew too.
+ */
+@utility target {
+  min-block-size: 44px;
+  min-inline-size: 44px;
 }

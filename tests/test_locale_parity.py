@@ -35,6 +35,12 @@ AWAITING_HEBREW = frozenset(
         "a11y.phase_auction",
         "a11y.phase_debt_settlement",
         "a11y.phase_trade_review",
+        # MON-412 themed the six ownable tiles the engine leaves ``group=None`` (GAP G-A3).
+        # Their Hebrew needs adjective agreement, which MON-501 owns — see G-F8: the Hebrew
+        # catalogue inflects a colour name across an interpolation boundary and gets three of
+        # eight groups wrong, so guessing two more here would add to a known defect.
+        "group.railroad",
+        "group.utility",
     }
 )
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
