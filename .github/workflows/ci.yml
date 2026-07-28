@@ -62,6 +62,12 @@ jobs:
       - name: Pytest
         run: uv run pytest --cov --cov-report=term-missing
 
+      # MON-301 acceptance: `packages/server/src` coverage >= 95%, enforced rather than
+      # asserted in a backlog bullet. Scoped to the server package and its own tests, so
+      # the engine's much larger surface cannot carry a thin transport over the line.
+      - name: Server coverage floor
+        run: uv run pytest packages/server/tests -q --cov=kesef_server --cov-fail-under=95
+
       # MON-107: goldens are committed artifacts, never a test-run side effect. A diff
       # here means something regenerated them silently — that is a failure by design.
       # A plain `git diff` cannot see a *new* untracked golden, so the check is on the
@@ -134,7 +140,11 @@ jobs:
       - run: uv sync --frozen
       - name: Export OpenAPI
         run: uv run python -m kesef_server.openapi > openapi.json
+      # Version-pinned on purpose: `npx openapi-typescript` resolves the latest release,
+      # so an upstream patch that changes one line of emitted formatting would fail this
+      # job as "contract drift" on a PR that touched nothing. The pin is the version in
+      # packages/web/package-lock.json, which is what `npm run api:generate` uses locally.
       - name: Generate types and diff
         run: |
-          npx --yes openapi-typescript openapi.json -o /tmp/generated.ts
+          npx --yes openapi-typescript@7.13.0 openapi.json -o /tmp/generated.ts
           diff -u packages/web/src/api/generated.ts /tmp/generated.ts

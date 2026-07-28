@@ -1,36 +1,313 @@
-"""Contract tests.
+"""Contract and behaviour tests.
 
-The 501 assertions are not placeholders to be deleted — they pin the routes and schemas
-that the frontend generates types from. When MON-301 lands, each one becomes a real
-behavioural test rather than disappearing.
+The 501 assertions this file used to hold were not placeholders to be deleted — they pinned
+the routes and schemas the frontend generates its types from. MON-301 turns each into a
+behavioural test and keeps the pinning explicitly, in :data:`EXPECTED_PATHS` and
+:data:`EXPECTED_SCHEMAS`: exhaustive inventories that fail if a route or a schema
+*disappears* as loudly as if one appears unannounced (G-F20).
+
+Every route below is asserted twice over: a 2xx, and a named field of the body. A status
+code alone would pass against a handler that returned an empty object.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import json
+import tracemalloc
+from collections.abc import MutableMapping
+from typing import Any, Final
 
 import pytest
+from conftest import SESSION_TTL_SECONDS, FakeClock, minimal_state, new_game_payload, seat
 from fastapi import status
 from fastapi.testclient import TestClient
 
 from kesef_engine.board.models import BOARD_SIZE
-from kesef_engine.rng import Rng
-from kesef_engine.ruleset import Ruleset
-from kesef_engine.state import MAX_PLAYERS, GameState, PlayerKind, PlayerState, PropertyState
-from kesef_server.api import app, get_store
-from kesef_server.sessions import SessionLimitReachedError, SessionStore
+from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
+from kesef_engine.state import MAX_PLAYERS, SCHEMA_VERSION
+from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
+from kesef_server.config import Settings
+from kesef_server.errors import MAX_REFLECTED_CHARS
+from kesef_server.schemas import ErrorResponse
+from kesef_server.sessions import SessionStore
 
 UNPROCESSABLE = 422
 """Spelled as a number: starlette has renamed this constant once already."""
 
+CONTENT_TOO_LARGE = 413
 
-@pytest.fixture
-def client() -> Iterator[TestClient]:
-    """A client with a clean, isolated session store."""
-    store = SessionStore(max_sessions=8)
-    app.dependency_overrides[get_store] = lambda: store
-    yield TestClient(app)
-    app.dependency_overrides.clear()
+EXPECTED_PATHS: Final = {
+    ("get", "/health"),
+    ("get", "/boards"),
+    ("get", "/rulesets"),
+    ("post", "/games"),
+    ("get", "/games"),
+    ("post", "/games/load"),
+    ("get", "/games/{game_id}"),
+    ("get", "/games/{game_id}/save"),
+    ("post", "/games/{game_id}/commands"),
+    ("post", "/games/{game_id}/validate"),
+    ("delete", "/games/{game_id}"),
+    ("get", WS_EVENT_STREAM_PATH),
+}
+"""Every operation the document advertises. The frontend generates a client from this
+document, so a route that vanishes is a compile error there — but only if something here
+notices that it vanished."""
+
+EXPECTED_SCHEMAS: Final = {
+    # The projection (ADR-008)
+    "GameView",
+    "GameStateView",
+    "BoardView",
+    "TileView",
+    "PlayerView",
+    "GroupHoldings",
+    "DiceView",
+    "DeckCounts",
+    "AuctionFrameView",
+    "DebtFrameView",
+    "TradeFrameView",
+    "CardFrameView",
+    "LoggedEvent",
+    "PropertyState",
+    # Requests and answers
+    "NewGameRequest",
+    "SeatConfig",
+    "CommandRequest",
+    "LegalityView",
+    "ErrorResponse",
+    "GameSummary",
+    "BoardSummary",
+    # The save file — the one place the full state is still on the wire
+    "GameState",
+    "PlayerState",
+    "PlayerKind",
+    "DiceState",
+    "AuctionFrame",
+    "DebtFrame",
+    "TradeFrame",
+    "CardFrame",
+    "Rng",
+    # Shared engine vocabulary
+    "TileKind",
+    "ColorGroup",
+    "Ruleset",
+    "RulesetName",
+    "BotLevel",
+    "Phase",
+    "Deck",
+    "CashReason",
+    "AuctionReason",
+    "TileLot",
+    "BuildingLot",
+    "Obligation",
+    "TradeOffer",
+    "TradeSide",
+    # Commands
+    "RollDice",
+    "EndTurn",
+    "BuyProperty",
+    "DeclinePurchase",
+    "PlaceBid",
+    "WithdrawFromAuction",
+    "BuildHouse",
+    "SellHouse",
+    "MortgageProperty",
+    "UnmortgageProperty",
+    "ProposeTrade",
+    "RespondToTrade",
+    "CancelTrade",
+    "PayJailFine",
+    "UseJailCard",
+    "RollForJail",
+    "DeclareBankruptcy",
+    # Events
+    "TurnStarted",
+    "DiceRolled",
+    "TokenMoved",
+    "CashChanged",
+    "RentCharged",
+    "PropertyAcquired",
+    "AuctionStarted",
+    "BidPlaced",
+    "BidderWithdrew",
+    "AuctionEnded",
+    "CardDrawn",
+    "SentToJail",
+    "LeftJail",
+    "BuildingChanged",
+    "MortgageChanged",
+    "TradeProposed",
+    "TradeExecuted",
+    "TradeDeclined",
+    "TradeCancelled",
+    "DebtIncurred",
+    "DebtSettled",
+    "PlayerBankrupted",
+    "PhaseChanged",
+    "GameEnded",
+    "BankruptcyShare",
+    "PlayerStanding",
+}
+"""Every named schema in the document, and therefore every exported TypeScript type."""
+
+
+# --- The inventory ----------------------------------------------------------
+
+
+def test_the_document_advertises_exactly_the_expected_operations(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    advertised = {
+        (method, path)
+        for path, operations in schema["paths"].items()
+        for method in operations
+        if method != "parameters"
+    }
+    assert advertised == EXPECTED_PATHS
+
+
+def test_the_document_declares_exactly_the_expected_schemas(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    assert set(schema["components"]["schemas"]) == EXPECTED_SCHEMAS
+
+
+def test_openapi_document_is_generated(client: TestClient) -> None:
+    """The frontend's type generation depends on this document existing and being valid."""
+    schema = client.get("/openapi.json").json()
+    assert schema["info"]["title"] == "Kesef Street"
+    assert "/games/{game_id}/commands" in schema["paths"]
+    assert "GameView" in schema["components"]["schemas"]
+
+
+def test_every_game_route_declares_the_structured_error_shape(client: TestClient) -> None:
+    """G-33: a 422 the client cannot type is a 422 the client will render as prose."""
+    schema = client.get("/openapi.json").json()
+    for method, path in sorted(EXPECTED_PATHS):
+        if not path.startswith("/games") or path == "/games":
+            continue
+        responses = schema["paths"][path][method]["responses"]
+        failures = [code for code in responses if code.startswith(("4", "5"))]
+        assert failures, f"{method.upper()} {path} declares no error response"
+        for code in failures:
+            body = responses[code].get("content", {}).get("application/json", {}).get("schema", {})
+            assert "ErrorResponse" in str(body), f"{method.upper()} {path} {code} is untyped"
+
+
+UNDECLARED_FAILURES: Final = [
+    ("get", "/nope", status.HTTP_404_NOT_FOUND),
+    ("get", "/games/a/b", status.HTTP_404_NOT_FOUND),
+    ("get", "/games/kitchen-table/nonsense", status.HTTP_404_NOT_FOUND),
+    ("put", "/games", status.HTTP_405_METHOD_NOT_ALLOWED),
+    ("delete", "/health", status.HTTP_405_METHOD_NOT_ALLOWED),
+    ("post", "/games/anything/save", status.HTTP_405_METHOD_NOT_ALLOWED),
+]
+"""Failures the document does not declare, which is exactly why they escaped.
+
+The test above walks the *declared* operations and structurally could not catch these: with no
+`StarletteHTTPException` handler, `GET /nope` answered `{"detail":"Not Found"}` and `PUT /games`
+`{"detail":"Method Not Allowed"}` — a shape declared nowhere, so a generated client could not
+branch on it (G-33 / ADR-008 §4)."""
+
+
+@pytest.mark.parametrize(("method", "path", "expected"), UNDECLARED_FAILURES)
+def test_a_failure_the_document_never_declared_still_answers_in_the_one_shape(
+    client: TestClient, method: str, path: str, expected: int
+) -> None:
+    response = client.request(method, path)
+    assert response.status_code == expected
+    body = response.json()
+    assert set(body) == {"reason_key", "params"}, f"{method.upper()} {path} answered {body}"
+    assert body["reason_key"].startswith("error.")
+    ErrorResponse.model_validate(body)
+
+
+def test_the_two_starlette_failures_carry_the_keys_the_catalogue_will_need(client: TestClient) -> None:
+    """Named rather than merely well-shaped: a client that cannot tell 404 from 405 by key is
+    back to branching on a status code and guessing at the sentence."""
+    assert client.get("/nope").json() == {"reason_key": "error.not_found", "params": {"status": 404}}
+    refused = client.put("/games")
+    assert refused.json() == {"reason_key": "error.method_not_allowed", "params": {"status": 405}}
+    assert "Allow" in refused.headers, "a 405 without Allow is a 405 the client cannot act on"
+
+
+def test_a_reflected_id_is_truncated_rather_than_amplified(client: TestClient) -> None:
+    """A 5000-character `board_id` came back inside a 5061-byte body. No catalogue sentence is
+    improved by more than a glance at the id."""
+    response = client.post("/games", json=new_game_payload(board_id="z" * 5000))
+    assert response.status_code == UNPROCESSABLE
+    reflected = response.json()["params"]["board_id"]
+    assert len(reflected) <= MAX_REFLECTED_CHARS + 3
+    assert reflected.startswith("zzz") and reflected.endswith("...")
+    assert len(response.content) < 200
+
+
+def test_a_reflected_game_id_is_truncated_too(client: TestClient) -> None:
+    long_id = "g" * 5000
+    response = client.get(f"/games/{long_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert len(response.json()["params"]["game_id"]) <= MAX_REFLECTED_CHARS + 3
+
+
+def test_an_engine_failure_that_is_not_an_illegal_command_is_still_a_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`IllegalCommandError` had a handler; nothing else did, so any other `EngineError` left
+    the server as a bare 500 with a traceback."""
+    game_id = _create(client)["state"]["game_id"]
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise BoardDataError("a rule module could not read its board")
+
+    monkeypatch.setattr("kesef_server.api.apply", explode)
+    response = client.post(f"/games/{game_id}/commands", json=_roll(0))
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {"reason_key": "error.engine_failure", "params": {}}
+    assert "board" not in response.text, "the exception's own text must not reach the client"
+
+    # And the document says so, or the generated client cannot branch on it (G-33).
+    responses = client.get("/openapi.json").json()["paths"]["/games/{game_id}/commands"]["post"]["responses"]
+    assert "ErrorResponse" in str(responses["500"])
+
+
+def test_an_unknown_board_key_is_not_pinned_on_every_engine_failure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`except EngineError` labelled every failure `error.unknown_board`, including ones that
+    had nothing to do with a board id."""
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise EngineError("something else entirely")
+
+    monkeypatch.setattr("kesef_server.api.new_game", explode)
+    response = client.post("/games", json=new_game_payload())
+    assert response.json()["reason_key"] == "error.engine_failure"
+
+
+def test_a_context_param_the_catalogue_could_not_interpolate_is_coerced(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`IllegalCommandError` is typed `**context: object`. Every rule in the engine passes ints
+    and strings, so the coercion arm was unreachable and api.py's 100% was not honest about it.
+    An engine that one day passes a tuple gets a string, not a 500."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise IllegalCommandError("error.made_up", tiles=(1, 2), amount=7)
+
+    game_id = _create(client)["state"]["game_id"]
+    monkeypatch.setattr("kesef_server.api.apply", refuse)
+    response = client.post(f"/games/{game_id}/commands", json=_roll(0))
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.made_up", "params": {"tiles": "(1, 2)", "amount": 7}}
+
+
+def test_a_route_specific_key_is_not_flattened_into_the_generic_one(client: TestClient) -> None:
+    """The handler must only cover what starlette raises. A 404 a *route* answered still says
+    which game was missing."""
+    assert client.get("/games/nope").json()["reason_key"] == "error.game_not_found"
+
+
+# --- Meta -------------------------------------------------------------------
 
 
 def test_health(client: TestClient) -> None:
@@ -66,75 +343,671 @@ def test_games_list_starts_empty(client: TestClient) -> None:
     assert client.get("/games").json() == []
 
 
-def test_deleting_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
-    response = client.delete("/games/nope")
-    assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json()["detail"] == "error.game_not_found"
+def test_games_list_names_the_games_it_holds(client: TestClient) -> None:
+    """The old version of this test could not fail: the store was provably always empty."""
+    created = _create(client)
+    summaries = client.get("/games").json()
+    assert [summary["game_id"] for summary in summaries] == [created["state"]["game_id"]]
+    assert summaries[0]["player_names"] == ["Ann", "Ben"]
+    assert summaries[0]["ruleset"] == "universal"
+
+
+# --- POST /games ------------------------------------------------------------
+
+
+def test_creating_a_game_returns_the_opening_view(client: TestClient) -> None:
+    response = client.post("/games", json=new_game_payload())
+    assert response.status_code == status.HTTP_201_CREATED
+    view = response.json()
+    assert view["state"]["turn_number"] == 1
+    assert view["state"]["phase"] == "awaiting_roll"
+    assert [player["name"] for player in view["state"]["players"]] == ["Ann", "Ben"]
+    assert view["legal_commands"] == [{"kind": "roll_dice", "player": 0}]
+    assert view["events"] == []
+    assert view["event_cursor"] == 0
+
+
+def test_the_view_ships_the_whole_board_so_a_client_can_draw_one(client: TestClient) -> None:
+    """G-30: before ADR-008 no endpoint returned a single tile, so the UI could not render."""
+    board = _create(client)["board"]
+    assert len(board["tiles"]) == BOARD_SIZE
+    assert board["tiles"][1]["name_key"] == "tile.classic.mediterranean_avenue"
+    assert board["tiles"][1]["is_ownable"] is True
+    assert board["tiles"][0]["is_ownable"] is False
+    assert board["go_to_jail_target"] == 10
+
+
+def test_the_view_never_ships_the_rng_or_the_deck_order(client: TestClient) -> None:
+    """G-35: the shuffled deck told the client every card it was about to draw."""
+    state = _create(client)["state"]
+    assert "rng" not in state
+    assert "chance_deck" not in state
+    assert "community_chest_deck" not in state
+    assert state["deck_counts"] == {
+        "chance": len(CHANCE_CARD_IDS),
+        "community_chest": len(COMMUNITY_CHEST_CARD_IDS),
+    }
+
+
+def test_the_view_promotes_the_derived_fields_the_dossier_needs(client: TestClient) -> None:
+    player = _create(client)["state"]["players"][0]
+    assert player["net_worth"] == 1500
+    assert player["tiles_owned"] == []
+    assert player["is_bot"] is False
+    assert len(player["group_holdings"]) == 8
+    assert player["group_holdings"][0]["complete"] is False
+
+
+def test_a_seed_may_be_omitted_and_the_game_still_reports_one(client: TestClient) -> None:
+    """The save file must be enough to replay, so the server's own seed has to come back."""
+    first = client.post("/games", json=new_game_payload(seed=None))
+    assert first.status_code == status.HTTP_201_CREATED
+    saved = client.get(f"/games/{first.json()['state']['game_id']}/save").json()
+    assert isinstance(saved["rng"]["seed"], int)
+
+
+def test_a_client_may_name_its_game(client: TestClient) -> None:
+    view = client.post("/games", json=new_game_payload(game_id="kitchen-table")).json()
+    assert view["state"]["game_id"] == "kitchen-table"
+
+
+UNADDRESSABLE_GAME_IDS: Final = [
+    "kitchen/table",  # 201, listed, then unreachable by GET, POST, %2F *or* DELETE
+    "..",  # 201, then 404 to both GET and DELETE
+    ".",  # 201, 200 to GET, and 405 to DELETE
+    "../etc",
+    "  ",
+    "a b",
+    "a\n",
+    "a" * 65,
+    "",
+]
+"""Ids that cannot survive a URL path segment. Each one used to occupy a session slot that
+no route could reach or free — see ``schemas.GAME_ID_PATTERN``."""
+
+
+@pytest.mark.parametrize("game_id", UNADDRESSABLE_GAME_IDS)
+def test_a_game_id_that_could_not_be_addressed_is_refused(client: TestClient, game_id: str) -> None:
+    response = client.post("/games", json=new_game_payload(game_id=game_id))
+    assert response.status_code == UNPROCESSABLE, f"{game_id!r} was accepted"
+    assert response.json() == {"reason_key": "error.malformed_request", "params": {"fields": "game_id"}}
+
+
+def test_the_session_cap_cannot_be_wedged_by_ids_that_cannot_be_deleted(client: TestClient) -> None:
+    """The security condition, stated as the thing an attacker wanted (MON-303 review).
+
+    A one-slot server: every unaddressable id must leave the slot free, because a game under
+    such an id could never be deleted and 503 would then be permanent.
+    """
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
+    app.dependency_overrides[get_store] = lambda: store
+
+    for game_id in UNADDRESSABLE_GAME_IDS:
+        assert client.post("/games", json=new_game_payload(game_id=game_id)).status_code == UNPROCESSABLE
+    assert len(store) == 0, "an id nobody can delete took the only slot"
+
+    assert client.post("/games", json=new_game_payload(game_id="kitchen-table")).status_code == 201
+    assert client.post("/games", json=new_game_payload(game_id="second")).status_code == 503
+    assert client.delete("/games/kitchen-table").status_code == status.HTTP_204_NO_CONTENT
+    assert client.post("/games", json=new_game_payload(game_id="second")).status_code == 201
+
+
+def test_a_duplicate_game_id_is_a_conflict_not_a_silent_overwrite(client: TestClient) -> None:
+    client.post("/games", json=new_game_payload(game_id="dup"))
+    response = client.post("/games", json=new_game_payload(game_id="dup", seats=[seat("Cal"), seat("Dot")]))
+    assert response.status_code == status.HTTP_409_CONFLICT
+    assert response.json()["reason_key"] == "error.game_already_exists"
+    assert [player["name"] for player in client.get("/games/dup").json()["state"]["players"]] == ["Ann", "Ben"]
+
+
+def test_the_session_cap_is_a_key_based_error(client: TestClient) -> None:
+    full = SessionStore(max_sessions=0, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
+    app.dependency_overrides[get_store] = lambda: full
+    response = client.post("/games", json=new_game_payload())
+    assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert response.json()["reason_key"] == "error.server_at_capacity"
+
+
+def test_an_unknown_board_is_a_key_based_422(client: TestClient) -> None:
+    response = client.post("/games", json=new_game_payload(board_id="atlantis"))
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.unknown_board", "params": {"board_id": "atlantis"}}
+
+
+def test_duplicate_seat_names_are_the_engines_refusal_not_the_servers(client: TestClient) -> None:
+    """The server does not look for duplicate names; the factory does. See errors.py."""
+    response = client.post("/games", json=new_game_payload(seats=[seat("Ann"), seat("ann")]))
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.invalid_new_game"
 
 
 def test_seat_count_is_validated_before_the_engine_is_reached(client: TestClient) -> None:
-    """A one-player game is rejected by the schema, not by a 501 further in."""
-    response = client.post("/games", json={"seats": [_seat("Solo")]})
+    """A one-player game is rejected by the schema, and the rejection is still a key."""
+    response = client.post("/games", json={"seats": [seat("Solo")]})
     assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
 
 
 def test_too_many_seats_is_rejected(client: TestClient) -> None:
-    response = client.post("/games", json={"seats": [_seat(f"P{i}") for i in range(MAX_PLAYERS + 1)]})
+    response = client.post("/games", json={"seats": [seat(f"P{i}") for i in range(MAX_PLAYERS + 1)]})
     assert response.status_code == UNPROCESSABLE
 
 
 def test_a_bot_seat_without_a_level_is_rejected(client: TestClient) -> None:
-    seats = [_seat("Human"), {"name": "Bot", "is_bot": True, "token": "token.2"}]
+    seats = [seat("Human"), {"name": "Bot", "is_bot": True, "token": "token.2"}]
     response = client.post("/games", json={"seats": seats})
     assert response.status_code == UNPROCESSABLE
 
 
 def test_a_human_seat_with_a_bot_level_is_rejected(client: TestClient) -> None:
-    seats = [_seat("Human"), {"name": "Also human", "is_bot": False, "bot_level": "hard", "token": "token.2"}]
+    seats = [seat("Human"), {"name": "Also human", "is_bot": False, "bot_level": "hard", "token": "token.2"}]
     response = client.post("/games", json={"seats": seats})
     assert response.status_code == UNPROCESSABLE
 
 
+def test_a_bot_seat_is_seated_as_a_bot(client: TestClient) -> None:
+    seats = [seat("Human"), seat("Bot", is_bot=True, bot_level="hard")]
+    view = client.post("/games", json=new_game_payload(seats=seats)).json()
+    assert [player["is_bot"] for player in view["state"]["players"]] == [False, True]
+    assert view["state"]["players"][1]["kind"] == {"bot_level": "hard"}
+
+
+def test_a_seats_grammatical_gender_reaches_the_state(client: TestClient) -> None:
+    """Owner decision 5 / G-42: Hebrew conjugates by the subject's gender."""
+    seats = [seat("Ann", grammatical_gender="f"), seat("Ben", grammatical_gender="m")]
+    view = client.post("/games", json=new_game_payload(seats=seats)).json()
+    assert [player["grammatical_gender"] for player in view["state"]["players"]] == ["f", "m"]
+
+
+# --- POST /games/{id}/commands ---------------------------------------------
+
+
+def test_a_command_advances_the_game_and_returns_its_events(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    response = client.post(f"/games/{game_id}/commands", json=_roll(0))
+    assert response.status_code == status.HTTP_200_OK
+    view = response.json()
+    dice = view["state"]["dice"]
+    assert dice is not None
+    assert dice["total"] == dice["first"] + dice["second"]
+    assert [entry["seq"] for entry in view["events"]] == list(range(1, len(view["events"]) + 1))
+    assert view["event_cursor"] == len(view["events"])
+    assert {entry["event"]["type"] for entry in view["events"]} >= {"dice_rolled", "token_moved"}
+
+
+def test_the_legal_commands_a_client_is_handed_are_the_ones_the_engine_accepts(client: TestClient) -> None:
+    """The UI renders these as buttons, so every one of them has to be accepted (ADR-005)."""
+    game_id = _create(client)["state"]["game_id"]
+    view = client.post(f"/games/{game_id}/commands", json=_roll(0)).json()
+    assert view["legal_commands"]
+    for command in view["legal_commands"]:
+        answer = client.post(f"/games/{game_id}/validate", json={"command": command}).json()
+        assert answer["legal"] is True, f"{command} was offered but is not legal: {answer}"
+
+
+def test_an_illegal_command_is_a_422_carrying_the_engines_key_and_params(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    response = client.post(f"/games/{game_id}/commands", json=_roll(1))
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.not_your_turn", "params": {}}
+
+
+def test_a_rejections_context_params_survive_to_the_client(client: TestClient) -> None:
+    """G-33: without the params, `error.insufficient_funds` can never say how much short."""
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    response = client.post(f"/games/{game_id}/commands", json={"command": {"kind": "end_turn", "player": 0}})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {
+        "reason_key": "error.wrong_phase",
+        "params": {"phase": "awaiting_purchase_decision"},
+    }
+
+
+def test_the_server_stamps_elapsed_seconds_and_ignores_the_clients_clock(client: TestClient, clock: FakeClock) -> None:
+    """A client-chosen clock would let a player force or dodge Kids Mode's ending."""
+    game_id = _create(client)["state"]["game_id"]
+    clock.advance(42.9)
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    view = _end_turn(client, game_id, elapsed_seconds=999_999)
+    assert view["state"]["elapsed_seconds"] == 42
+
+
+def test_a_command_against_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
+    response = client.post("/games/nope/commands", json=_roll(0))
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["reason_key"] == "error.game_not_found"
+
+
 @pytest.mark.parametrize(
-    ("method", "path"),
-    [("post", "/games"), ("get", "/games/abc"), ("post", "/games/abc/commands")],
+    "command",
+    [
+        {"kind": "roll_dice", "player": 0, "<img src=x>": 1},
+        {"kind": "end_turn", "player": 0, "elapsed_second": 5},
+        {"kind": "place_bid", "player": 0, "amount": 5, "ammount": 500},
+    ],
+    ids=["injected key", "misspelled elapsed_seconds", "misspelled amount"],
 )
-def test_engine_backed_routes_are_declared_but_not_yet_implemented(client: TestClient, method: str, path: str) -> None:
-    """Pins the route shape for the generated TypeScript client. Becomes real at MON-301."""
-    roll = {"command": {"kind": "roll_dice", "player": 0}}
-    payload = {"seats": [_seat("A"), _seat("B")]} if path == "/games" else roll
-    response = client.request(method.upper(), path, json=payload if method == "post" else None)
-    assert response.status_code == status.HTTP_501_NOT_IMPLEMENTED
+def test_a_command_carrying_a_field_the_engine_does_not_declare_is_refused(
+    client: TestClient, command: dict[str, Any]
+) -> None:
+    """A command is a closed shape, and the wire is the only place one is built from untrusted
+    keys. Silently ignored, a misspelled `elapsed_seconds` drops a player's clock and a 200 says
+    the request was fine."""
+    game_id = _create(client)["state"]["game_id"]
+    response = client.post(f"/games/{game_id}/commands", json={"command": command})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
 
 
-def test_openapi_document_is_generated(client: TestClient) -> None:
-    """The frontend's type generation depends on this document existing and being valid."""
-    schema = client.get("/openapi.json").json()
-    assert schema["info"]["title"] == "Kesef Street"
-    assert "/games/{game_id}/commands" in schema["paths"]
-    assert "GameView" in schema["components"]["schemas"]
-
-
-def test_session_store_enforces_its_cap() -> None:
-    store = SessionStore(max_sessions=0)
-    with pytest.raises(SessionLimitReachedError):
-        store.create(_minimal_state())
-
-
-def _seat(name: str) -> dict[str, object]:
-    return {"name": name, "is_bot": False, "token": f"token.{name}"}
-
-
-def _minimal_state() -> GameState:
-    return GameState(
-        game_id="g",
-        board_id="classic",
-        ruleset=Ruleset.universal(),
-        rng=Rng(seed=1),
-        players=tuple(
-            PlayerState(id=i, name=f"P{i}", kind=PlayerKind(), token=f"token.{i}", cash=1500) for i in range(2)
-        ),
-        properties=tuple(PropertyState() for _ in range(BOARD_SIZE)),
-        # MON-100 / ADR-007: the state names the acting seat by id, not by tuple index.
-        current_player_id=0,
+def test_a_trade_payload_forbids_extras_too(client: TestClient) -> None:
+    """`TradeSide` is command payload: a misspelled `cash` that is ignored offers nothing while
+    looking like a full offer."""
+    game_id = _create(client)["state"]["game_id"]
+    offer = {
+        "proposer": 0,
+        "recipient": 1,
+        "give": {"cash": 10, "cashh": 500},
+        "receive": {"tiles": [1]},
+    }
+    response = client.post(
+        f"/games/{game_id}/commands",
+        json={"command": {"kind": "propose_trade", "player": 0, "offer": offer}},
     )
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
+
+
+def test_a_dumped_command_still_round_trips_through_the_wire(client: TestClient) -> None:
+    """`extra="forbid"` must not break the shape the API hands out. Every command in
+    `legal_commands` is dumped by this server and sent straight back by the UI."""
+    game_id = _create(client)["state"]["game_id"]
+    for command in client.get(f"/games/{game_id}").json()["legal_commands"]:
+        answer = client.post(f"/games/{game_id}/validate", json={"command": command})
+        assert answer.status_code == status.HTTP_200_OK, answer.text
+        assert answer.json()["legal"] is True
+
+
+def test_a_malformed_command_is_a_keyed_422(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    response = client.post(f"/games/{game_id}/commands", json={"command": {"kind": "teleport", "player": 0}})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
+
+
+# --- POST /games/{id}/validate --------------------------------------------
+
+
+def test_validate_answers_without_changing_anything(client: TestClient) -> None:
+    """G-32: the trade builder needs a validation path that is not a speculative command."""
+    game_id = _create(client)["state"]["game_id"]
+    before = client.get(f"/games/{game_id}").json()
+    response = client.post(f"/games/{game_id}/validate", json=_roll(0))
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {"legal": True, "reason_key": None, "params": {}}
+    assert client.get(f"/games/{game_id}").json() == before
+
+
+def test_validate_reports_an_illegal_command_as_a_200_with_a_reason(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    body = client.post(f"/games/{game_id}/validate", json=_roll(1)).json()
+    assert body == {"legal": False, "reason_key": "error.not_your_turn", "params": {}}
+
+
+def test_validate_against_an_unknown_game_is_a_404(client: TestClient) -> None:
+    response = client.post("/games/nope/validate", json=_roll(0))
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+# --- GET /games/{id} -------------------------------------------------------
+
+
+def test_the_view_is_safe_to_poll_and_carries_no_events_without_a_cursor(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    response = client.get(f"/games/{game_id}")
+    assert response.status_code == status.HTTP_200_OK
+    view = response.json()
+    assert view["events"] == []
+    assert view["event_cursor"] > 0
+
+
+def test_a_cursor_replays_only_what_the_client_has_not_seen(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    cursor = client.post(f"/games/{game_id}/commands", json=_roll(0)).json()["event_cursor"]
+    replayed = client.get(f"/games/{game_id}?since=0").json()["events"]
+    assert [entry["seq"] for entry in replayed] == list(range(1, cursor + 1))
+    assert client.get(f"/games/{game_id}?since={cursor}").json()["events"] == []
+
+
+def test_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
+    response = client.get("/games/nope")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    # ADR-008 §4 / G-33: errors are `{reason_key, params}` everywhere, not FastAPI's
+    # `{detail}` — the key used to arrive under a field the generated client could not type.
+    assert response.json()["reason_key"] == "error.game_not_found"
+
+
+def test_an_idle_game_is_evicted_and_answers_the_ordinary_404(client: TestClient, clock: FakeClock) -> None:
+    """`session_ttl_minutes` reaching the wire: from the client's side an evicted game is a
+    game that is not there, which is the same key as one that never was."""
+    game_id = _create(client)["state"]["game_id"]
+    clock.advance(SESSION_TTL_SECONDS + 1)
+    response = client.get(f"/games/{game_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["reason_key"] == "error.game_not_found"
+    assert client.get("/games").json() == []
+
+
+def test_a_negative_cursor_is_refused(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    assert client.get(f"/games/{game_id}?since=-1").status_code == UNPROCESSABLE
+
+
+# --- Save and load ---------------------------------------------------------
+
+
+def test_the_save_route_is_the_only_one_that_returns_hidden_information(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    response = client.get(f"/games/{game_id}/save")
+    assert response.status_code == status.HTTP_200_OK
+    saved = response.json()
+    assert saved["rng"]["seed"] == 7
+    assert len(saved["chance_deck"]) == len(CHANCE_CARD_IDS)
+    assert saved["schema_version"] == SCHEMA_VERSION
+
+
+def test_saving_an_unknown_game_is_a_404(client: TestClient) -> None:
+    assert client.get("/games/nope/save").status_code == status.HTTP_404_NOT_FOUND
+
+
+def test_a_saved_game_round_trips_through_load(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    saved = client.get(f"/games/{game_id}/save").json()
+    client.delete(f"/games/{game_id}")
+
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == status.HTTP_201_CREATED
+    restored = response.json()
+    assert restored["state"]["game_id"] == game_id
+    assert restored["state"]["phase"] == saved["phase"]
+    assert restored["state"]["players"][0]["position"] == saved["players"][0]["position"]
+    assert client.get(f"/games/{game_id}/save").json() == saved
+
+
+def test_loading_a_game_that_is_already_live_is_a_conflict(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+    assert client.post("/games/load", json=saved).status_code == status.HTTP_409_CONFLICT
+
+
+def test_a_stale_save_schema_is_a_keyed_422(client: TestClient) -> None:
+    saved = minimal_state().model_dump(mode="json") | {"schema_version": SCHEMA_VERSION - 1}
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.save_schema_mismatch"
+
+
+def test_a_save_naming_an_unknown_board_does_not_escape_as_a_500(client: TestClient) -> None:
+    """``BoardDataError`` is not a ``ValueError``, so pydantic does not wrap it: as a declared
+    body parameter it left the server as a traceback (MON-100 security advisory)."""
+    saved = minimal_state().model_dump(mode="json") | {"board_id": "atlantis"}
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.save_schema_mismatch"
+
+
+@pytest.mark.parametrize("game_id", ["kitchen/table", "  ", "..", ".", "../etc", "a" * 65])
+def test_a_save_naming_an_unaddressable_game_is_refused(client: TestClient, game_id: str) -> None:
+    """The load route takes its id from inside the body, where no field constraint reaches."""
+    saved = minimal_state(game_id=game_id).model_dump(mode="json")
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == UNPROCESSABLE, f"{game_id!r} was accepted"
+    assert response.json() == {"reason_key": "error.invalid_game_id", "params": {}}
+    assert client.get("/games").json() == [], "the refused save must not have taken a slot"
+
+
+def test_a_structurally_broken_save_is_a_keyed_422(client: TestClient) -> None:
+    response = client.post("/games/load", json={"not": "a game"})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.save_schema_mismatch"
+
+
+def test_an_oversized_save_is_refused_before_it_is_parsed(client: TestClient) -> None:
+    app.dependency_overrides[get_settings] = lambda: Settings(max_save_bytes=64)
+    response = client.post("/games/load", json=minimal_state().model_dump(mode="json"))
+    assert response.status_code == CONTENT_TOO_LARGE
+    assert response.json() == {"reason_key": "error.save_too_large", "params": {"limit_bytes": 64}}
+
+
+# --- The bounded body read (MON-303 security review) ------------------------
+#
+# These two go straight at the ASGI app rather than through ``TestClient``, because the test
+# client's transport calls ``request.read()`` and hands the app the whole body as one
+# ``http.request`` message. Measuring the server's allocation through a client that has
+# already buffered the upload would measure nothing.
+
+CHUNK_BYTES: Final = 4096
+"""One upload chunk. Also the ceiling below, so "one chunk over the line" is exact."""
+
+OVERSIZED_CHUNKS: Final = 1024
+"""4 MB sent against a 4 KB ceiling — a thousand times the limit."""
+
+
+async def _post_load_chunked(chunks: int, ceiling: int) -> tuple[list[dict[str, Any]], int]:
+    """POST a chunked ``/games/load`` body, returning the ASGI messages and chunks consumed.
+
+    ``consumed`` is the falsifier: an app that buffers before checking asks for every chunk,
+    an app that checks while reading stops at the first one over the line.
+    """
+    app.dependency_overrides[get_settings] = lambda: Settings(max_save_bytes=ceiling)
+    consumed = 0
+
+    async def receive() -> dict[str, Any]:
+        nonlocal consumed
+        if consumed >= chunks:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        consumed += 1
+        # A fresh buffer per chunk: one shared object would make the accumulation that
+        # ``test_the_bounded_read_never_buffers_the_whole_body`` measures invisible.
+        return {"type": "http.request", "body": b"x" * CHUNK_BYTES, "more_body": True}
+
+    messages: list[dict[str, Any]] = []
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        messages.append(dict(message))
+
+    scope: dict[str, Any] = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "path": "/games/load",
+        "raw_path": b"/games/load",
+        "root_path": "",
+        "scheme": "http",
+        "query_string": b"",
+        # No content-length: a chunked upload declares none, which is exactly the case the
+        # header fast path cannot cover.
+        "headers": [(b"host", b"testserver"), (b"content-type", b"application/json")],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+    await app(scope, receive, send)
+    return messages, consumed
+
+
+def _status_and_body(messages: list[dict[str, Any]]) -> tuple[int, Any]:
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+    return int(start["status"]), json.loads(body)
+
+
+async def test_an_oversized_save_is_refused_even_without_a_content_length() -> None:
+    """A chunked upload declares no length, so the read itself has to be bounded too.
+
+    The 413 was never the interesting half. This asserts the *ceiling was never exceeded*:
+    the app stops pulling chunks at the first one that crosses the line, so it read two of
+    the thousand that were on offer.
+    """
+    messages, consumed = await _post_load_chunked(chunks=OVERSIZED_CHUNKS, ceiling=CHUNK_BYTES)
+    status_code, body = _status_and_body(messages)
+    assert status_code == CONTENT_TOO_LARGE
+    assert body == {"reason_key": "error.save_too_large", "params": {"limit_bytes": CHUNK_BYTES}}
+    assert consumed == 2, "one chunk fits at exactly the ceiling; the second crosses it and ends the read"
+
+
+async def test_the_bounded_read_never_buffers_the_whole_body() -> None:
+    """The 413 was arriving *after* the allocation it was meant to prevent.
+
+    Before this fix ``await request.body()`` buffered the upload and then compared its length
+    to the ceiling: the reviewer measured a 120 MB ``tracemalloc`` peak for a 60 MB body sent
+    against a 1 KB limit — 60 MB in the accumulated chunks and 60 MB again in the join. So the
+    assertion here is on *memory*, not on the status code, because the status code was already
+    right while the defect was live.
+    """
+    body_bytes = OVERSIZED_CHUNKS * CHUNK_BYTES
+    tracemalloc.start()
+    try:
+        messages, _ = await _post_load_chunked(chunks=OVERSIZED_CHUNKS, ceiling=CHUNK_BYTES)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert _status_and_body(messages)[0] == CONTENT_TOO_LARGE
+    # Generous in absolute terms — a request costs a few tens of KB in framework objects —
+    # and still two orders of magnitude below the body, which is the only thing that matters:
+    # the pre-fix implementation peaks at ~2x the body.
+    assert peak < 100 * CHUNK_BYTES, f"peaked at {peak} bytes reading a {body_bytes}-byte body"
+    assert peak < body_bytes // 8
+
+
+def test_the_load_route_still_declares_a_gamestate_body(client: TestClient) -> None:
+    """The body is read raw, so the contract is declared by hand — assert it is still there."""
+    operation = client.get("/openapi.json").json()["paths"]["/games/load"]["post"]
+    schema = operation["requestBody"]["content"]["application/json"]["schema"]
+    assert schema == {"$ref": "#/components/schemas/GameState"}
+
+
+# --- DELETE ----------------------------------------------------------------
+
+
+def test_deleting_a_game_removes_it(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    assert client.delete(f"/games/{game_id}").status_code == status.HTTP_204_NO_CONTENT
+    assert client.get(f"/games/{game_id}").status_code == status.HTTP_404_NOT_FOUND
+    assert client.get("/games").json() == []
+
+
+def test_deleting_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
+    response = client.delete("/games/nope")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    # ADR-008 §4: `{reason_key, params}`, not FastAPI's `{detail}`. See the note above.
+    assert response.json()["reason_key"] == "error.game_not_found"
+
+
+# --- Playing a real game over HTTP -----------------------------------------
+
+
+def test_two_players_can_take_a_turn_each_through_the_api(client: TestClient) -> None:
+    """The acceptance path, driven the way the UI will drive it: only ever send a command the
+    last view offered, and never work out whether it is allowed."""
+    game_id = _create(client)["state"]["game_id"]
+    view = client.get(f"/games/{game_id}").json()
+    seen: set[str] = set()
+
+    for _ in range(12):
+        commands = view["legal_commands"]
+        assert commands, "a UI driven by legal_commands cannot recover from an empty list"
+        chosen = _prefer(commands)
+        seen.add(chosen["kind"])
+        response = client.post(f"/games/{game_id}/commands", json={"command": chosen})
+        assert response.status_code == status.HTTP_200_OK, response.text
+        view = response.json()
+
+    assert {"roll_dice", "end_turn"} <= seen
+    assert view["state"]["turn_number"] > 1
+    assert view["event_cursor"] >= 6
+    assert client.get(f"/games/{game_id}?since=0").json()["events"][0]["seq"] == 1
+
+
+def test_landing_on_an_unowned_property_offers_both_answers(client: TestClient) -> None:
+    """Landing on a property must offer exactly what the rules offer — not a subset."""
+    game_id = _create(client)["state"]["game_id"]
+    view = client.post(f"/games/{game_id}/commands", json=_roll(0)).json()
+    assert view["state"]["phase"] == "awaiting_purchase_decision", "seed 7 is chosen so this holds"
+    assert {command["kind"] for command in view["legal_commands"]} >= {"buy_property", "decline_purchase"}
+
+
+def test_buying_a_property_shows_up_in_the_promoted_dossier_fields(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    view = client.post(f"/games/{game_id}/commands", json={"command": {"kind": "buy_property", "player": 0}}).json()
+    player = view["state"]["players"][0]
+    assert len(player["tiles_owned"]) == 1
+    assert sum(entry["owned"] for entry in player["group_holdings"]) == 1
+    assert player["net_worth"] == 1500, "cash out, deed in — a purchase at list price is net neutral"
+
+
+def test_declining_a_purchase_opens_an_auction_the_view_can_render(client: TestClient) -> None:
+    """The auction frame's derived fields must reach the bid widget (G-36)."""
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    view = client.post(f"/games/{game_id}/commands", json={"command": {"kind": "decline_purchase", "player": 0}}).json()
+    assert view["state"]["phase"] == "auction"
+    frame = view["state"]["interrupts"][-1]
+    assert frame["kind"] == "auction"
+    assert frame["reason"] == "declined_purchase"
+    assert frame["min_bid"] >= 1
+    assert frame["withdrawn"] == []
+    assert sorted(frame["eligible"]) == [0, 1]
+
+
+# --- Helpers ---------------------------------------------------------------
+
+
+def _create(client: TestClient, **overrides: object) -> dict[str, Any]:
+    response = client.post("/games", json=new_game_payload(**overrides))
+    assert response.status_code == status.HTTP_201_CREATED, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def _roll(player: int) -> dict[str, Any]:
+    return {"command": {"kind": "roll_dice", "player": player}}
+
+
+def _end_turn(client: TestClient, game_id: str, **extras: object) -> dict[str, Any]:
+    """Answer whatever the tile asked, then end the turn."""
+    view = client.get(f"/games/{game_id}").json()
+    while not any(command["kind"] == "end_turn" for command in view["legal_commands"]):
+        chosen = _prefer(view["legal_commands"])
+        response = client.post(f"/games/{game_id}/commands", json={"command": chosen})
+        assert response.status_code == status.HTTP_200_OK, response.text
+        view = response.json()
+    current = view["state"]["current_player_id"]
+    end_turn: dict[str, Any] = {"kind": "end_turn", "player": current, **extras}
+    response = client.post(f"/games/{game_id}/commands", json={"command": end_turn})
+    assert response.status_code == status.HTTP_200_OK, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+_PREFERENCE = ("roll_dice", "buy_property", "end_turn", "pay_jail_fine", "use_jail_card", "roll_for_jail")
+
+
+def _prefer(commands: list[dict[str, Any]]) -> dict[str, Any]:
+    """Play forwards: prefer the commands that advance a turn, in that order."""
+    for kind in _PREFERENCE:
+        for command in commands:
+            if command["kind"] == kind:
+                return command
+    return commands[0]
+
+
+@pytest.fixture(autouse=True)
+def _no_leaked_overrides() -> Any:
+    """Two tests swap a dependency mid-test; make sure none of it survives the test."""
+    yield
+    app.dependency_overrides.clear()

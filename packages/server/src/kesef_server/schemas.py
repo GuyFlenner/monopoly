@@ -1,21 +1,131 @@
-"""The HTTP contract.
+"""The HTTP contract — and, per ADR-008, the *projection*.
 
 These models are the single source of truth for the frontend's types: CI generates
 ``packages/web/src/api/generated.ts`` from this app's OpenAPI schema, so a field renamed
 here becomes a TypeScript error there rather than an undefined at runtime (MON-302).
+
+**Why these are not the engine's models.** ``GameView`` used to embed ``GameState``
+verbatim, which failed in both directions at once (ADR-008, GAP G-30..G-36):
+
+* *Too little reached the wire.* Everything the UI needs in order to render is a
+  ``@property``, and pydantic drops properties from ``model_dump`` and therefore from the
+  OpenAPI document — the board itself, ``net_worth``, group completion, the dice total.
+  Re-deriving those in TypeScript would put the valuation rule in the client, which is the
+  ``if cash < rent`` defect this architecture exists to prevent, one layer up.
+* *Too much reached the wire.* The RNG seed and the full deck order shipped with every
+  poll: a cheat channel in devtools today and a real one when networked play lands.
+
+So every field below is one of exactly two things, and never a third:
+
+1. a **copy** of an engine field, or
+2. a **promotion** of an engine-derived property (``state.net_worth(id)``,
+   ``tile.is_ownable``, ``frame.withdrawn``).
+
+No arithmetic and no conditional here decides anything about the game. If a field cannot be
+written as one of those two, it is a rule and it belongs in the engine.
+``packages/server/tests/test_projection.py`` checks the field-by-field parity mechanically,
+so the engine cannot grow a field that quietly fails to reach the client.
+
+The views are plain models that *copy*, rather than subclasses of the engine's models: a
+subclass cannot declare a field whose name a parent already uses for a property, which is
+precisely the set of names being promoted here. Copying costs a mapping function per model
+and buys an explicit, greppable wire shape.
+
+The full ``GameState`` is still reachable, at ``GET /games/{id}/save`` — the reducer's "the
+JSON is the save file" property is kept, just no longer conflated with what a client may see.
 """
 
 from __future__ import annotations
 
-from typing import Self
+import re
+from typing import Annotated, Literal, Self, assert_never
 
 from pydantic import BaseModel, Field, model_validator
 
-from kesef_engine.commands import Command
+from kesef_engine.board.models import Board, ColorGroup, Tile, TileKind
+from kesef_engine.commands import Command, TradeOffer
 from kesef_engine.events import Event
-from kesef_engine.primitives import BotLevel
-from kesef_engine.ruleset import RulesetName
-from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, GameState, PlayerKind
+from kesef_engine.factory import Seat
+from kesef_engine.phases import Phase
+from kesef_engine.primitives import (
+    AuctionReason,
+    BotLevel,
+    CashReason,
+    Deck,
+    Lot,
+    PlayerId,
+    TileIndex,
+)
+from kesef_engine.ruleset import Ruleset, RulesetName
+from kesef_engine.state import (
+    MAX_PLAYERS,
+    MIN_PLAYERS,
+    AuctionFrame,
+    CardFrame,
+    DebtFrame,
+    DiceState,
+    GameState,
+    Obligation,
+    PlayerKind,
+    PlayerState,
+    PropertyState,
+    TradeFrame,
+)
+
+# --- Errors -----------------------------------------------------------------
+
+
+class ErrorResponse(BaseModel):
+    """Every failure this API reports, in one shape (GAP G-33).
+
+    ``reason_key`` is an i18n key, never a sentence, and ``params`` carries the context the
+    catalogue entry interpolates — which is what lets ``error.insufficient_funds`` say how
+    much short. The engine's ``IllegalCommandError`` already carries both; before ADR-008
+    the transport dropped the params on the floor.
+    """
+
+    reason_key: str = Field(examples=["error.not_your_turn"])
+    params: dict[str, int | str] = {}
+
+
+# --- Requests ---------------------------------------------------------------
+
+GAME_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+"""What a ``game_id`` may contain, on every wire path that accepts one.
+
+Constrained only by a length, a client could name a game ``kitchen/table``: ``POST /games``
+answered 201, the game took one of ``max_sessions`` slots and was listed by ``GET /games``,
+and it was then unreachable by ``GET``, ``POST``, ``%2F`` *or* ``DELETE``. ``"  "`` did the
+same. So an unauthenticated client could wedge ``POST /games`` and ``POST /games/load`` at
+503 permanently, with no recovery short of a restart (MON-303 security review).
+
+The set here is exactly the set that survives a URL path segment intact. What is at stake is
+the id's *addressability*, not its prettiness — this is a transport constraint, not a rule,
+which is why it lives here and not in ``kesef_engine`` (the engine has no URLs).
+
+**The leading character class is not decoration.** The review prescribed
+``^[A-Za-z0-9_.-]{1,64}$``, which still admits ``.`` and ``..``, and a path segment is where
+those two mean something else. Measured against the app: ``..`` created 201, then answered
+404 to both ``GET`` and ``DELETE``; ``.`` created 201, answered 200 to ``GET`` and **405** to
+``DELETE``. Both kept the slot forever, which is the whole of the finding. Requiring the first
+character to be alphanumeric closes it without a lookahead — pydantic v2's default regex
+engine is ``rust-regex``, which has none.
+"""
+
+_GAME_ID = re.compile(GAME_ID_PATTERN)
+
+GameId = Annotated[str, Field(pattern=GAME_ID_PATTERN)]
+"""A ``game_id`` as a request field. Rejected by pydantic, so the answer is the ordinary
+``error.malformed_request`` naming the field."""
+
+
+def is_addressable_game_id(game_id: str) -> bool:
+    """Whether ``game_id`` satisfies :data:`GAME_ID_PATTERN`.
+
+    ``POST /games/load`` takes its id from *inside* a ``GameState``, where it is not a request
+    field and cannot carry a field constraint, so that route checks it by hand.
+    """
+    return _GAME_ID.fullmatch(game_id) is not None
 
 
 class SeatConfig(BaseModel):
@@ -30,6 +140,9 @@ class SeatConfig(BaseModel):
     is_bot: bool = False
     bot_level: BotLevel | None = None
     token: str
+    grammatical_gender: Literal["m", "f", "n"] = "n"
+    """Hebrew conjugates verbs by the subject's gender, so the setup screen asks (owner
+    decision 5, GAP G-42). ``"n"`` is the neutral fallback, never the masculine."""
 
     @model_validator(mode="after")
     def _check(self) -> Self:
@@ -39,11 +152,19 @@ class SeatConfig(BaseModel):
             raise ValueError("a human seat must not carry a bot_level")
         return self
 
-    @property
-    def player_kind(self) -> PlayerKind:
-        """The engine's shape for this seat. MON-301 seats a game through here, so the
-        wire's two fields can never be mapped onto the engine's one inconsistently."""
-        return PlayerKind(bot_level=self.bot_level)
+    def to_seat(self) -> Seat:
+        """The engine's ``Seat`` — the one place the wire's shape meets the factory's.
+
+        Replaces the ``player_kind`` property this model used to carry: with a real seating
+        route (MON-301) there is one mapping from the wire's two fields onto the engine's
+        one, and two ways to spell it is one too many.
+        """
+        return Seat(
+            name=self.name,
+            bot_level=self.bot_level,
+            token=self.token,
+            grammatical_gender=self.grammatical_gender,
+        )
 
 
 class NewGameRequest(BaseModel):
@@ -53,23 +174,376 @@ class NewGameRequest(BaseModel):
     locale: str = "en"
     seed: int | None = None
     """None means the server picks one and returns it, so a game can be replayed."""
+    game_id: GameId | None = None
+    """None means the server names the game. A client may name it — to reserve a link, or
+    to restore a save under its own id — and a name already in use is a 409 rather than a
+    silent overwrite of somebody's live game. See :data:`GAME_ID_PATTERN` for why the
+    character set is closed and not merely length-limited."""
+
+
+class CommandRequest(BaseModel):
+    command: Command
+
+
+# --- The board projection ---------------------------------------------------
+
+
+class TileView(BaseModel):
+    """One square, plus the ownability the engine derives from its kind.
+
+    ADR-008 says "``board: Board`` ships whole", which is *almost* enough: ``is_ownable``
+    is a property, so pydantic drops it, and a client recomputing
+    ``kind in {property, railroad, utility}`` has copied ``OWNABLE_KINDS`` — engine
+    knowledge — into TypeScript. One promoted boolean is cheaper than that.
+    """
+
+    index: int
+    kind: TileKind
+    name_key: str
+    group: ColorGroup | None = None
+    price: int | None = None
+    rent: tuple[int, ...] = ()
+    house_cost: int | None = None
+    mortgage: int | None = None
+    tax: int | None = None
+    is_ownable: bool
+
+    @classmethod
+    def from_tile(cls, tile: Tile) -> Self:
+        return cls(**dict(tile), is_ownable=tile.is_ownable)
+
+
+class BoardView(BaseModel):
+    """The whole board: static per game, ~4 KB, and the reason a client can draw anything
+    at all (G-30 — before ADR-008 no endpoint returned a single tile)."""
+
+    id: str
+    name_key: str
+    tiles: tuple[TileView, ...]
+    go_to_jail_target: TileIndex
+    """Promoted: where the GO_TO_JAIL tile sends a token. Finding it client-side means
+    knowing that it is the JAIL tile's index, which is a rule."""
+
+    @classmethod
+    def from_board(cls, board: Board) -> Self:
+        return cls(
+            id=board.id,
+            name_key=board.name_key,
+            tiles=tuple(TileView.from_tile(tile) for tile in board.tiles),
+            go_to_jail_target=board.go_to_jail_target,
+        )
+
+
+# --- The player projection --------------------------------------------------
+
+
+class GroupHoldings(BaseModel):
+    """One colour group as one player holds it (G-31/G-32).
+
+    Every number is a copy or an engine call: ``complete`` is
+    ``state.owns_whole_group(...)``, not ``owned == total``, because "may this player
+    build" is the engine's answer to give. ``houses`` sums ``PropertyState.houses`` with
+    the engine's own semantics, in which 5 means a hotel.
+    """
+
+    group: ColorGroup
+    owned: int = Field(ge=0)
+    total: int = Field(ge=0)
+    complete: bool
+    houses: int = Field(ge=0)
+    mortgaged_count: int = Field(ge=0)
+
+    @classmethod
+    def from_state(cls, state: GameState, player_id: PlayerId, group: ColorGroup) -> Self:
+        members = state.board.group_members(group)
+        held = tuple(state.properties[index] for index in members if state.properties[index].owner == player_id)
+        return cls(
+            group=group,
+            owned=len(held),
+            total=len(members),
+            complete=state.owns_whole_group(player_id, group),
+            houses=sum(prop.houses for prop in held),
+            mortgaged_count=sum(1 for prop in held if prop.mortgaged),
+        )
+
+
+class PlayerView(BaseModel):
+    """A seat, plus the four derived facts the dossier would otherwise re-derive."""
+
+    id: PlayerId
+    name: str
+    kind: PlayerKind
+    token: str
+    cash: int
+    position: TileIndex
+    in_jail: bool
+    jail_turns: int
+    jail_cards: tuple[Deck, ...]
+    bankrupt: bool
+    grammatical_gender: Literal["m", "f", "n"]
+
+    net_worth: int = Field(ge=0)
+    """``state.net_worth(id)``. A mortgaged property counts for zero (MON-208) — a rule
+    the client must not own a second copy of."""
+    group_holdings: tuple[GroupHoldings, ...]
+    """One entry per colour group, always all eight, so the dossier table is never ragged."""
+    tiles_owned: tuple[TileIndex, ...]
+    """``state.tiles_owned_by(id)``."""
+    is_bot: bool
+    """``kind.is_bot``. Promoted for the same reason ``SeatConfig`` keeps it on the wire."""
+
+    @classmethod
+    def from_state(cls, state: GameState, player: PlayerState) -> Self:
+        return cls(
+            **dict(player),
+            net_worth=state.net_worth(player.id),
+            group_holdings=tuple(GroupHoldings.from_state(state, player.id, group) for group in ColorGroup),
+            tiles_owned=state.tiles_owned_by(player.id),
+            is_bot=player.kind.is_bot,
+        )
+
+
+# --- The dice and deck projections ------------------------------------------
+
+
+class DiceView(BaseModel):
+    """The last roll, carrying its own total and doubles flag (G-36)."""
+
+    first: int
+    second: int
+    purpose: Literal["move", "jail", "rent"]
+    total: int
+    is_doubles: bool
+
+    @classmethod
+    def from_dice(cls, dice: DiceState) -> Self:
+        return cls(**dict(dice), total=dice.total, is_doubles=dice.is_doubles)
+
+
+class DeckCounts(BaseModel):
+    """How many cards each pile holds. The *order* stays hidden — that is the whole of
+    G-35: shipping the shuffled list told the client every card it was about to draw."""
+
+    chance: int = Field(ge=0)
+    community_chest: int = Field(ge=0)
+
+
+# --- The interrupt-stack projection -----------------------------------------
+#
+# One view per frame kind, so the union stays homogeneous and ``generated.ts`` gets a real
+# discriminated union. Two of the four promote nothing; they exist so the discriminator has
+# four members of one family rather than a mix of engine and view models.
+
+
+class AuctionFrameView(BaseModel):
+    kind: Literal["auction"] = "auction"
+    resume: Phase
+    lot: Lot
+    reason: AuctionReason
+    eligible: tuple[PlayerId, ...]
+    active: tuple[PlayerId, ...] = ()
+    turn: PlayerId | None = None
+    high_bid: int = Field(ge=0)
+    high_bidder: PlayerId | None = None
+    min_bid: int = Field(ge=1)
+    max_bid: int | None = None
+    queue: tuple[Lot, ...] = ()
+
+    withdrawn: tuple[PlayerId, ...]
+    """Derived on the frame so it cannot disagree with ``active``; promoted for the same
+    reason. ``min_bid``/``max_bid`` are real fields and ship as copies, which is what stops
+    the bid widget computing a bidder's ceiling — a rule — in TypeScript (G-36)."""
+
+    @classmethod
+    def from_frame(cls, frame: AuctionFrame) -> Self:
+        return cls(**dict(frame), withdrawn=frame.withdrawn)
+
+
+class DebtFrameView(BaseModel):
+    kind: Literal["debt"] = "debt"
+    resume: Phase
+    debtor: PlayerId
+    obligations: tuple[Obligation, ...]
+    reason: CashReason
+    source_tile: TileIndex | None = None
+
+    total: int = Field(ge=0)
+    """What is owed in all. Summing ``obligations`` client-side is harmless arithmetic
+    today and a divergence the day a rule touches it."""
+    creditors: tuple[PlayerId | Literal["bank"], ...]
+
+    @classmethod
+    def from_frame(cls, frame: DebtFrame) -> Self:
+        return cls(**dict(frame), total=frame.total, creditors=frame.creditors)
+
+
+class TradeFrameView(BaseModel):
+    """A verbatim copy. Declared so the union below is homogeneous."""
+
+    kind: Literal["trade"] = "trade"
+    resume: Phase
+    offer: TradeOffer
+
+    @classmethod
+    def from_frame(cls, frame: TradeFrame) -> Self:
+        return cls(**dict(frame))
+
+
+class CardFrameView(BaseModel):
+    """A verbatim copy. The whole stack ships, so a half-resolved card stays face-up under
+    the debt dialog sitting on top of it (G-9)."""
+
+    kind: Literal["card"] = "card"
+    resume: Phase
+    card_id: str
+    deck: Deck
+    step: int = Field(ge=0)
+
+    @classmethod
+    def from_frame(cls, frame: CardFrame) -> Self:
+        return cls(**dict(frame))
+
+
+InterruptFrameView = Annotated[
+    AuctionFrameView | DebtFrameView | TradeFrameView | CardFrameView, Field(discriminator="kind")
+]
+
+
+def _project_frame(frame: AuctionFrame | DebtFrame | TradeFrame | CardFrame) -> InterruptFrameView:
+    """Dispatch on the frame's own tag. Not a rule: no branch here decides anything about
+    the game, it only chooses which copy to make."""
+    match frame:
+        case AuctionFrame():
+            return AuctionFrameView.from_frame(frame)
+        case DebtFrame():
+            return DebtFrameView.from_frame(frame)
+        case TradeFrame():
+            return TradeFrameView.from_frame(frame)
+        case CardFrame():
+            return CardFrameView.from_frame(frame)
+        case _:  # pragma: no cover - unreachable by construction; see below
+            # A fifth frame kind is a *type* error here rather than a `None` that pydantic
+            # rejects at the far end of the call with a message about the wrong field. Excluded
+            # from coverage rather than left as an unexplained miss: the whole point of
+            # `assert_never` is that mypy has already proved no test can reach it.
+            assert_never(frame)
+
+
+# --- The state projection ---------------------------------------------------
+
+
+class GameStateView(BaseModel):
+    """What the state carries, minus the hidden information, plus the derived facts.
+
+    Field order follows ``GameState`` so the two read side by side; the omissions and the
+    promotions are enumerated in ``test_projection.py`` and checked mechanically.
+    """
+
+    schema_version: int
+    game_id: str
+    board_id: str
+    ruleset: Ruleset
+    locale: str
+
+    players: tuple[PlayerView, ...]
+    properties: tuple[PropertyState, ...]
+
+    phase: Phase
+    current_player_id: PlayerId
+    dice: DiceView | None = None
+    doubles_streak: int = Field(ge=0)
+    turn_number: int = Field(ge=1)
+
+    interrupts: tuple[InterruptFrameView, ...] = ()
+    """Outermost first; the last entry is live (ADR-007). The stack ships whole, which is
+    what keeps a suspended card, trade or auction visible underneath the live frame."""
+
+    deck_counts: DeckCounts
+    """Replaces ``chance_deck``/``community_chest_deck``, whose *order* is the deal (G-35)."""
+
+    free_parking_pot: int = Field(ge=0)
+    elapsed_seconds: int = Field(ge=0)
+    elimination_order: tuple[PlayerId, ...] = ()
+    winner: PlayerId | None = None
+
+    houses_remaining: int = Field(ge=0)
+    hotels_remaining: int = Field(ge=0)
+    """The bank's stock, which the engine derives from the ruleset. A hotel is not four
+    houses, so counting buildings client-side is a rule, not a sum."""
+
+    @classmethod
+    def from_state(cls, state: GameState) -> Self:
+        return cls(
+            schema_version=state.schema_version,
+            game_id=state.game_id,
+            board_id=state.board_id,
+            ruleset=state.ruleset,
+            locale=state.locale,
+            players=tuple(PlayerView.from_state(state, player) for player in state.players),
+            properties=state.properties,
+            phase=state.phase,
+            current_player_id=state.current_player_id,
+            dice=DiceView.from_dice(state.dice) if state.dice is not None else None,
+            doubles_streak=state.doubles_streak,
+            turn_number=state.turn_number,
+            interrupts=tuple(_project_frame(frame) for frame in state.interrupts),
+            deck_counts=DeckCounts(
+                chance=len(state.deck(Deck.CHANCE)),
+                community_chest=len(state.deck(Deck.COMMUNITY_CHEST)),
+            ),
+            free_parking_pot=state.free_parking_pot,
+            elapsed_seconds=state.elapsed_seconds,
+            elimination_order=state.elimination_order,
+            winner=state.winner,
+            houses_remaining=state.houses_remaining,
+            hotels_remaining=state.hotels_remaining,
+        )
+
+
+# --- The view ---------------------------------------------------------------
+
+
+class LoggedEvent(BaseModel):
+    """One event with the session-assigned sequence number the store gave it (G-34).
+
+    The envelope lives on the transport, not on the event: ``seq`` is a fact about *this
+    session's log*, and the engine — which has no session — must not have to invent one.
+    The same envelope is what the WebSocket pushes (MON-303), so both transports carry one
+    type and a reconnecting client can de-duplicate by ``seq``.
+    """
+
+    seq: int = Field(ge=1)
+    event: Event
 
 
 class GameView(BaseModel):
-    """Everything a client needs to render one frame.
+    """Everything a client needs to render one frame — a projection, not the state.
 
     Bundling the legal commands with the state is what lets the UI stay rules-free: it
     renders the buttons it is handed instead of re-deriving them and drifting.
     """
 
-    state: GameState
+    board: BoardView
+    state: GameStateView
     legal_commands: tuple[Command, ...]
-    events: tuple[Event, ...] = ()
-    """Events produced by the command that led to this view — the animation script."""
+    events: tuple[LoggedEvent, ...] = ()
+    """The events this response reports — the animation script. For a command, what that
+    command produced; for a poll, whatever followed ``?since=``."""
+    event_cursor: int = Field(default=0, ge=0)
+    """The session's highest ``seq``. Poll or reconnect with ``?since=`` this."""
 
 
-class CommandRequest(BaseModel):
-    command: Command
+class LegalityView(BaseModel):
+    """``POST /games/{id}/validate``'s answer — the engine's ``LegalityResult``, copied.
+
+    The trade builder validates a draft here rather than firing speculative commands and
+    reading 422s (G-32); ADR-005 delegates trade legality to ``is_legal``, and without this
+    route that delegation dead-ends at the HTTP boundary.
+    """
+
+    legal: bool
+    reason_key: str | None = None
+    params: dict[str, int | str] = {}
 
 
 class GameSummary(BaseModel):

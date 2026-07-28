@@ -1,0 +1,4256 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Kesef Street",
+    "summary": "A bilingual property-trading board game",
+    "description": "Transport for the kesef-engine rules core. All human-facing strings in this API are i18n keys, never prose — the client owns language.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/boards": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "List Boards",
+        "description": "The boards available on the new-game screen.",
+        "operationId": "list_boards_boards_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/BoardSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Boards Boards Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rulesets": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "List Rulesets",
+        "description": "Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes.",
+        "operationId": "list_rulesets_rulesets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Ruleset"
+                  },
+                  "type": "array",
+                  "title": "Response List Rulesets Rulesets Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games": {
+      "get": {
+        "tags": [
+          "game"
+        ],
+        "summary": "List Games",
+        "operationId": "list_games_games_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GameSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Games Games Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Create Game",
+        "description": "Start a game and return the opening view.",
+        "operationId": "create_game_games_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewGameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "That game_id is already live.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Session cap reached.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/load": {
+      "post": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Load Game",
+        "description": "Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.\n\nThe body is read raw rather than declared as a ``GameState`` parameter, for two reasons\ncarried forward from the MON-100 security review:\n\n* **Size.** This is the only route whose body is not a small fixed shape, so it gets an\n  explicit ceiling instead of reading whatever arrives — enforced *while* reading, by\n  :func:`_read_bounded`, not after.\n* **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``\n  (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,\n  which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body\n  parameter it escaped as a 500 with a traceback. Validating inside the handler is what\n  lets both become ``error.save_schema_mismatch``.\n\nThe OpenAPI request body is declared by hand above, so the contract still says\n``GameState`` and ``generated.ts`` still types it.",
+        "operationId": "load_game_games_load_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameState"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameView"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Unprocessable Content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}": {
+      "get": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Get Game",
+        "description": "The current view. Safe to poll, and the reconnect path for the UI.\n\n``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the\nwhole game, which is what a reconnecting client wants.",
+        "operationId": "get_game_games__game_id__get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Replay the events after this cursor.",
+              "title": "Since"
+            },
+            "description": "Replay the events after this cursor."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No game with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Delete Game",
+        "operationId": "delete_game_games__game_id__delete",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}/save": {
+      "get": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Save Game",
+        "description": "The complete state, RNG and deck order included — the save file.\n\nThis is the *only* route that returns hidden information, which is the whole of\nADR-008 §2: \"the JSON is the save file\" survives without being conflated with what a\nclient may see while playing.",
+        "operationId": "save_game_games__game_id__save_get",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No game with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}/commands": {
+      "post": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Submit Command",
+        "description": "Apply one command. The only way a game changes.\n\n``async`` on purpose: it puts the handler on the event loop, so appending to a live\nWebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from\na thread-pool worker.",
+        "operationId": "submit_command_games__game_id__commands_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No game with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}/validate": {
+      "post": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Validate Command",
+        "description": "Ask whether a command would be accepted, changing nothing (G-32).\n\nAn illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder\nasks this on every keystroke, and \"not valid yet\" is a normal answer, not an error.",
+        "operationId": "validate_command_games__game_id__validate_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommandRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalityView"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No game with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected, with an i18n key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}/ws": {
+      "get": {
+        "tags": [
+          "game"
+        ],
+        "summary": "WebSocket event stream",
+        "description": "Handshake for the WebSocket event stream. Each frame after the upgrade is one LoggedEvent; `since` replays the backlog from a cursor. Not a JSON GET — the operation is declared so the frame type reaches the generated client (MON-303).",
+        "operationId": "game_event_stream",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching protocols. Every frame that follows is one LoggedEvent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoggedEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such game; the socket closes with code 4404.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuctionEnded": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "auction_ended",
+            "title": "Type",
+            "default": "auction_ended"
+          },
+          "lot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileLot"
+              },
+              {
+                "$ref": "#/components/schemas/BuildingLot"
+              }
+            ],
+            "title": "Lot",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "building": "#/components/schemas/BuildingLot",
+                "tile": "#/components/schemas/TileLot"
+              }
+            }
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          },
+          "price": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Price",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "lot"
+        ],
+        "title": "AuctionEnded"
+      },
+      "AuctionFrame": {
+        "properties": {
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "kind": {
+            "type": "string",
+            "const": "auction",
+            "title": "Kind",
+            "default": "auction"
+          },
+          "lot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileLot"
+              },
+              {
+                "$ref": "#/components/schemas/BuildingLot"
+              }
+            ],
+            "title": "Lot",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "building": "#/components/schemas/BuildingLot",
+                "tile": "#/components/schemas/TileLot"
+              }
+            }
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AuctionReason"
+          },
+          "eligible": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Eligible"
+          },
+          "active": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Active",
+            "default": []
+          },
+          "turn": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn"
+          },
+          "high_bid": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "High Bid",
+            "default": 0
+          },
+          "high_bidder": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Bidder"
+          },
+          "min_bid": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Min Bid",
+            "default": 1
+          },
+          "max_bid": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Bid"
+          },
+          "queue": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TileLot"
+                },
+                {
+                  "$ref": "#/components/schemas/BuildingLot"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "building": "#/components/schemas/BuildingLot",
+                  "tile": "#/components/schemas/TileLot"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Queue",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "lot",
+          "reason",
+          "eligible"
+        ],
+        "title": "AuctionFrame",
+        "description": "A live auction.\n\nThe lot is a :class:`~kesef_engine.primitives.TileLot` or\n:class:`~kesef_engine.primitives.BuildingLot` rather than a tile index, because the\nbuilding-shortage rule auctions a *house*; ``queue`` holds the rest of an estate being\nliquidated after a bankruptcy to the bank (GAP G-3)."
+      },
+      "AuctionFrameView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "auction",
+            "title": "Kind",
+            "default": "auction"
+          },
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "lot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileLot"
+              },
+              {
+                "$ref": "#/components/schemas/BuildingLot"
+              }
+            ],
+            "title": "Lot",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "building": "#/components/schemas/BuildingLot",
+                "tile": "#/components/schemas/TileLot"
+              }
+            }
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AuctionReason"
+          },
+          "eligible": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Eligible"
+          },
+          "active": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Active",
+            "default": []
+          },
+          "turn": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn"
+          },
+          "high_bid": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "High Bid"
+          },
+          "high_bidder": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High Bidder"
+          },
+          "min_bid": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Min Bid"
+          },
+          "max_bid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Bid"
+          },
+          "queue": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/TileLot"
+                },
+                {
+                  "$ref": "#/components/schemas/BuildingLot"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "building": "#/components/schemas/BuildingLot",
+                  "tile": "#/components/schemas/TileLot"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Queue",
+            "default": []
+          },
+          "withdrawn": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Withdrawn"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "lot",
+          "reason",
+          "eligible",
+          "high_bid",
+          "min_bid",
+          "withdrawn"
+        ],
+        "title": "AuctionFrameView"
+      },
+      "AuctionReason": {
+        "type": "string",
+        "enum": [
+          "declined_purchase",
+          "bankruptcy_to_bank",
+          "building_shortage"
+        ],
+        "title": "AuctionReason",
+        "description": "Why an auction opened. The continuation differs per cause, so it is stored."
+      },
+      "AuctionStarted": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "auction_started",
+            "title": "Type",
+            "default": "auction_started"
+          },
+          "lot": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TileLot"
+              },
+              {
+                "$ref": "#/components/schemas/BuildingLot"
+              }
+            ],
+            "title": "Lot",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "building": "#/components/schemas/BuildingLot",
+                "tile": "#/components/schemas/TileLot"
+              }
+            }
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AuctionReason"
+          },
+          "eligible": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Eligible"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lot",
+          "reason",
+          "eligible"
+        ],
+        "title": "AuctionStarted"
+      },
+      "BankruptcyShare": {
+        "properties": {
+          "creditor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "bank"
+              }
+            ],
+            "title": "Creditor"
+          },
+          "claim": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Claim"
+          },
+          "cash": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cash",
+            "default": 0
+          },
+          "tiles": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Tiles",
+            "default": []
+          },
+          "jail_cards": {
+            "items": {
+              "$ref": "#/components/schemas/Deck"
+            },
+            "type": "array",
+            "title": "Jail Cards",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "creditor",
+          "claim"
+        ],
+        "title": "BankruptcyShare",
+        "description": "One creditor's slice of a bankrupt estate, divided proportionally to claim (G-7).\n\nPart of :class:`PlayerBankrupted`, not an event of its own — the estate divides once,\nin one act, and a per-creditor event would invite a reader to treat the halves as\nindependent."
+      },
+      "BidPlaced": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "bid_placed",
+            "title": "Type",
+            "default": "bid_placed"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "amount": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "amount"
+        ],
+        "title": "BidPlaced"
+      },
+      "BidderWithdrew": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "bidder_withdrew",
+            "title": "Type",
+            "default": "bidder_withdrew"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "BidderWithdrew"
+      },
+      "BoardSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name_key": {
+            "type": "string",
+            "title": "Name Key"
+          },
+          "tile_count": {
+            "type": "integer",
+            "title": "Tile Count"
+          },
+          "ownable_count": {
+            "type": "integer",
+            "title": "Ownable Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name_key",
+          "tile_count",
+          "ownable_count"
+        ],
+        "title": "BoardSummary",
+        "description": "Board metadata for the new-game screen. Names arrive as keys; the UI translates."
+      },
+      "BoardView": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name_key": {
+            "type": "string",
+            "title": "Name Key"
+          },
+          "tiles": {
+            "items": {
+              "$ref": "#/components/schemas/TileView"
+            },
+            "type": "array",
+            "title": "Tiles"
+          },
+          "go_to_jail_target": {
+            "type": "integer",
+            "title": "Go To Jail Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name_key",
+          "tiles",
+          "go_to_jail_target"
+        ],
+        "title": "BoardView",
+        "description": "The whole board: static per game, ~4 KB, and the reason a client can draw anything\nat all (G-30 — before ADR-008 no endpoint returned a single tile)."
+      },
+      "BotLevel": {
+        "type": "string",
+        "enum": [
+          "easy",
+          "normal",
+          "hard"
+        ],
+        "title": "BotLevel",
+        "description": "How hard a bot plays. Single-sourced here because the engine's ``PlayerKind``,\nthe bot protocol and the server's seat configuration all need the same three names."
+      },
+      "BuildHouse": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "build_house",
+            "title": "Kind",
+            "default": "build_house"
+          },
+          "tile": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Tile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "tile"
+        ],
+        "title": "BuildHouse",
+        "description": "Build one house (or the hotel, on the fifth) on ``tile``."
+      },
+      "BuildingChanged": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "building_changed",
+            "title": "Type",
+            "default": "building_changed"
+          },
+          "tile": {
+            "type": "integer",
+            "title": "Tile"
+          },
+          "houses": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Houses"
+          },
+          "delta": {
+            "type": "integer",
+            "title": "Delta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tile",
+          "houses",
+          "delta"
+        ],
+        "title": "BuildingChanged"
+      },
+      "BuildingLot": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "building",
+            "title": "Kind",
+            "default": "building"
+          },
+          "building": {
+            "type": "string",
+            "enum": [
+              "house",
+              "hotel"
+            ],
+            "title": "Building"
+          }
+        },
+        "type": "object",
+        "required": [
+          "building"
+        ],
+        "title": "BuildingLot",
+        "description": "One house or hotel from a bank that has run short of them.\n\nBidders want it for their own tile, so the lot names no tile — which is exactly why\n``AuctionState.tile: TileIndex`` could not express this auction (GAP G-3)."
+      },
+      "BuyProperty": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "buy_property",
+            "title": "Kind",
+            "default": "buy_property"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "BuyProperty",
+        "description": "Buy the tile you are standing on at its list price."
+      },
+      "CancelTrade": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "cancel_trade",
+            "title": "Kind",
+            "default": "cancel_trade"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "CancelTrade"
+      },
+      "CardDrawn": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "card_drawn",
+            "title": "Type",
+            "default": "card_drawn"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "deck": {
+            "$ref": "#/components/schemas/Deck"
+          },
+          "card_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Card Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "deck",
+          "card_id"
+        ],
+        "title": "CardDrawn"
+      },
+      "CardFrame": {
+        "properties": {
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "kind": {
+            "type": "string",
+            "const": "card",
+            "title": "Kind",
+            "default": "card"
+          },
+          "card_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Card Id"
+          },
+          "deck": {
+            "$ref": "#/components/schemas/Deck"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Step",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "card_id",
+          "deck"
+        ],
+        "title": "CardFrame",
+        "description": "A drawn card that has not finished resolving.\n\n``step`` is what makes \"advance to the nearest utility, then pay ten times the dice\"\nresumable when the payment opens a debt halfway through (GAP G-9)."
+      },
+      "CardFrameView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "card",
+            "title": "Kind",
+            "default": "card"
+          },
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "card_id": {
+            "type": "string",
+            "title": "Card Id"
+          },
+          "deck": {
+            "$ref": "#/components/schemas/Deck"
+          },
+          "step": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Step"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "card_id",
+          "deck",
+          "step"
+        ],
+        "title": "CardFrameView",
+        "description": "A verbatim copy. The whole stack ships, so a half-resolved card stays face-up under\nthe debt dialog sitting on top of it (G-9)."
+      },
+      "CashChanged": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "cash_changed",
+            "title": "Type",
+            "default": "cash_changed"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "delta": {
+            "type": "integer",
+            "title": "Delta"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CashReason"
+          },
+          "balance": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Balance"
+          },
+          "counterparty": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "bank",
+                  "free_parking_pot"
+                ]
+              }
+            ],
+            "title": "Counterparty",
+            "default": "bank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "delta",
+          "reason",
+          "balance"
+        ],
+        "title": "CashChanged",
+        "description": "The single ledger entry. Every movement of money is exactly one of these."
+      },
+      "CashReason": {
+        "type": "string",
+        "enum": [
+          "go_salary",
+          "rent",
+          "purchase",
+          "auction_win",
+          "tax",
+          "jail_fine",
+          "card",
+          "build",
+          "sell_building",
+          "mortgage",
+          "unmortgage",
+          "mortgage_transfer_fee",
+          "trade",
+          "bankruptcy_transfer",
+          "free_parking_pot"
+        ],
+        "title": "CashReason",
+        "description": "Why money moved. Drives both the UI narration and the money-conservation test."
+      },
+      "ColorGroup": {
+        "type": "string",
+        "enum": [
+          "brown",
+          "light_blue",
+          "pink",
+          "orange",
+          "red",
+          "yellow",
+          "green",
+          "dark_blue"
+        ],
+        "title": "ColorGroup",
+        "description": "The eight buildable colour groups.\n\nRendering note for the UI: every group must also carry a *pattern or icon*, never\ncolour alone — that serves both young children and colourblind players."
+      },
+      "CommandRequest": {
+        "properties": {
+          "command": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RollDice"
+              },
+              {
+                "$ref": "#/components/schemas/EndTurn"
+              },
+              {
+                "$ref": "#/components/schemas/BuyProperty"
+              },
+              {
+                "$ref": "#/components/schemas/DeclinePurchase"
+              },
+              {
+                "$ref": "#/components/schemas/PlaceBid"
+              },
+              {
+                "$ref": "#/components/schemas/WithdrawFromAuction"
+              },
+              {
+                "$ref": "#/components/schemas/BuildHouse"
+              },
+              {
+                "$ref": "#/components/schemas/SellHouse"
+              },
+              {
+                "$ref": "#/components/schemas/MortgageProperty"
+              },
+              {
+                "$ref": "#/components/schemas/UnmortgageProperty"
+              },
+              {
+                "$ref": "#/components/schemas/ProposeTrade"
+              },
+              {
+                "$ref": "#/components/schemas/RespondToTrade"
+              },
+              {
+                "$ref": "#/components/schemas/CancelTrade"
+              },
+              {
+                "$ref": "#/components/schemas/PayJailFine"
+              },
+              {
+                "$ref": "#/components/schemas/UseJailCard"
+              },
+              {
+                "$ref": "#/components/schemas/RollForJail"
+              },
+              {
+                "$ref": "#/components/schemas/DeclareBankruptcy"
+              }
+            ],
+            "title": "Command",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "build_house": "#/components/schemas/BuildHouse",
+                "buy_property": "#/components/schemas/BuyProperty",
+                "cancel_trade": "#/components/schemas/CancelTrade",
+                "declare_bankruptcy": "#/components/schemas/DeclareBankruptcy",
+                "decline_purchase": "#/components/schemas/DeclinePurchase",
+                "end_turn": "#/components/schemas/EndTurn",
+                "mortgage_property": "#/components/schemas/MortgageProperty",
+                "pay_jail_fine": "#/components/schemas/PayJailFine",
+                "place_bid": "#/components/schemas/PlaceBid",
+                "propose_trade": "#/components/schemas/ProposeTrade",
+                "respond_to_trade": "#/components/schemas/RespondToTrade",
+                "roll_dice": "#/components/schemas/RollDice",
+                "roll_for_jail": "#/components/schemas/RollForJail",
+                "sell_house": "#/components/schemas/SellHouse",
+                "unmortgage_property": "#/components/schemas/UnmortgageProperty",
+                "use_jail_card": "#/components/schemas/UseJailCard",
+                "withdraw_from_auction": "#/components/schemas/WithdrawFromAuction"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "title": "CommandRequest"
+      },
+      "DebtFrame": {
+        "properties": {
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "kind": {
+            "type": "string",
+            "const": "debt",
+            "title": "Kind",
+            "default": "debt"
+          },
+          "debtor": {
+            "type": "integer",
+            "title": "Debtor"
+          },
+          "obligations": {
+            "items": {
+              "$ref": "#/components/schemas/Obligation"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Obligations"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CashReason"
+          },
+          "source_tile": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMaximum": 40.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tile"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "debtor",
+          "obligations",
+          "reason"
+        ],
+        "title": "DebtFrame",
+        "description": "What one player owes and cannot currently pay in cash.\n\n``obligations`` is plural because \"pay each player ₪50\" creates one debt with up to\nfive creditors (GAP G-7). Semantics are shortfall-as-data: cash never goes negative,\nand the outstanding gross lives here."
+      },
+      "DebtFrameView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "debt",
+            "title": "Kind",
+            "default": "debt"
+          },
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "debtor": {
+            "type": "integer",
+            "title": "Debtor"
+          },
+          "obligations": {
+            "items": {
+              "$ref": "#/components/schemas/Obligation"
+            },
+            "type": "array",
+            "title": "Obligations"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/CashReason"
+          },
+          "source_tile": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tile"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "creditors": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string",
+                  "const": "bank"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Creditors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "debtor",
+          "obligations",
+          "reason",
+          "total",
+          "creditors"
+        ],
+        "title": "DebtFrameView"
+      },
+      "DebtIncurred": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "debt_incurred",
+            "title": "Type",
+            "default": "debt_incurred"
+          },
+          "debtor": {
+            "type": "integer",
+            "title": "Debtor"
+          },
+          "creditor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "bank"
+              }
+            ],
+            "title": "Creditor"
+          },
+          "amount": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "debtor",
+          "creditor",
+          "amount"
+        ],
+        "title": "DebtIncurred"
+      },
+      "DebtSettled": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "debt_settled",
+            "title": "Type",
+            "default": "debt_settled"
+          },
+          "debtor": {
+            "type": "integer",
+            "title": "Debtor"
+          },
+          "creditor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "bank"
+              }
+            ],
+            "title": "Creditor"
+          },
+          "amount": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "debtor",
+          "creditor",
+          "amount"
+        ],
+        "title": "DebtSettled"
+      },
+      "Deck": {
+        "type": "string",
+        "enum": [
+          "chance",
+          "community_chest"
+        ],
+        "title": "Deck",
+        "description": "Which pile a card came from — and therefore which pile it must return to."
+      },
+      "DeckCounts": {
+        "properties": {
+          "chance": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Chance"
+          },
+          "community_chest": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Community Chest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chance",
+          "community_chest"
+        ],
+        "title": "DeckCounts",
+        "description": "How many cards each pile holds. The *order* stays hidden — that is the whole of\nG-35: shipping the shuffled list told the client every card it was about to draw."
+      },
+      "DeclareBankruptcy": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "declare_bankruptcy",
+            "title": "Kind",
+            "default": "declare_bankruptcy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "DeclareBankruptcy",
+        "description": "Concede that the debt in the live :class:`~kesef_engine.state.DebtFrame` cannot be met."
+      },
+      "DeclinePurchase": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "decline_purchase",
+            "title": "Kind",
+            "default": "decline_purchase"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "DeclinePurchase",
+        "description": "Decline. Under the universal ruleset this opens an auction."
+      },
+      "DiceRolled": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "dice_rolled",
+            "title": "Type",
+            "default": "dice_rolled"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "first": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "First"
+          },
+          "second": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Second"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "doubles_streak": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Doubles Streak",
+            "default": 0
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "move",
+              "jail",
+              "rent"
+            ],
+            "title": "Purpose",
+            "default": "move"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "first",
+          "second",
+          "total"
+        ],
+        "title": "DiceRolled"
+      },
+      "DiceState": {
+        "properties": {
+          "first": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "First"
+          },
+          "second": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 1.0,
+            "title": "Second"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "move",
+              "jail",
+              "rent"
+            ],
+            "title": "Purpose",
+            "default": "move"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first",
+          "second"
+        ],
+        "title": "DiceState",
+        "description": "The last roll. ``purpose`` matters: a card-driven utility rent roll is not a move,\nand a roll for doubles out of jail moves the token without granting another turn.\nConflating the three made ``is_doubles`` lie (GAP G-10)."
+      },
+      "DiceView": {
+        "properties": {
+          "first": {
+            "type": "integer",
+            "title": "First"
+          },
+          "second": {
+            "type": "integer",
+            "title": "Second"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "move",
+              "jail",
+              "rent"
+            ],
+            "title": "Purpose"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "is_doubles": {
+            "type": "boolean",
+            "title": "Is Doubles"
+          }
+        },
+        "type": "object",
+        "required": [
+          "first",
+          "second",
+          "purpose",
+          "total",
+          "is_doubles"
+        ],
+        "title": "DiceView",
+        "description": "The last roll, carrying its own total and doubles flag (G-36)."
+      },
+      "EndTurn": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "end_turn",
+            "title": "Kind",
+            "default": "end_turn"
+          },
+          "elapsed_seconds": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsed Seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "EndTurn"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "reason_key": {
+            "type": "string",
+            "title": "Reason Key",
+            "examples": [
+              "error.not_your_turn"
+            ]
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Params",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason_key"
+        ],
+        "title": "ErrorResponse",
+        "description": "Every failure this API reports, in one shape (GAP G-33).\n\n``reason_key`` is an i18n key, never a sentence, and ``params`` carries the context the\ncatalogue entry interpolates — which is what lets ``error.insufficient_funds`` say how\nmuch short. The engine's ``IllegalCommandError`` already carries both; before ADR-008\nthe transport dropped the params on the floor."
+      },
+      "GameEnded": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "game_ended",
+            "title": "Type",
+            "default": "game_ended"
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "last_solvent",
+              "time_limit",
+              "concession",
+              "no_survivors"
+            ],
+            "title": "Reason"
+          },
+          "final_standings": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerStanding"
+            },
+            "type": "array",
+            "title": "Final Standings",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "GameEnded"
+      },
+      "GameState": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version",
+            "default": 2
+          },
+          "game_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Game Id"
+          },
+          "board_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Board Id"
+          },
+          "ruleset": {
+            "$ref": "#/components/schemas/Ruleset"
+          },
+          "locale": {
+            "type": "string",
+            "title": "Locale",
+            "default": "en"
+          },
+          "rng": {
+            "$ref": "#/components/schemas/Rng"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerState"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "properties": {
+            "items": {
+              "$ref": "#/components/schemas/PropertyState"
+            },
+            "type": "array",
+            "title": "Properties"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase",
+            "default": "awaiting_roll"
+          },
+          "current_player_id": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Current Player Id"
+          },
+          "dice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiceState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "doubles_streak": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Doubles Streak",
+            "default": 0
+          },
+          "turn_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Number",
+            "default": 1
+          },
+          "interrupts": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AuctionFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/DebtFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/TradeFrame"
+                },
+                {
+                  "$ref": "#/components/schemas/CardFrame"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "auction": "#/components/schemas/AuctionFrame",
+                  "card": "#/components/schemas/CardFrame",
+                  "debt": "#/components/schemas/DebtFrame",
+                  "trade": "#/components/schemas/TradeFrame"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Interrupts",
+            "default": []
+          },
+          "chance_deck": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Chance Deck",
+            "default": []
+          },
+          "community_chest_deck": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Community Chest Deck",
+            "default": []
+          },
+          "free_parking_pot": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Free Parking Pot",
+            "default": 0
+          },
+          "elapsed_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Elapsed Seconds",
+            "default": 0
+          },
+          "elimination_order": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Elimination Order",
+            "default": []
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "board_id",
+          "ruleset",
+          "rng",
+          "players",
+          "properties",
+          "current_player_id"
+        ],
+        "title": "GameState",
+        "description": "A complete game. See the module docstring for why this is one flat value."
+      },
+      "GameStateView": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "board_id": {
+            "type": "string",
+            "title": "Board Id"
+          },
+          "ruleset": {
+            "$ref": "#/components/schemas/Ruleset"
+          },
+          "locale": {
+            "type": "string",
+            "title": "Locale"
+          },
+          "players": {
+            "items": {
+              "$ref": "#/components/schemas/PlayerView"
+            },
+            "type": "array",
+            "title": "Players"
+          },
+          "properties": {
+            "items": {
+              "$ref": "#/components/schemas/PropertyState"
+            },
+            "type": "array",
+            "title": "Properties"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "current_player_id": {
+            "type": "integer",
+            "title": "Current Player Id"
+          },
+          "dice": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DiceView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "doubles_streak": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Doubles Streak"
+          },
+          "turn_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Number"
+          },
+          "interrupts": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AuctionFrameView"
+                },
+                {
+                  "$ref": "#/components/schemas/DebtFrameView"
+                },
+                {
+                  "$ref": "#/components/schemas/TradeFrameView"
+                },
+                {
+                  "$ref": "#/components/schemas/CardFrameView"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "auction": "#/components/schemas/AuctionFrameView",
+                  "card": "#/components/schemas/CardFrameView",
+                  "debt": "#/components/schemas/DebtFrameView",
+                  "trade": "#/components/schemas/TradeFrameView"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Interrupts",
+            "default": []
+          },
+          "deck_counts": {
+            "$ref": "#/components/schemas/DeckCounts"
+          },
+          "free_parking_pot": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Free Parking Pot"
+          },
+          "elapsed_seconds": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Elapsed Seconds"
+          },
+          "elimination_order": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Elimination Order",
+            "default": []
+          },
+          "winner": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner"
+          },
+          "houses_remaining": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Houses Remaining"
+          },
+          "hotels_remaining": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Hotels Remaining"
+          }
+        },
+        "type": "object",
+        "required": [
+          "schema_version",
+          "game_id",
+          "board_id",
+          "ruleset",
+          "locale",
+          "players",
+          "properties",
+          "phase",
+          "current_player_id",
+          "doubles_streak",
+          "turn_number",
+          "deck_counts",
+          "free_parking_pot",
+          "elapsed_seconds",
+          "houses_remaining",
+          "hotels_remaining"
+        ],
+        "title": "GameStateView",
+        "description": "What the state carries, minus the hidden information, plus the derived facts.\n\nField order follows ``GameState`` so the two read side by side; the omissions and the\npromotions are enumerated in ``test_projection.py`` and checked mechanically."
+      },
+      "GameSummary": {
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "title": "Game Id"
+          },
+          "board_id": {
+            "type": "string",
+            "title": "Board Id"
+          },
+          "ruleset": {
+            "$ref": "#/components/schemas/RulesetName"
+          },
+          "turn_number": {
+            "type": "integer",
+            "title": "Turn Number"
+          },
+          "player_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Player Names"
+          }
+        },
+        "type": "object",
+        "required": [
+          "game_id",
+          "board_id",
+          "ruleset",
+          "turn_number",
+          "player_names"
+        ],
+        "title": "GameSummary"
+      },
+      "GameView": {
+        "properties": {
+          "board": {
+            "$ref": "#/components/schemas/BoardView"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GameStateView"
+          },
+          "legal_commands": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RollDice"
+                },
+                {
+                  "$ref": "#/components/schemas/EndTurn"
+                },
+                {
+                  "$ref": "#/components/schemas/BuyProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclinePurchase"
+                },
+                {
+                  "$ref": "#/components/schemas/PlaceBid"
+                },
+                {
+                  "$ref": "#/components/schemas/WithdrawFromAuction"
+                },
+                {
+                  "$ref": "#/components/schemas/BuildHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/SellHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/MortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/UnmortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/ProposeTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/RespondToTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/CancelTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/PayJailFine"
+                },
+                {
+                  "$ref": "#/components/schemas/UseJailCard"
+                },
+                {
+                  "$ref": "#/components/schemas/RollForJail"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclareBankruptcy"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "build_house": "#/components/schemas/BuildHouse",
+                  "buy_property": "#/components/schemas/BuyProperty",
+                  "cancel_trade": "#/components/schemas/CancelTrade",
+                  "declare_bankruptcy": "#/components/schemas/DeclareBankruptcy",
+                  "decline_purchase": "#/components/schemas/DeclinePurchase",
+                  "end_turn": "#/components/schemas/EndTurn",
+                  "mortgage_property": "#/components/schemas/MortgageProperty",
+                  "pay_jail_fine": "#/components/schemas/PayJailFine",
+                  "place_bid": "#/components/schemas/PlaceBid",
+                  "propose_trade": "#/components/schemas/ProposeTrade",
+                  "respond_to_trade": "#/components/schemas/RespondToTrade",
+                  "roll_dice": "#/components/schemas/RollDice",
+                  "roll_for_jail": "#/components/schemas/RollForJail",
+                  "sell_house": "#/components/schemas/SellHouse",
+                  "unmortgage_property": "#/components/schemas/UnmortgageProperty",
+                  "use_jail_card": "#/components/schemas/UseJailCard",
+                  "withdraw_from_auction": "#/components/schemas/WithdrawFromAuction"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Legal Commands"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/LoggedEvent"
+            },
+            "type": "array",
+            "title": "Events",
+            "default": []
+          },
+          "event_cursor": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Cursor",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "board",
+          "state",
+          "legal_commands"
+        ],
+        "title": "GameView",
+        "description": "Everything a client needs to render one frame — a projection, not the state.\n\nBundling the legal commands with the state is what lets the UI stay rules-free: it\nrenders the buttons it is handed instead of re-deriving them and drifting."
+      },
+      "GroupHoldings": {
+        "properties": {
+          "group": {
+            "$ref": "#/components/schemas/ColorGroup"
+          },
+          "owned": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Owned"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "complete": {
+            "type": "boolean",
+            "title": "Complete"
+          },
+          "houses": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Houses"
+          },
+          "mortgaged_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mortgaged Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "group",
+          "owned",
+          "total",
+          "complete",
+          "houses",
+          "mortgaged_count"
+        ],
+        "title": "GroupHoldings",
+        "description": "One colour group as one player holds it (G-31/G-32).\n\nEvery number is a copy or an engine call: ``complete`` is\n``state.owns_whole_group(...)``, not ``owned == total``, because \"may this player\nbuild\" is the engine's answer to give. ``houses`` sums ``PropertyState.houses`` with\nthe engine's own semantics, in which 5 means a hotel."
+      },
+      "LeftJail": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "left_jail",
+            "title": "Type",
+            "default": "left_jail"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "fine",
+              "card",
+              "doubles",
+              "time_served"
+            ],
+            "title": "Via"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "via"
+        ],
+        "title": "LeftJail"
+      },
+      "LegalityView": {
+        "properties": {
+          "legal": {
+            "type": "boolean",
+            "title": "Legal"
+          },
+          "reason_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Key"
+          },
+          "params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Params",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "legal"
+        ],
+        "title": "LegalityView",
+        "description": "``POST /games/{id}/validate``'s answer — the engine's ``LegalityResult``, copied.\n\nThe trade builder validates a draft here rather than firing speculative commands and\nreading 422s (G-32); ADR-005 delegates trade legality to ``is_legal``, and without this\nroute that delegation dead-ends at the HTTP boundary."
+      },
+      "LoggedEvent": {
+        "properties": {
+          "seq": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Seq"
+          },
+          "event": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TurnStarted"
+              },
+              {
+                "$ref": "#/components/schemas/DiceRolled"
+              },
+              {
+                "$ref": "#/components/schemas/TokenMoved"
+              },
+              {
+                "$ref": "#/components/schemas/CashChanged"
+              },
+              {
+                "$ref": "#/components/schemas/RentCharged"
+              },
+              {
+                "$ref": "#/components/schemas/PropertyAcquired"
+              },
+              {
+                "$ref": "#/components/schemas/AuctionStarted"
+              },
+              {
+                "$ref": "#/components/schemas/BidPlaced"
+              },
+              {
+                "$ref": "#/components/schemas/BidderWithdrew"
+              },
+              {
+                "$ref": "#/components/schemas/AuctionEnded"
+              },
+              {
+                "$ref": "#/components/schemas/CardDrawn"
+              },
+              {
+                "$ref": "#/components/schemas/SentToJail"
+              },
+              {
+                "$ref": "#/components/schemas/LeftJail"
+              },
+              {
+                "$ref": "#/components/schemas/BuildingChanged"
+              },
+              {
+                "$ref": "#/components/schemas/MortgageChanged"
+              },
+              {
+                "$ref": "#/components/schemas/TradeProposed"
+              },
+              {
+                "$ref": "#/components/schemas/TradeExecuted"
+              },
+              {
+                "$ref": "#/components/schemas/TradeDeclined"
+              },
+              {
+                "$ref": "#/components/schemas/TradeCancelled"
+              },
+              {
+                "$ref": "#/components/schemas/DebtIncurred"
+              },
+              {
+                "$ref": "#/components/schemas/DebtSettled"
+              },
+              {
+                "$ref": "#/components/schemas/PlayerBankrupted"
+              },
+              {
+                "$ref": "#/components/schemas/PhaseChanged"
+              },
+              {
+                "$ref": "#/components/schemas/GameEnded"
+              }
+            ],
+            "title": "Event",
+            "discriminator": {
+              "propertyName": "type",
+              "mapping": {
+                "auction_ended": "#/components/schemas/AuctionEnded",
+                "auction_started": "#/components/schemas/AuctionStarted",
+                "bid_placed": "#/components/schemas/BidPlaced",
+                "bidder_withdrew": "#/components/schemas/BidderWithdrew",
+                "building_changed": "#/components/schemas/BuildingChanged",
+                "card_drawn": "#/components/schemas/CardDrawn",
+                "cash_changed": "#/components/schemas/CashChanged",
+                "debt_incurred": "#/components/schemas/DebtIncurred",
+                "debt_settled": "#/components/schemas/DebtSettled",
+                "dice_rolled": "#/components/schemas/DiceRolled",
+                "game_ended": "#/components/schemas/GameEnded",
+                "left_jail": "#/components/schemas/LeftJail",
+                "mortgage_changed": "#/components/schemas/MortgageChanged",
+                "phase_changed": "#/components/schemas/PhaseChanged",
+                "player_bankrupted": "#/components/schemas/PlayerBankrupted",
+                "property_acquired": "#/components/schemas/PropertyAcquired",
+                "rent_charged": "#/components/schemas/RentCharged",
+                "sent_to_jail": "#/components/schemas/SentToJail",
+                "token_moved": "#/components/schemas/TokenMoved",
+                "trade_cancelled": "#/components/schemas/TradeCancelled",
+                "trade_declined": "#/components/schemas/TradeDeclined",
+                "trade_executed": "#/components/schemas/TradeExecuted",
+                "trade_proposed": "#/components/schemas/TradeProposed",
+                "turn_started": "#/components/schemas/TurnStarted"
+              }
+            }
+          }
+        },
+        "type": "object",
+        "required": [
+          "seq",
+          "event"
+        ],
+        "title": "LoggedEvent",
+        "description": "One event with the session-assigned sequence number the store gave it (G-34).\n\nThe envelope lives on the transport, not on the event: ``seq`` is a fact about *this\nsession's log*, and the engine — which has no session — must not have to invent one.\nThe same envelope is what the WebSocket pushes (MON-303), so both transports carry one\ntype and a reconnecting client can de-duplicate by ``seq``."
+      },
+      "MortgageChanged": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "mortgage_changed",
+            "title": "Type",
+            "default": "mortgage_changed"
+          },
+          "tile": {
+            "type": "integer",
+            "title": "Tile"
+          },
+          "mortgaged": {
+            "type": "boolean",
+            "title": "Mortgaged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tile",
+          "mortgaged"
+        ],
+        "title": "MortgageChanged"
+      },
+      "MortgageProperty": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "mortgage_property",
+            "title": "Kind",
+            "default": "mortgage_property"
+          },
+          "tile": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Tile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "tile"
+        ],
+        "title": "MortgageProperty"
+      },
+      "NewGameRequest": {
+        "properties": {
+          "seats": {
+            "items": {
+              "$ref": "#/components/schemas/SeatConfig"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "minItems": 2,
+            "title": "Seats"
+          },
+          "board_id": {
+            "type": "string",
+            "title": "Board Id",
+            "default": "classic"
+          },
+          "ruleset": {
+            "$ref": "#/components/schemas/RulesetName",
+            "default": "universal"
+          },
+          "locale": {
+            "type": "string",
+            "title": "Locale",
+            "default": "en"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          },
+          "game_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Game Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seats"
+        ],
+        "title": "NewGameRequest"
+      },
+      "Obligation": {
+        "properties": {
+          "creditor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "bank"
+              }
+            ],
+            "title": "Creditor"
+          },
+          "amount": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "type": "object",
+        "required": [
+          "creditor",
+          "amount"
+        ],
+        "title": "Obligation",
+        "description": "One creditor's share of a debt. The bank is named, not a ``None`` sentinel."
+      },
+      "PayJailFine": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "pay_jail_fine",
+            "title": "Kind",
+            "default": "pay_jail_fine"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "PayJailFine"
+      },
+      "Phase": {
+        "type": "string",
+        "enum": [
+          "awaiting_roll",
+          "jail_decision",
+          "moving",
+          "resolving_tile",
+          "awaiting_purchase_decision",
+          "auction",
+          "card_resolution",
+          "debt_settlement",
+          "trade_review",
+          "awaiting_end_turn",
+          "game_over"
+        ],
+        "title": "Phase"
+      },
+      "PhaseChanged": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "phase_changed",
+            "title": "Type",
+            "default": "phase_changed"
+          },
+          "previous": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "current": {
+            "$ref": "#/components/schemas/Phase"
+          }
+        },
+        "type": "object",
+        "required": [
+          "previous",
+          "current"
+        ],
+        "title": "PhaseChanged"
+      },
+      "PlaceBid": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "place_bid",
+            "title": "Kind",
+            "default": "place_bid"
+          },
+          "amount": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Amount"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "amount"
+        ],
+        "title": "PlaceBid"
+      },
+      "PlayerBankrupted": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "player_bankrupted",
+            "title": "Type",
+            "default": "player_bankrupted"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "creditor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string",
+                "const": "bank"
+              }
+            ],
+            "title": "Creditor"
+          },
+          "tiles_transferred": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Tiles Transferred",
+            "default": []
+          },
+          "cash_transferred": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cash Transferred",
+            "default": 0
+          },
+          "jail_cards_transferred": {
+            "items": {
+              "$ref": "#/components/schemas/Deck"
+            },
+            "type": "array",
+            "title": "Jail Cards Transferred",
+            "default": []
+          },
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/BankruptcyShare"
+            },
+            "type": "array",
+            "title": "Shares",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "creditor"
+        ],
+        "title": "PlayerBankrupted"
+      },
+      "PlayerKind": {
+        "properties": {
+          "bot_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BotLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "PlayerKind",
+        "description": "Whether a seat is driven by a person or by a bot, and how strong the bot is.\n\n``bot_level`` is the only field: a separate ``is_bot`` flag was a second, independently\nsettable source of the same truth, and ``bot_level: str`` accepted ``\"banana\"``\n(GAP G-19)."
+      },
+      "PlayerStanding": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "net_worth": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Net Worth"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Rank"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "net_worth",
+          "rank"
+        ],
+        "title": "PlayerStanding",
+        "description": "One line of the final table. Part of ``GameEnded``, not an event of its own."
+      },
+      "PlayerState": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PlayerKind"
+          },
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Token"
+          },
+          "cash": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cash",
+            "default": 0
+          },
+          "position": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Position",
+            "default": 0
+          },
+          "in_jail": {
+            "type": "boolean",
+            "title": "In Jail",
+            "default": false
+          },
+          "jail_turns": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Jail Turns",
+            "default": 0
+          },
+          "jail_cards": {
+            "items": {
+              "$ref": "#/components/schemas/Deck"
+            },
+            "type": "array",
+            "title": "Jail Cards",
+            "default": []
+          },
+          "bankrupt": {
+            "type": "boolean",
+            "title": "Bankrupt",
+            "default": false
+          },
+          "grammatical_gender": {
+            "type": "string",
+            "enum": [
+              "m",
+              "f",
+              "n"
+            ],
+            "title": "Grammatical Gender",
+            "default": "n"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "token"
+        ],
+        "title": "PlayerState"
+      },
+      "PlayerView": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/PlayerKind"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "cash": {
+            "type": "integer",
+            "title": "Cash"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "in_jail": {
+            "type": "boolean",
+            "title": "In Jail"
+          },
+          "jail_turns": {
+            "type": "integer",
+            "title": "Jail Turns"
+          },
+          "jail_cards": {
+            "items": {
+              "$ref": "#/components/schemas/Deck"
+            },
+            "type": "array",
+            "title": "Jail Cards"
+          },
+          "bankrupt": {
+            "type": "boolean",
+            "title": "Bankrupt"
+          },
+          "grammatical_gender": {
+            "type": "string",
+            "enum": [
+              "m",
+              "f",
+              "n"
+            ],
+            "title": "Grammatical Gender"
+          },
+          "net_worth": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Net Worth"
+          },
+          "group_holdings": {
+            "items": {
+              "$ref": "#/components/schemas/GroupHoldings"
+            },
+            "type": "array",
+            "title": "Group Holdings"
+          },
+          "tiles_owned": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Tiles Owned"
+          },
+          "is_bot": {
+            "type": "boolean",
+            "title": "Is Bot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "token",
+          "cash",
+          "position",
+          "in_jail",
+          "jail_turns",
+          "jail_cards",
+          "bankrupt",
+          "grammatical_gender",
+          "net_worth",
+          "group_holdings",
+          "tiles_owned",
+          "is_bot"
+        ],
+        "title": "PlayerView",
+        "description": "A seat, plus the four derived facts the dossier would otherwise re-derive."
+      },
+      "PropertyAcquired": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "property_acquired",
+            "title": "Type",
+            "default": "property_acquired"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "tile": {
+            "type": "integer",
+            "title": "Tile"
+          },
+          "price": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Price"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "purchase",
+              "auction",
+              "trade",
+              "bankruptcy"
+            ],
+            "title": "Via"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "tile",
+          "price",
+          "via"
+        ],
+        "title": "PropertyAcquired"
+      },
+      "PropertyState": {
+        "properties": {
+          "owner": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "houses": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Houses",
+            "default": 0
+          },
+          "mortgaged": {
+            "type": "boolean",
+            "title": "Mortgaged",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "PropertyState",
+        "description": "Ownership and development of one tile. Index-aligned with ``Board.tiles``."
+      },
+      "ProposeTrade": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "propose_trade",
+            "title": "Kind",
+            "default": "propose_trade"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "offer"
+        ],
+        "title": "ProposeTrade"
+      },
+      "RentCharged": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "rent_charged",
+            "title": "Type",
+            "default": "rent_charged"
+          },
+          "payer": {
+            "type": "integer",
+            "title": "Payer"
+          },
+          "owner": {
+            "type": "integer",
+            "title": "Owner"
+          },
+          "tile": {
+            "type": "integer",
+            "title": "Tile"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Amount"
+          },
+          "base_rent": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Base Rent"
+          },
+          "houses": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Houses",
+            "default": 0
+          },
+          "multiplier": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Multiplier",
+            "default": 1
+          },
+          "dice_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dice Total"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ColorGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Note Keys",
+            "default": []
+          },
+          "note_params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Note Params"
+          }
+        },
+        "type": "object",
+        "required": [
+          "payer",
+          "owner",
+          "tile",
+          "amount",
+          "base_rent"
+        ],
+        "title": "RentCharged",
+        "description": "Narration for a rent payment. The money itself moves in ``CashChanged``.\n\nEverything needed to *explain* the figure is here, because \"every rent figure can be\nexplained, not merely charged\" is a product gate and the explanation must survive in\nthe log after the board has changed underneath it."
+      },
+      "RespondToTrade": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "respond_to_trade",
+            "title": "Kind",
+            "default": "respond_to_trade"
+          },
+          "accept": {
+            "type": "boolean",
+            "title": "Accept"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "accept"
+        ],
+        "title": "RespondToTrade"
+      },
+      "Rng": {
+        "properties": {
+          "seed": {
+            "type": "integer",
+            "maximum": 1.8446744073709552e+19,
+            "minimum": 0.0,
+            "title": "Seed"
+          },
+          "counter": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Counter",
+            "default": 0
+          },
+          "stream": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Stream",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "seed"
+        ],
+        "title": "Rng",
+        "description": "A pure, seekable random stream.\n\n``stream`` separates independent uses of the same seed so that, for example,\nshuffling the Chance deck cannot shift the sequence of dice rolls."
+      },
+      "RollDice": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "roll_dice",
+            "title": "Kind",
+            "default": "roll_dice"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "RollDice"
+      },
+      "RollForJail": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "roll_for_jail",
+            "title": "Kind",
+            "default": "roll_for_jail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "RollForJail",
+        "description": "Attempt to roll doubles to leave jail."
+      },
+      "Ruleset": {
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/RulesetName"
+          },
+          "starting_cash": {
+            "type": "integer",
+            "title": "Starting Cash",
+            "default": 1500
+          },
+          "go_salary": {
+            "type": "integer",
+            "title": "Go Salary",
+            "default": 200
+          },
+          "jail_fine": {
+            "type": "integer",
+            "title": "Jail Fine",
+            "default": 50
+          },
+          "houses_available": {
+            "type": "integer",
+            "title": "Houses Available",
+            "default": 32
+          },
+          "hotels_available": {
+            "type": "integer",
+            "title": "Hotels Available",
+            "default": 12
+          },
+          "auctions_enabled": {
+            "type": "boolean",
+            "title": "Auctions Enabled",
+            "default": true
+          },
+          "mortgages_enabled": {
+            "type": "boolean",
+            "title": "Mortgages Enabled",
+            "default": true
+          },
+          "trading_enabled": {
+            "type": "boolean",
+            "title": "Trading Enabled",
+            "default": true
+          },
+          "even_build_enforced": {
+            "type": "boolean",
+            "title": "Even Build Enforced",
+            "default": true
+          },
+          "building_shortage_auction": {
+            "type": "boolean",
+            "title": "Building Shortage Auction",
+            "default": false
+          },
+          "max_jail_turns": {
+            "type": "integer",
+            "title": "Max Jail Turns",
+            "default": 3
+          },
+          "free_parking_pot_enabled": {
+            "type": "boolean",
+            "title": "Free Parking Pot Enabled",
+            "default": false
+          },
+          "double_salary_on_exact_go": {
+            "type": "boolean",
+            "title": "Double Salary On Exact Go",
+            "default": false
+          },
+          "hints_enabled": {
+            "type": "boolean",
+            "title": "Hints Enabled",
+            "default": false
+          },
+          "target_duration_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Duration Minutes"
+          },
+          "simplified_trades": {
+            "type": "boolean",
+            "title": "Simplified Trades",
+            "default": false
+          },
+          "starting_cash_denominations": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Starting Cash Denominations",
+            "description": "Only for UI presentation of the cash tray; the engine tracks a single integer.",
+            "default": [
+              500,
+              100,
+              50,
+              20,
+              10,
+              5,
+              1
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "Ruleset",
+        "description": "A complete, serialized rule configuration. Part of the saved game."
+      },
+      "RulesetName": {
+        "type": "string",
+        "enum": [
+          "universal",
+          "kids"
+        ],
+        "title": "RulesetName"
+      },
+      "SeatConfig": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 24,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "is_bot": {
+            "type": "boolean",
+            "title": "Is Bot",
+            "default": false
+          },
+          "bot_level": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BotLevel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "grammatical_gender": {
+            "type": "string",
+            "enum": [
+              "m",
+              "f",
+              "n"
+            ],
+            "title": "Grammatical Gender",
+            "default": "n"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "token"
+        ],
+        "title": "SeatConfig",
+        "description": "One seat at the table. A seat is either a person or a bot.\n\n``is_bot`` stays on the *wire* even though the engine's ``PlayerKind`` derives it from\n``bot_level``: a client that sends ``is_bot: true`` and forgets the level has made a\nmistake, and a 422 says so instead of silently seating a human."
+      },
+      "SellHouse": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "sell_house",
+            "title": "Kind",
+            "default": "sell_house"
+          },
+          "tile": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Tile"
+          },
+          "demolish_hotel": {
+            "type": "boolean",
+            "title": "Demolish Hotel",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "tile"
+        ],
+        "title": "SellHouse",
+        "description": "Sell buildings back to the bank at half the build cost.\n\nOne level at a time by default — a hotel becomes four houses, which the bank must be\nable to supply. ``demolish_hotel`` invokes the official \"all buildings on one colour-\ngroup may be sold at once\" clause instead, which is the only way off the board when\nthe bank has run out of houses (GAP G-B3b, MON-201)."
+      },
+      "SentToJail": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "sent_to_jail",
+            "title": "Type",
+            "default": "sent_to_jail"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "tile",
+              "card",
+              "three_doubles"
+            ],
+            "title": "Via"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "via"
+        ],
+        "title": "SentToJail"
+      },
+      "TileKind": {
+        "type": "string",
+        "enum": [
+          "go",
+          "property",
+          "railroad",
+          "utility",
+          "chance",
+          "community_chest",
+          "tax",
+          "jail",
+          "free_parking",
+          "go_to_jail"
+        ],
+        "title": "TileKind",
+        "description": "What happens when a token lands here."
+      },
+      "TileLot": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "tile",
+            "title": "Kind",
+            "default": "tile"
+          },
+          "tile": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Tile"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tile"
+        ],
+        "title": "TileLot",
+        "description": "One tile, offered whole. The ordinary auction."
+      },
+      "TileView": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TileKind"
+          },
+          "name_key": {
+            "type": "string",
+            "title": "Name Key"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ColorGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "rent": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Rent",
+            "default": []
+          },
+          "house_cost": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "House Cost"
+          },
+          "mortgage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mortgage"
+          },
+          "tax": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tax"
+          },
+          "is_ownable": {
+            "type": "boolean",
+            "title": "Is Ownable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "kind",
+          "name_key",
+          "is_ownable"
+        ],
+        "title": "TileView",
+        "description": "One square, plus the ownability the engine derives from its kind.\n\nADR-008 says \"``board: Board`` ships whole\", which is *almost* enough: ``is_ownable``\nis a property, so pydantic drops it, and a client recomputing\n``kind in {property, railroad, utility}`` has copied ``OWNABLE_KINDS`` — engine\nknowledge — into TypeScript. One promoted boolean is cheaper than that."
+      },
+      "TokenMoved": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "token_moved",
+            "title": "Type",
+            "default": "token_moved"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "from_tile": {
+            "type": "integer",
+            "title": "From Tile"
+          },
+          "to_tile": {
+            "type": "integer",
+            "title": "To Tile"
+          },
+          "forward": {
+            "type": "boolean",
+            "title": "Forward",
+            "default": true
+          },
+          "passed_go": {
+            "type": "boolean",
+            "title": "Passed Go",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "from_tile",
+          "to_tile"
+        ],
+        "title": "TokenMoved"
+      },
+      "TradeCancelled": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "trade_cancelled",
+            "title": "Type",
+            "default": "trade_cancelled"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          },
+          "by": {
+            "type": "string",
+            "enum": [
+              "proposer",
+              "system"
+            ],
+            "title": "By",
+            "default": "proposer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer"
+        ],
+        "title": "TradeCancelled"
+      },
+      "TradeDeclined": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "trade_declined",
+            "title": "Type",
+            "default": "trade_declined"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer"
+        ],
+        "title": "TradeDeclined"
+      },
+      "TradeExecuted": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "trade_executed",
+            "title": "Type",
+            "default": "trade_executed"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer"
+        ],
+        "title": "TradeExecuted"
+      },
+      "TradeFrame": {
+        "properties": {
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "kind": {
+            "type": "string",
+            "const": "trade",
+            "title": "Kind",
+            "default": "trade"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "offer"
+        ],
+        "title": "TradeFrame",
+        "description": "A proposed trade awaiting the recipient's answer."
+      },
+      "TradeFrameView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "trade",
+            "title": "Kind",
+            "default": "trade"
+          },
+          "resume": {
+            "$ref": "#/components/schemas/Phase"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "resume",
+          "offer"
+        ],
+        "title": "TradeFrameView",
+        "description": "A verbatim copy. Declared so the union below is homogeneous."
+      },
+      "TradeOffer": {
+        "properties": {
+          "proposer": {
+            "type": "integer",
+            "title": "Proposer"
+          },
+          "recipient": {
+            "type": "integer",
+            "title": "Recipient"
+          },
+          "give": {
+            "$ref": "#/components/schemas/TradeSide"
+          },
+          "receive": {
+            "$ref": "#/components/schemas/TradeSide"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "proposer",
+          "recipient",
+          "give",
+          "receive"
+        ],
+        "title": "TradeOffer"
+      },
+      "TradeProposed": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "trade_proposed",
+            "title": "Type",
+            "default": "trade_proposed"
+          },
+          "offer": {
+            "$ref": "#/components/schemas/TradeOffer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "offer"
+        ],
+        "title": "TradeProposed",
+        "description": "Without this the WebSocket stream never carried the offer, so a replay could not\nreconstruct the pending trade (GAP G-16)."
+      },
+      "TradeSide": {
+        "properties": {
+          "cash": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cash",
+            "default": 0
+          },
+          "tiles": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Tiles",
+            "default": []
+          },
+          "jail_cards": {
+            "items": {
+              "$ref": "#/components/schemas/Deck"
+            },
+            "type": "array",
+            "title": "Jail Cards",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TradeSide",
+        "description": "What one party puts on the table.\n\n``extra=\"forbid\"`` for the same reason ``_CommandBase`` has it: this is command payload, and\na misspelled ``cash`` that is ignored offers nothing while looking like a full offer."
+      },
+      "TurnStarted": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "turn_started",
+            "title": "Type",
+            "default": "turn_started"
+          },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "turn_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Turn Number"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "turn_number"
+        ],
+        "title": "TurnStarted"
+      },
+      "UnmortgageProperty": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "unmortgage_property",
+            "title": "Kind",
+            "default": "unmortgage_property"
+          },
+          "tile": {
+            "type": "integer",
+            "exclusiveMaximum": 40.0,
+            "minimum": 0.0,
+            "title": "Tile"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player",
+          "tile"
+        ],
+        "title": "UnmortgageProperty"
+      },
+      "UseJailCard": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "use_jail_card",
+            "title": "Kind",
+            "default": "use_jail_card"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "UseJailCard"
+      },
+      "WithdrawFromAuction": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "kind": {
+            "type": "string",
+            "const": "withdraw_from_auction",
+            "title": "Kind",
+            "default": "withdraw_from_auction"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "player"
+        ],
+        "title": "WithdrawFromAuction"
+      }
+    }
+  }
+}
