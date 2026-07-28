@@ -55,7 +55,7 @@ import {
   type CommandKind,
 } from "@/theme";
 
-import { CONSEQUENCE_KEY, labelKeyFor, labelParamsFor, tileOf } from "./ActionLabels";
+import { consequenceKeyFor, labelKeyFor, labelParamsFor, tileOf } from "./actionCommand";
 
 import "./panels.css";
 
@@ -75,7 +75,7 @@ export interface ActionBarProps {
    * `state.ruleset.jail_fine` — the figure `action.pay_jail_fine` states.
    *
    * A projected field passed in rather than looked up, because `PayJailFine` carries no amount and
-   * the bar must not decide what bail costs. See `ActionLabels.ts`.
+   * the bar must not decide what bail costs. See `actionCommand.ts`.
    */
   readonly jailFine: number;
   /**
@@ -308,7 +308,12 @@ function ConfirmStep({
   const bodyId = useId();
   const cancel = useRef<HTMLButtonElement>(null);
   const proceed = useRef<HTMLButtonElement>(null);
-  const consequenceKey = CONSEQUENCE_KEY[command.kind];
+  // Derived, but still asked through the theme's predicate rather than unconditionally: this step
+  // is only ever mounted for a terminal command, and a `confirm.consequence.*` key for a kind that
+  // has no confirm step would resolve to nothing and throw (G-F17).
+  const consequenceKey = requiresConfirmation(command.kind)
+    ? consequenceKeyFor(command.kind)
+    : undefined;
 
   // Focus lands on cancel, not on proceed. The safe option is the default option: a player who
   // opened this by accident and presses Enter must land back where they were.

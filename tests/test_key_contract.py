@@ -197,12 +197,20 @@ def test_every_engine_enum_is_classified() -> None:
     )
 
 
-def test_every_command_kind_resolves_by_concatenation() -> None:
-    """``action.<command_kind>`` is a key, for every kind the engine accepts.
+def test_every_command_kind_has_a_label() -> None:
+    """Every kind the engine accepts has at least one ``action.<kind>`` leaf.
 
-    This is what ADR-003 §6 buys: the ActionBar builds a button label by concatenating
-    ``"action." + command.kind``, with no hand-kept map in between. When this passes,
-    ``panels/ActionLabels.ts`` has no reason to exist.
+    This is what ADR-003 §6 buys: ``panels/actionCommand.ts`` builds a button label by
+    concatenating ``"action." + command.kind``, with no hand-kept map in between — which is why
+    ``ActionLabels.ts`` and its 17-entry bridge could be deleted.
+
+    Prefix coverage rather than exact-key coverage, because two kinds legitimately have no base
+    label. ``respond_to_trade`` carries an ``accept`` boolean and resolves only to
+    ``action.respond_to_trade_accept`` / ``_decline``: accepting and declining are the two
+    commands and must not share a button, so a neutral "answer the trade" leaf would be a key
+    nothing renders. Which variants exist is a fact about the command's payload, so the exact
+    resolution is asserted where the payload types are — ``actionCommand.test.ts``. This side owns
+    the question that needs the engine to answer it: *is any kind unlabelled at all.*
     """
     from pydantic import TypeAdapter
 
@@ -211,7 +219,11 @@ def test_every_command_kind_resolves_by_concatenation() -> None:
     catalogue = _catalogue("common")
     kinds = sorted(_command_kinds(TypeAdapter(Command)))
     assert kinds, "no command kinds discovered — the introspection below has drifted"
-    missing = sorted(f"action.{kind}" for kind in kinds if f"action.{kind}" not in catalogue)
+    missing = sorted(
+        kind
+        for kind in kinds
+        if not any(key == f"action.{kind}" or key.startswith(f"action.{kind}_") for key in catalogue)
+    )
     assert not missing, f"command kinds whose button has no label: {missing}"
 
 
