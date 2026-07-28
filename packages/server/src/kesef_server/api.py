@@ -30,7 +30,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from kesef_engine.board.loader import available_boards, load_board
 from kesef_engine.commands import Command, EndTurn
-from kesef_engine.errors import EngineError, IllegalCommandError
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
 from kesef_engine.events import Event
 from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal, legal_commands
@@ -136,7 +136,18 @@ type is a 422 the client will render as prose (G-33)."""
 def _api_error_handler(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, ApiError)  # registered for ApiError only
     body = ErrorResponse(reason_key=exc.reason_key, params=exc.params)
+    # The key and the status, and the route *template* rather than the path: the path carries a
+    # caller-supplied game_id, and a log line is an untrusted-input sink like any other. See
+    # kesef_server.log.
+    log.info("request.rejected", reason_key=exc.reason_key, status=exc.status_code, route=_route_of(request))
     return JSONResponse(status_code=exc.status_code, content=body.model_dump(mode="json"))
+
+
+def _route_of(request: Request) -> str:
+    """The matched route's template, or ``"-"`` when nothing matched."""
+    route = request.scope.get("route")
+    path = getattr(route, "path", None)
+    return path if isinstance(path, str) else "-"
 
 
 def _illegal_command_handler(request: Request, exc: Exception) -> Response:
@@ -155,6 +166,21 @@ def _validation_error_handler(request: Request, exc: Exception) -> Response:
     assert isinstance(exc, RequestValidationError)
     fields = ", ".join(".".join(str(part) for part in error["loc"][1:]) for error in exc.errors())
     return _api_error_handler(request, errors.malformed_request(fields))
+
+
+def _engine_error_handler(request: Request, exc: Exception) -> Response:
+    """An ``EngineError`` that is not an ``IllegalCommandError``, still as a key.
+
+    ``IllegalCommandError`` has its own handler; every other engine failure — a
+    ``BoardDataError`` from a rule module, or a subclass that does not exist yet — had none, so
+    it left the server as a bare 500 with a traceback. 500 rather than 4xx is deliberate and
+    honest: an engine error reaching here is a defect on this side of the wire, not a client
+    mistake, and the key says so without leaking the exception's text.
+    """
+    assert isinstance(exc, EngineError)
+    body = ErrorResponse(reason_key="error.engine_failure")
+    log.error("engine.failed", reason_key=body.reason_key, exception=type(exc).__name__)
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content=body.model_dump(mode="json"))
 
 
 HTTP_ERROR_KEYS: dict[int, str] = {
@@ -185,7 +211,7 @@ def _http_exception_handler(request: Request, exc: Exception) -> Response:
         reason_key=HTTP_ERROR_KEYS.get(exc.status_code, UNKEYED_HTTP_ERROR),
         params={"status": exc.status_code},
     )
-    log.info("request.rejected", reason_key=body.reason_key, status=exc.status_code)
+    log.info("request.rejected", reason_key=body.reason_key, status=exc.status_code, route=_route_of(request))
     return JSONResponse(status_code=exc.status_code, content=body.model_dump(mode="json"), headers=exc.headers)
 
 
@@ -204,6 +230,10 @@ async def _ws_validation_error_handler(websocket: WebSocket, exc: Exception) -> 
 app.add_exception_handler(StarletteHTTPException, _http_exception_handler)
 app.add_exception_handler(ApiError, _api_error_handler)
 app.add_exception_handler(IllegalCommandError, _illegal_command_handler)
+# Registered *after* IllegalCommandError, which is a subclass: starlette matches on the most
+# derived registered class, so the order is not what selects it — but reading them in this order
+# is what makes the relationship obvious.
+app.add_exception_handler(EngineError, _engine_error_handler)
 app.add_exception_handler(RequestValidationError, _validation_error_handler)
 app.add_exception_handler(WebSocketRequestValidationError, _ws_validation_error_handler)
 
@@ -299,9 +329,12 @@ def create_game(request: NewGameRequest, store: StoreDep) -> GameView:
             ruleset=Ruleset.by_name(request.ruleset),
             locale=request.locale,
         )
-    except EngineError:
-        # An unknown board id. `new_game` loads the board up front precisely so that this
-        # fails here rather than on the first roll.
+    except BoardDataError:
+        # `new_game` loads the board up front precisely so that a bad board id fails here
+        # rather than on the first roll. Narrowed from `EngineError`: that caught every engine
+        # failure and labelled all of them `error.unknown_board`, so a rule module raising for
+        # any other reason answered a 422 naming the wrong cause. Anything else now falls
+        # through to `_engine_error_handler`, which reports what it actually was.
         raise errors.unknown_board(request.board_id) from None
     except ValueError:
         raise errors.invalid_new_game() from None

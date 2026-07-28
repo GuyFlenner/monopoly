@@ -26,6 +26,25 @@ status code is not the sort of thing that needs a name to be readable."""
 CONTENT_TOO_LARGE = 413
 """Renamed for the same reason. See ``UNPROCESSABLE``."""
 
+MAX_REFLECTED_CHARS = 64
+"""Ceiling on any caller-supplied string echoed back in ``params``.
+
+Two of the keys below reflect an id the caller chose. Unbounded, a 5000-character ``board_id``
+came back inside a 5061-byte error body — an amplifier, and a needless one, since no catalogue
+sentence is improved by more than a glance at the id (MON-303 security review).
+
+**``error.*`` params are untrusted at interpolation time.** They are truncated here, and they
+are not sanitised, because escaping depends on where they land. MON-402 and MON-501 must route
+them through i18next's default (escaping) interpolation and never through raw HTML —
+``dangerouslySetInnerHTML`` or i18next's ``{{- value}}`` on an ``error.*`` param is a stored
+XSS with an attacker-chosen ``game_id`` as the payload.
+"""
+
+
+def _reflected(value: str) -> str:
+    """Truncate a caller-supplied string to something a catalogue sentence can carry."""
+    return value if len(value) <= MAX_REFLECTED_CHARS else value[:MAX_REFLECTED_CHARS] + "..."
+
 
 class ApiError(Exception):
     """A failure to report to the client, already in wire shape.
@@ -43,13 +62,13 @@ class ApiError(Exception):
 
 
 def game_not_found(game_id: str) -> ApiError:
-    return ApiError(status.HTTP_404_NOT_FOUND, "error.game_not_found", game_id=game_id)
+    return ApiError(status.HTTP_404_NOT_FOUND, "error.game_not_found", game_id=_reflected(game_id))
 
 
 def game_already_exists(game_id: str) -> ApiError:
     """409 rather than an overwrite: the store is keyed by ``game_id``, so accepting a
     duplicate would end whatever game is already under that key."""
-    return ApiError(status.HTTP_409_CONFLICT, "error.game_already_exists", game_id=game_id)
+    return ApiError(status.HTTP_409_CONFLICT, "error.game_already_exists", game_id=_reflected(game_id))
 
 
 def server_at_capacity(limit: int) -> ApiError:
@@ -58,8 +77,11 @@ def server_at_capacity(limit: int) -> ApiError:
 
 def malformed_request(fields: str) -> ApiError:
     """A body pydantic refused. ``fields`` names the offending paths — no prose, and no
-    pydantic message, which would be English."""
-    return ApiError(UNPROCESSABLE, "error.malformed_request", fields=fields)
+    pydantic message, which would be English.
+
+    Truncated like the reflected ids: with ``extra="forbid"`` on the command models, a path can
+    be a key the caller invented."""
+    return ApiError(UNPROCESSABLE, "error.malformed_request", fields=_reflected(fields))
 
 
 def save_schema_mismatch() -> ApiError:
@@ -91,7 +113,7 @@ def invalid_new_game() -> ApiError:
 
 
 def unknown_board(board_id: str) -> ApiError:
-    return ApiError(UNPROCESSABLE, "error.unknown_board", board_id=board_id)
+    return ApiError(UNPROCESSABLE, "error.unknown_board", board_id=_reflected(board_id))
 
 
 def invalid_game_id() -> ApiError:

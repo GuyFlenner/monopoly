@@ -24,9 +24,11 @@ from fastapi.testclient import TestClient
 
 from kesef_engine.board.models import BOARD_SIZE
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
 from kesef_engine.state import MAX_PLAYERS, SCHEMA_VERSION
 from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
 from kesef_server.config import Settings
+from kesef_server.errors import MAX_REFLECTED_CHARS
 from kesef_server.schemas import ErrorResponse
 from kesef_server.sessions import SessionStore
 
@@ -227,6 +229,72 @@ def test_the_two_starlette_failures_carry_the_keys_the_catalogue_will_need(clien
     refused = client.put("/games")
     assert refused.json() == {"reason_key": "error.method_not_allowed", "params": {"status": 405}}
     assert "Allow" in refused.headers, "a 405 without Allow is a 405 the client cannot act on"
+
+
+def test_a_reflected_id_is_truncated_rather_than_amplified(client: TestClient) -> None:
+    """A 5000-character `board_id` came back inside a 5061-byte body. No catalogue sentence is
+    improved by more than a glance at the id."""
+    response = client.post("/games", json=new_game_payload(board_id="z" * 5000))
+    assert response.status_code == UNPROCESSABLE
+    reflected = response.json()["params"]["board_id"]
+    assert len(reflected) <= MAX_REFLECTED_CHARS + 3
+    assert reflected.startswith("zzz") and reflected.endswith("...")
+    assert len(response.content) < 200
+
+
+def test_a_reflected_game_id_is_truncated_too(client: TestClient) -> None:
+    long_id = "g" * 5000
+    response = client.get(f"/games/{long_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert len(response.json()["params"]["game_id"]) <= MAX_REFLECTED_CHARS + 3
+
+
+def test_an_engine_failure_that_is_not_an_illegal_command_is_still_a_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`IllegalCommandError` had a handler; nothing else did, so any other `EngineError` left
+    the server as a bare 500 with a traceback."""
+    game_id = _create(client)["state"]["game_id"]
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise BoardDataError("a rule module could not read its board")
+
+    monkeypatch.setattr("kesef_server.api.apply", explode)
+    response = client.post(f"/games/{game_id}/commands", json=_roll(0))
+    assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert response.json() == {"reason_key": "error.engine_failure", "params": {}}
+    assert "board" not in response.text, "the exception's own text must not reach the client"
+
+
+def test_an_unknown_board_key_is_not_pinned_on_every_engine_failure(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`except EngineError` labelled every failure `error.unknown_board`, including ones that
+    had nothing to do with a board id."""
+
+    def explode(*_args: object, **_kwargs: object) -> None:
+        raise EngineError("something else entirely")
+
+    monkeypatch.setattr("kesef_server.api.new_game", explode)
+    response = client.post("/games", json=new_game_payload())
+    assert response.json()["reason_key"] == "error.engine_failure"
+
+
+def test_a_context_param_the_catalogue_could_not_interpolate_is_coerced(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`IllegalCommandError` is typed `**context: object`. Every rule in the engine passes ints
+    and strings, so the coercion arm was unreachable and api.py's 100% was not honest about it.
+    An engine that one day passes a tuple gets a string, not a 500."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise IllegalCommandError("error.made_up", tiles=(1, 2), amount=7)
+
+    game_id = _create(client)["state"]["game_id"]
+    monkeypatch.setattr("kesef_server.api.apply", refuse)
+    response = client.post(f"/games/{game_id}/commands", json=_roll(0))
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.made_up", "params": {"tiles": "(1, 2)", "amount": 7}}
 
 
 def test_a_route_specific_key_is_not_flattened_into_the_generic_one(client: TestClient) -> None:
