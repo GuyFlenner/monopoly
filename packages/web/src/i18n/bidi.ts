@@ -41,8 +41,16 @@ const FSI = "⁨";
 /** U+2069. Closes the innermost isolate. */
 const PDI = "⁩";
 
-/** Hebrew, Arabic, Syriac, Thaana — the strong-RTL blocks a value could arrive in. */
-const RTL_STRONG = /[֐-׿؀-ۿ܀-ݏހ-޿יִ-﷿ﹰ-﻿]/;
+/**
+ * Hebrew, Arabic, Syriac, Thaana and their presentation forms — the strong-RTL blocks.
+ *
+ * Written as `\u` escapes rather than literal characters, for two reasons. A literal range is
+ * unreadable in a diff when the characters themselves reorder it, and the block boundaries are not
+ * what they look like: Arabic Presentation Forms-B ends at U+FEFC, and U+FEFF just past it is the
+ * byte-order mark — whitespace rather than a letter, which a range written to the end of the block
+ * would silently swallow. ESLint flags exactly that as irregular whitespace, and it is right to.
+ */
+const RTL_STRONG = /[\u0590-\u05FF\u0600-\u07BF\uFB1D-\uFDFF\uFE70-\uFEFC]/;
 
 /**
  * Latin, Greek, Cyrillic and the digits — strong-LTR, plus the numerals that behave as an LTR run.
@@ -51,7 +59,7 @@ const RTL_STRONG = /[֐-׿؀-ۿ܀-ݏހ-޿יִ-﷿ﹰ-﻿]/;
  * precisely why they are the common failure: a weak run takes its direction from its neighbours, so
  * two numbers separated by a comma in a Hebrew sentence are the textbook reordering case.
  */
-const LTR_STRONG = /[A-Za-zͰ-ϿЀ-ӿ0-9]/;
+const LTR_STRONG = /[A-Za-z0-9\u0370-\u03FF\u0400-\u04FF]/;
 
 export type Direction = "ltr" | "rtl";
 

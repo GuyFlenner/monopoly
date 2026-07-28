@@ -58,9 +58,29 @@ export function isLocale(value: string): value is Locale {
  * out of this function rather than smuggled into it.
  */
 function formatInterpolated(value: unknown, lng: string | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
   const direction = lng !== undefined && isLocale(lng) ? DIRECTION[lng] : "ltr";
-  return isolateForDirection(text, direction);
+  return isolateForDirection(asText(value), direction);
+}
+
+/**
+ * An interpolated value as text, narrowed rather than coerced.
+ *
+ * `String(value)` would satisfy the compiler and print `[object Object]` at a player, so the scalar
+ * types a sentence can actually carry are listed and anything else becomes empty. An object reaching
+ * here is a caller's defect; rendering nothing keeps the rest of the sentence readable while it is
+ * found, and `missingInterpolationHandler` is the mechanism that is supposed to say so.
+ */
+function asText(value: unknown): string {
+  switch (typeof value) {
+    case "string":
+      return value;
+    case "number":
+    case "bigint":
+    case "boolean":
+      return value.toString();
+    default:
+      return "";
+  }
 }
 
 /**

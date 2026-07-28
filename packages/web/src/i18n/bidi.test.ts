@@ -19,18 +19,18 @@ const FSI = "⁨";
 const PDI = "⁩";
 
 describe("needsIsolation", () => {
-  it("isolates a Latin run inside right-to-left text", () => {
+  it("isolates a Latin run inside RTL text", () => {
     expect(needsIsolation("Ruti", "rtl")).toBe(true);
   });
 
-  it("isolates digits inside right-to-left text", () => {
+  it("isolates digits inside RTL text", () => {
     // The case that actually breaks. Digits are *weak* to the algorithm — they take direction from
     // their neighbours — which is why two of them with a comma between reorder.
     expect(needsIsolation("200", "rtl")).toBe(true);
     expect(needsIsolation("1500", "rtl")).toBe(true);
   });
 
-  it("isolates a Hebrew run inside left-to-right text", () => {
+  it("isolates a Hebrew run inside LTR text", () => {
     // Isolation is not an RTL feature. A Hebrew player name in an English sentence is the same
     // defect mirrored, and a formatter that only handled one direction would ship half a fix.
     expect(needsIsolation("רותי", "ltr")).toBe(true);
