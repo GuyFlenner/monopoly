@@ -17,6 +17,7 @@ let a player force or dodge Kids Mode's time limit, so the field is overwritten,
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from typing import Annotated, Any
 
@@ -360,19 +361,38 @@ async def game_event_stream(
         await websocket.close(code=WS_GAME_NOT_FOUND, reason="error.game_not_found")
         return
     with session.subscribe() as queue:
-        sent = since
+        await stream_events(websocket, session, queue, since)
+
+
+async def stream_events(
+    websocket: WebSocket,
+    session: Session,
+    queue: asyncio.Queue[LoggedEvent],
+    since: int,
+) -> None:
+    """Replay the backlog after ``since``, then push everything that follows it.
+
+    Split out of the endpoint so the rule below can be *tested* rather than assumed: the
+    caller owns the subscription (and therefore the cleanup), and this owns the ordering.
+
+    Subscribing before the replay is what closes the window in which a command applied
+    between the two would be lost. The cost of that ordering is that an event can reach both
+    the snapshot and the queue, so anything at or below the high-water mark is dropped —
+    without it the animation queue would play one event twice (G-34).
+    """
+    sent = since
+    try:
         for entry in session.events_since(since):
             await websocket.send_json(entry.model_dump(mode="json"))
             sent = entry.seq
-        try:
-            while True:
-                entry = await queue.get()
-                if entry.seq <= sent:
-                    continue  # already covered by the replay above
-                await websocket.send_json(entry.model_dump(mode="json"))
-                sent = entry.seq
-        except WebSocketDisconnect:
-            return
+        while True:
+            entry = await queue.get()
+            if entry.seq <= sent:
+                continue  # already covered by the replay above
+            await websocket.send_json(entry.model_dump(mode="json"))
+            sent = entry.seq
+    except WebSocketDisconnect:
+        return  # an ordinary end of stream: the client closed the tab
 
 
 # --- Helpers ---------------------------------------------------------------
