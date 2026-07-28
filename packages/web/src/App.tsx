@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { Announcer, AnnouncerProvider } from "./a11y";
 import { applyLocale, LOCALE_LABEL, LOCALES, type Locale } from "./i18n";
 
 interface BoardSummary {
@@ -42,44 +43,52 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <main className="mx-auto flex max-w-2xl flex-col gap-6 p-8 text-start">
-      <header className="flex flex-wrap items-baseline gap-4">
-        <h1 className="text-3xl font-bold">{t("app.title")}</h1>
-        <p className="text-neutral-500">{t("app.tagline")}</p>
-      </header>
+    <AnnouncerProvider>
+      {/*
+        The product's only two `aria-live` regions, mounted once at the root (MON-411). Every
+        component below narrates through `useAnnounce()`; none renders a region of its own,
+        because two regions announcing one dice roll is double-speak (GAP G-54).
+      */}
+      <Announcer />
+      <main className="mx-auto flex max-w-2xl flex-col gap-6 p-8 text-start">
+        <header className="flex flex-wrap items-baseline gap-4">
+          <h1 className="text-3xl font-bold">{t("app.title")}</h1>
+          <p className="text-neutral-500">{t("app.tagline")}</p>
+        </header>
 
-      <fieldset className="flex items-center gap-3">
-        <legend className="sr-only">{t("setup.language")}</legend>
-        {LOCALES.map((candidate) => (
-          <button
-            key={candidate}
-            type="button"
-            aria-pressed={locale === candidate}
-            onClick={() => {
-              switchTo(candidate);
-            }}
-            className="min-h-11 rounded-lg border px-4 aria-pressed:font-bold"
-          >
-            {LOCALE_LABEL[candidate]}
-          </button>
-        ))}
-      </fieldset>
-
-      <section className="flex flex-col gap-2">
-        <h2 className="text-xl font-semibold">{t("setup.board")}</h2>
-        {boards.isPending && <p role="status">{t("label.loading")}</p>}
-        {boards.isError && <p role="alert">{t("error.network")}</p>}
-        <ul className="flex flex-col gap-2">
-          {boards.data?.map((board) => (
-            <li key={board.id} className="rounded-lg border p-3">
-              <span className="font-medium">{t(board.name_key)}</span>{" "}
-              <span dir="ltr" className="text-neutral-500">
-                ({board.ownable_count})
-              </span>
-            </li>
+        <fieldset className="flex items-center gap-3">
+          <legend className="sr-only">{t("setup.language")}</legend>
+          {LOCALES.map((candidate) => (
+            <button
+              key={candidate}
+              type="button"
+              aria-pressed={locale === candidate}
+              onClick={() => {
+                switchTo(candidate);
+              }}
+              className="min-h-11 rounded-lg border px-4 aria-pressed:font-bold"
+            >
+              {LOCALE_LABEL[candidate]}
+            </button>
           ))}
-        </ul>
-      </section>
-    </main>
+        </fieldset>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="text-xl font-semibold">{t("setup.board")}</h2>
+          {boards.isPending && <p role="status">{t("label.loading")}</p>}
+          {boards.isError && <p role="alert">{t("error.network")}</p>}
+          <ul className="flex flex-col gap-2">
+            {boards.data?.map((board) => (
+              <li key={board.id} className="rounded-lg border p-3">
+                <span className="font-medium">{t(board.name_key)}</span>{" "}
+                <span dir="ltr" className="text-neutral-500">
+                  ({board.ownable_count})
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </main>
+    </AnnouncerProvider>
   );
 }

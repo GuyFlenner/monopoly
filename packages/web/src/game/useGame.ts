@@ -20,7 +20,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useContext, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useSyncExternalStore } from "react";
 
 import type {
   ApiError,
@@ -83,15 +83,9 @@ export function useGame(): UseGameResult {
 
   const view = useQuery<GameView, ApiError>({
     queryKey: queryKeys.game(gameId),
-    queryFn: async () => {
-      // `since` is the queue's cursor, not a constant: on the first fetch it is 0 and the
-      // whole game replays (which is what seeds a reload), and on a refetch it is only the
-      // tail. Feeding the result back through the queue is what keeps HTTP and the socket
-      // interchangeable — whichever arrives first wins, and the other is de-duplicated.
-      const fetched = await client.getGame(gameId, queue.cursor);
-      queue.offer(fetched.events);
-      return fetched;
-    },
+    // `since` is the queue's cursor, not a constant: on the first fetch it is 0 and the whole
+    // game replays (which is what seeds a reload), and on a refetch it is only the tail.
+    queryFn: () => client.getGame(gameId, queue.cursor),
     // A 4xx will say the same thing three times in a row. Only a server-side failure is worth
     // asking again about, and this is transport policy, not a rule.
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
@@ -103,10 +97,20 @@ export function useGame(): UseGameResult {
       // The server's answer, stored as-is. This is the "view updates from the response"
       // requirement: no merge, no patch, no reconciliation with what we guessed.
       queryClient.setQueryData(queryKeys.game(gameId), applied);
-      queue.offer(applied.events);
     },
     retry: false,
   });
+
+  // A view's events reach the queue *after* that view has been committed, never during the
+  // fetch that produced it. The narration resolves a player's name and a tile's name out of
+  // `state` and `board`, so an event announced before its own view is rendered says "0 moved
+  // to 2" — which is what this effect, rather than an `offer` inside `queryFn`, prevents. It
+  // covers the command path too: `onSuccess` writes the view, and the write lands here.
+  useEffect(() => {
+    if (view.data !== undefined) {
+      queue.offer(view.data.events);
+    }
+  }, [view.data, queue]);
 
   const events = useSyncExternalStore(
     useCallback((onChange: () => void) => queue.subscribe(onChange), [queue]),

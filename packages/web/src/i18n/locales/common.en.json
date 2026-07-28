@@ -124,6 +124,15 @@
     "turnAnnouncement": "It is {{name}}'s turn.",
     "cashChange": "{{name}} {{direction}} {{amount}}.",
     "boardTile": "{{name}}, {{kind}}{{owner}}",
-    "ownedBy": ", owned by {{name}}"
+    "ownedBy": ", owned by {{name}}",
+    "moved": "{{name}} moved to {{tile}}.",
+    "passed_go": "{{name}} passed GO.",
+    "rent_charged": "{{payer}} paid {{amount}} in rent to {{owner}}.",
+    "cash_gained": "{{name}} received {{amount}}.",
+    "cash_paid": "{{name}} paid {{amount}}.",
+    "turn": "It is {{name}}'s turn.",
+    "phase_auction": "An auction has started.",
+    "phase_debt_settlement": "A debt has to be settled before play continues.",
+    "phase_trade_review": "A trade is waiting for an answer."
   }
 }

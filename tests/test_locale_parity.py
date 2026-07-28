@@ -24,6 +24,31 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
+AWAITING_HEBREW = frozenset(
+    {
+        "a11y.moved",
+        "a11y.passed_go",
+        "a11y.rent_charged",
+        "a11y.cash_gained",
+        "a11y.cash_paid",
+        "a11y.turn",
+        "a11y.phase_auction",
+        "a11y.phase_debt_settlement",
+        "a11y.phase_trade_review",
+    }
+)
+"""Individual English keys whose Hebrew is owned by a later item, listed one by one.
+
+MON-411 added the narration sentences the ``<Announcer>`` reads aloud. Their Hebrew is not a
+translation task that can be done alongside them: every one of these has a subject, and Hebrew
+conjugates the verb to the subject's gender (GAP G-42) — ``רותי עבר`` is wrong for every Hebrew
+speaker, and wrong in a children's game is worse than absent. MON-501/MON-506 own the Hebrew
+catalogue and the i18next gender context that makes these sayable.
+
+A per-key list rather than an ``a11y.*`` prefix exemption, and a tripwire test below, so the
+exemption cannot outlive its reason: a key that gains Hebrew, or that stops existing in English,
+fails the build until it is removed from here."""
+
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
     flat: dict[str, str] = {}
@@ -53,10 +78,24 @@ def test_languages_define_exactly_the_same_keys(catalogue: str) -> None:
     if catalogue in ENGLISH_ONLY_CATALOGUES:
         pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
     english, hebrew = _load(catalogue, "en"), _load(catalogue, "he")
-    missing_in_hebrew = sorted(set(english) - set(hebrew))
+    missing_in_hebrew = sorted(set(english) - set(hebrew) - AWAITING_HEBREW)
     extra_in_hebrew = sorted(set(hebrew) - set(english))
     assert not missing_in_hebrew, f"untranslated: {missing_in_hebrew}"
     assert not extra_in_hebrew, f"orphaned Hebrew keys: {extra_in_hebrew}"
+
+
+def test_the_awaiting_hebrew_exemption_has_not_rotted() -> None:
+    """Every entry in :data:`AWAITING_HEBREW` still names an English key with no Hebrew.
+
+    Without this, the exemption list is a place where a key can hide from the parity check
+    forever — either because it was translated and nobody removed it, or because it was renamed
+    and the list now silently excuses a key that does not exist.
+    """
+    english, hebrew = _load("common", "en"), _load("common", "he")
+    unknown = sorted(key for key in AWAITING_HEBREW if key not in english)
+    assert not unknown, f"AWAITING_HEBREW names keys that are not in common.en.json: {unknown}"
+    translated = sorted(key for key in AWAITING_HEBREW if key in hebrew)
+    assert not translated, f"these now have Hebrew — remove them from AWAITING_HEBREW: {translated}"
 
 
 @pytest.mark.parametrize("catalogue", CATALOGUES)
