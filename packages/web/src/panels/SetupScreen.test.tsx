@@ -4,7 +4,7 @@
  * 1. **The Kids-mode explanation comes from the fetched rule sets, not from a literal.** The
  *    falsifier is the one that matters: change a flag in the fixture and the rendered diff
  *    changes with it. A test that only asserted "the words auctions appears" would pass against
- *    the hardcoded `setup.kidsExplainer` this item exists to remove.
+ *    the hardcoded `setup.kids_explainer` this item exists to remove.
  * 2. **The server owns validation.** One seat, or two seats with the same name, both reach the
  *    network — and the rejection renders from its `reason_key`.
  * 3. **Keyboard and target size.** Every control is reachable and ≥ 44 px, including at 320 px,
@@ -54,7 +54,7 @@ function setup(
  * both.
  */
 function seatCard(index: number): HTMLElement {
-  const box = screen.getAllByLabelText(i18next.t("setup.playerName"))[index];
+  const box = screen.getAllByLabelText(i18next.t("setup.player_name"))[index];
   const card = box?.closest("li");
   if (card === null || card === undefined) {
     throw new Error(`no seat card at index ${String(index)}`);
@@ -65,7 +65,7 @@ function seatCard(index: number): HTMLElement {
 /** Fill both starting seats so the form is complete; nothing here is a game rule. */
 async function nameBothSeats(names: readonly [string, string]): Promise<void> {
   const user = userEvent.setup();
-  const boxes = screen.getAllByLabelText(i18next.t("setup.playerName"));
+  const boxes = screen.getAllByLabelText(i18next.t("setup.player_name"));
   await user.type(boxes[0] as HTMLElement, names[0]);
   await user.type(boxes[1] as HTMLElement, names[1]);
 }
@@ -73,7 +73,7 @@ async function nameBothSeats(names: readonly [string, string]): Promise<void> {
 describe("the seats", () => {
   it("opens with two, and each carries an identity a pre-reader can tell apart", () => {
     setup();
-    expect(screen.getAllByLabelText(i18next.t("setup.playerName"))).toHaveLength(2);
+    expect(screen.getAllByLabelText(i18next.t("setup.player_name"))).toHaveLength(2);
     // Shape and colour live in an `aria-hidden` SVG; the piece's *name* is the text channel, so
     // the identity is never colour-only (GAP A2/G-51).
     expect(screen.getByText(i18next.t("token.kite"))).toBeInTheDocument();
@@ -85,12 +85,12 @@ describe("the seats", () => {
     setup();
     for (let seat = 3; seat <= 6; seat += 1) {
       await user.click(
-        screen.getByRole("button", { name: new RegExp(i18next.t("setup.addPlayer")) }),
+        screen.getByRole("button", { name: new RegExp(i18next.t("setup.add_player")) }),
       );
     }
-    expect(screen.getAllByLabelText(i18next.t("setup.playerName"))).toHaveLength(6);
+    expect(screen.getAllByLabelText(i18next.t("setup.player_name"))).toHaveLength(6);
     expect(
-      screen.queryByRole("button", { name: new RegExp(i18next.t("setup.addPlayer")) }),
+      screen.queryByRole("button", { name: new RegExp(i18next.t("setup.add_player")) }),
     ).not.toBeInTheDocument();
   });
 
@@ -98,15 +98,15 @@ describe("the seats", () => {
     const user = userEvent.setup();
     setup();
     await user.click(screen.getAllByRole("button", { name: /Remove/ })[0] as HTMLElement);
-    expect(screen.getAllByLabelText(i18next.t("setup.playerName"))).toHaveLength(1);
+    expect(screen.getAllByLabelText(i18next.t("setup.player_name"))).toHaveLength(1);
   });
 
   it("offers a difficulty only once a seat is a computer", async () => {
     const user = userEvent.setup();
     setup();
-    expect(screen.queryByLabelText(i18next.t("setup.botLevel"))).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(i18next.t("setup.bot_level_label"))).not.toBeInTheDocument();
     await user.click(within(seatCard(0)).getByRole("radio", { name: i18next.t("setup.bot") }));
-    expect(screen.getByLabelText(i18next.t("setup.botLevel"))).toBeInTheDocument();
+    expect(screen.getByLabelText(i18next.t("setup.bot_level_label"))).toBeInTheDocument();
   });
 
   it("defaults the pronoun to the neutral value", () => {
@@ -122,7 +122,7 @@ describe("Kids mode shows what it changes", () => {
     setup();
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
 
-    expect(screen.getByText(i18next.t("setup.kidsChanges"))).toBeInTheDocument();
+    expect(screen.getByText(i18next.t("setup.kids_changes"))).toBeInTheDocument();
     for (const label of [
       "ruleset.auctions_enabled",
       "ruleset.mortgages_enabled",
@@ -134,7 +134,7 @@ describe("Kids mode shows what it changes", () => {
 
   it("reads the flags rather than a sentence — flip one and the list follows", async () => {
     const user = userEvent.setup();
-    // The falsifier. If the explanation were `setup.kidsExplainer`, or any other literal, this
+    // The falsifier. If the explanation were `setup.kids_explainer`, or any other literal, this
     // Kids ruleset — identical to the universal rules apart from one flag — would still print
     // "no auctions or mortgages, simpler trades, hints on".
     setup({
@@ -147,14 +147,14 @@ describe("Kids mode shows what it changes", () => {
 
     expect(screen.getByText(i18next.t("ruleset.double_salary_on_exact_go"))).toBeInTheDocument();
     expect(screen.queryByText(i18next.t("ruleset.auctions_enabled"))).not.toBeInTheDocument();
-    expect(screen.queryByText(i18next.t("setup.kidsExplainer", { minutes: 45 }))).toBeNull();
+    expect(screen.queryByText(i18next.t("setup.kids_explainer", { minutes: 45 }))).toBeNull();
   });
 
   it("says so plainly when the two rule sets agree", async () => {
     const user = userEvent.setup();
     setup({ rulesets: [UNIVERSAL_RULES, { ...UNIVERSAL_RULES, name: "kids" }] });
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
-    expect(screen.getByText(i18next.t("setup.kidsNoChanges"))).toBeInTheDocument();
+    expect(screen.getByText(i18next.t("setup.kids_no_changes"))).toBeInTheDocument();
   });
 
   it("shows both halves of a change, without a direction glyph that cannot mirror", async () => {
@@ -169,7 +169,7 @@ describe("Kids mode shows what it changes", () => {
 
   it("shows nothing about changes while the full rules are chosen", () => {
     setup();
-    expect(screen.queryByText(i18next.t("setup.kidsChanges"))).not.toBeInTheDocument();
+    expect(screen.queryByText(i18next.t("setup.kids_changes"))).not.toBeInTheDocument();
   });
 });
 
@@ -182,7 +182,7 @@ describe("validation is the server's", () => {
     const user = userEvent.setup();
     const { onStart } = setup();
     await user.click(screen.getAllByRole("button", { name: /Remove/ })[0] as HTMLElement);
-    await user.type(screen.getByLabelText(i18next.t("setup.playerName")), "Ruti");
+    await user.type(screen.getByLabelText(i18next.t("setup.player_name")), "Ruti");
     await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
 
     await waitFor(() => {
@@ -216,7 +216,7 @@ describe("validation is the server's", () => {
         screen.getByText(i18next.t("error.unknown_board", { board_id: "atlantis" })),
       ).toBeInTheDocument();
     });
-    expect(screen.getByText(i18next.t("setup.cannotStart"))).toBeInTheDocument();
+    expect(screen.getByText(i18next.t("setup.cannot_start"))).toBeInTheDocument();
   });
 
   it("falls back rather than throwing on a key the catalogue has not got yet", async () => {
@@ -227,7 +227,7 @@ describe("validation is the server's", () => {
     // The catalogue throws on a missing key in dev and test by design (G-F17), so an unguarded
     // `t()` here would replace the form with a blank screen over one unmapped server key.
     await waitFor(() => {
-      expect(screen.getByText(i18next.t("error.illegalMove"))).toBeInTheDocument();
+      expect(screen.getByText(i18next.t("error.illegal_move"))).toBeInTheDocument();
     });
   });
 
@@ -241,7 +241,7 @@ describe("validation is the server's", () => {
     });
     expect(document.querySelectorAll("[aria-live]")).toHaveLength(0);
     expect(screen.queryAllByRole("alert")).toHaveLength(0);
-    expect(document.activeElement?.textContent).toContain(i18next.t("setup.cannotStart"));
+    expect(document.activeElement?.textContent).toContain(i18next.t("setup.cannot_start"));
   });
 
   it("keeps the start button out of reach only while a name box is empty", async () => {
@@ -262,7 +262,7 @@ describe("what reaches the wire", () => {
     const secondSeat = seatCard(1);
     await user.click(within(secondSeat).getByRole("radio", { name: i18next.t("setup.bot") }));
     await user.selectOptions(
-      within(secondSeat).getByLabelText(i18next.t("setup.botLevel")),
+      within(secondSeat).getByLabelText(i18next.t("setup.bot_level_label")),
       "hard",
     );
     await user.selectOptions(within(secondSeat).getByLabelText(i18next.t("setup.pronoun")), "f");

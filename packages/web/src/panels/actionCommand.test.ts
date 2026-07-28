@@ -1,36 +1,41 @@
 /**
- * The coverage gate on the kind → label-key bridge.
+ * The coverage gate on command → catalogue key.
  *
  * The failure this file exists to prevent is a new engine command landing and the ActionBar
- * printing a raw `build_house` at a six-year-old. Three things have to hold for that to be
- * impossible, and each is tested here rather than reviewed:
+ * printing a raw `build_house` at a six-year-old. `ActionLabels.test.ts` guarded that with a
+ * hand-written map behind it; the map is gone, so what needs guarding has changed shape:
  *
- * 1. Every command kind has a key. `Record<CommandKind, …>` is a compile gate, and this is the
- *    runtime one — the compile gate disappears the moment somebody widens the key type.
- * 2. Every key the resolver can emit **exists in the catalogue**. A key that resolves to nothing
- *    is worse than a missing map entry, because `missingKeyHandler` throws and takes the whole bar
- *    down (deliberately, GAP G-F17) — every button, not just the broken one.
- * 3. Every placeholder a label declares is supplied. `action.buy` wants `{{price}}` and nothing on
- *    the wire can give it one; that is the trap this suite is really about, and the reason
- *    `buy_property` maps to a price-free key instead.
+ * 1. Every key the resolver can emit **exists in the catalogue**. Concatenation cannot produce a
+ *    typo, but it can produce a key nobody wrote — a new command kind resolves to
+ *    `action.<kind>` whether or not a leaf exists, and `missingKeyHandler` throws and takes the
+ *    whole bar down (deliberately, GAP G-F17), not just the one button.
+ * 2. Every placeholder a label declares is supplied. This is the trap the old suite was really
+ *    about: `action.buy` wanted `{{price}}` and nothing on the wire could give it one, which is
+ *    why the price-free `action.buy_property` exists and `action.buy` was deleted.
+ * 3. The two payload variants stay distinguishable. Accepting and declining a trade must not
+ *    share a label.
+ *
+ * What is deliberately *not* tested any more: that the key for a kind is spelled a particular way.
+ * `baseLabelKey` is one concatenation, and a test asserting `action.roll_dice === "action." +
+ * "roll_dice"` restates the implementation instead of constraining it.
  */
 
 import { describe, expect, it } from "vitest";
 
 import type { Command, CommandKind } from "@/api";
 import commonEn from "@/i18n/locales/common.en.json";
-import { COMMAND_KINDS, TERMINAL_COMMANDS } from "@/theme";
+import { COMMAND_KINDS, TERMINAL_COMMANDS, requiresConfirmation } from "@/theme";
 
 import {
-  ACTION_LABEL_KEY,
-  CONSEQUENCE_KEY,
+  baseLabelKey,
+  consequenceKeyFor,
   labelKeyFor,
   labelKeysFor,
   labelParamsFor,
   tileOf,
-} from "./ActionLabels";
+} from "./actionCommand";
 
-/** The English catalogue as dotted keys, which is how the map spells them. */
+/** The English catalogue as dotted keys, which is how the resolver spells them. */
 function flatten(payload: unknown, prefix = ""): Map<string, string> {
   const flat = new Map<string, string>();
   if (typeof payload !== "object" || payload === null) {
@@ -90,21 +95,7 @@ const SAMPLE: Readonly<Record<CommandKind, Command>> = {
 
 const JAIL_FINE = 50;
 
-describe("the kind → label-key map", () => {
-  it("has an entry for every command kind the contract declares", () => {
-    const missing = COMMAND_KINDS.filter((kind) => {
-      const key = ACTION_LABEL_KEY[kind];
-      return typeof key !== "string" || key.length === 0;
-    });
-    expect(missing, "command kinds with no label key").toEqual([]);
-  });
-
-  it("names every key under `action.`, so MON-501's rename has one prefix to sweep", () => {
-    for (const kind of COMMAND_KINDS) {
-      expect(ACTION_LABEL_KEY[kind]).toMatch(/^action\./);
-    }
-  });
-
+describe("label keys", () => {
   it("resolves every key it can emit against the English catalogue", () => {
     const unresolvable: string[] = [];
     for (const kind of COMMAND_KINDS) {
@@ -130,28 +121,24 @@ describe("the kind → label-key map", () => {
         }
       }
     }
-    // The one that mattered: `action.buy` wants `{{price}}` and `BuyProperty` carries no tile, so
-    // `buy_property` maps to the price-free `action.buy_property`. Pointing this test at
-    // `action.buy` would fail, which is the whole reason the price-free key exists.
     expect(unsupplied, "labels with a placeholder nothing fills").toEqual([]);
   });
 
-  it("still needs to exist — the catalogue is not reachable by `action.<kind>` (G-40)", () => {
-    // When MON-501 renames the leaves to `action.<command_kind>`, this assertion fails and the
-    // failure names the module to delete. That is the intended lifetime of this file.
-    const derivable = COMMAND_KINDS.filter((kind) => ACTION_LABEL_KEY[kind] === `action.${kind}`);
-    expect(derivable.length).toBeLessThan(COMMAND_KINDS.length);
-    expect(ACTION_LABEL_KEY.roll_dice).toBe("action.roll");
+  it("gives a command with no variant exactly one key, and that key is the base", () => {
+    // The property ADR-003 §6 bought. Asserted on a kind with no payload variant, so it is a claim
+    // about derivability rather than a restatement of the concatenation.
+    expect(labelKeysFor("roll_dice")).toEqual([baseLabelKey("roll_dice")]);
+    expect(labelKeyFor(SAMPLE.roll_dice)).toBe(baseLabelKey("roll_dice"));
   });
 });
 
 describe("payload variants", () => {
   it("says which building is being sold", () => {
     expect(labelKeyFor({ kind: "sell_house", player: 0, tile: 3, demolish_hotel: false })).toBe(
-      "action.sellHouse",
+      "action.sell_house",
     );
     expect(labelKeyFor({ kind: "sell_house", player: 0, tile: 3, demolish_hotel: true })).toBe(
-      "action.sellHouse_hotel",
+      "action.sell_house_hotel",
     );
   });
 
@@ -160,6 +147,14 @@ describe("payload variants", () => {
     const decline = labelKeyFor({ kind: "respond_to_trade", player: 0, accept: false });
     expect(accept).not.toBe(decline);
     expect(CATALOGUE.get(accept)).not.toBe(CATALOGUE.get(decline));
+  });
+
+  it("lists every variant a kind can take, not just the one a sample carries", () => {
+    expect(labelKeysFor("respond_to_trade")).toEqual([
+      "action.respond_to_trade_accept",
+      "action.respond_to_trade_decline",
+    ]);
+    expect(labelKeysFor("sell_house")).toEqual(["action.sell_house", "action.sell_house_hotel"]);
   });
 });
 
@@ -194,28 +189,31 @@ describe("tileOf", () => {
 });
 
 describe("the terminal consequences", () => {
-  it("covers exactly the theme's terminal set, in both directions", () => {
-    const explained = new Set(Object.keys(CONSEQUENCE_KEY));
-    expect([...explained].sort()).toEqual([...TERMINAL_COMMANDS].sort());
+  it("resolves a consequence for every kind that gets a confirm step", () => {
+    for (const kind of TERMINAL_COMMANDS) {
+      expect(CATALOGUE.has(consequenceKeyFor(kind)), `no consequence for ${kind}`).toBe(true);
+    }
   });
 
-  it("resolves every consequence against the catalogue", () => {
-    for (const kind of TERMINAL_COMMANDS) {
-      const key = CONSEQUENCE_KEY[kind];
-      expect(key, `no consequence for ${kind}`).toBeDefined();
-      expect(CATALOGUE.has(key ?? "")).toBe(true);
-    }
+  it("writes a consequence only for the kinds that have a confirm step", () => {
+    // The old hand-written table needed checking in both directions because it could disagree with
+    // the theme. A concatenation cannot — but the *catalogue* still can, by carrying a consequence
+    // for a kind that never asks for one. That leaf would be dead text nobody ever reads.
+    const orphaned = COMMAND_KINDS.filter(
+      (kind) => !requiresConfirmation(kind) && CATALOGUE.has(consequenceKeyFor(kind)),
+    );
+    expect(orphaned, "consequences for commands that are never confirmed").toEqual([]);
   });
 
   it("explains a consequence in a sentence rather than restating the label", () => {
     for (const kind of TERMINAL_COMMANDS) {
-      const consequence = CATALOGUE.get(CONSEQUENCE_KEY[kind] ?? "") ?? "";
+      const consequence = CATALOGUE.get(consequenceKeyFor(kind)) ?? "";
       // A confirm step whose body is three words teaches nothing. This is a floor, not a style
       // rule: the point of the dialog is that the player understands what they are about to lose.
       expect(consequence.split(" ").length, `${kind}'s consequence is too terse`).toBeGreaterThan(
         6,
       );
-      expect(consequence).not.toBe(CATALOGUE.get(ACTION_LABEL_KEY[kind]));
+      expect(consequence).not.toBe(CATALOGUE.get(baseLabelKey(kind)));
     }
   });
 });

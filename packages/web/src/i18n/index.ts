@@ -13,6 +13,8 @@
 import i18next from "i18next";
 import { initReactI18next } from "react-i18next";
 
+import { isolateForDirection } from "./bidi";
+
 import boardClassicEn from "./locales/board-classic.en.json";
 import boardClassicHe from "./locales/board-classic.he.json";
 import boardIsraelEn from "./locales/board-israel.en.json";
@@ -37,6 +39,48 @@ export const LOCALE_LABEL: Readonly<Record<Locale, string>> = {
 
 export function isLocale(value: string): value is Locale {
   return (LOCALES as readonly string[]).includes(value);
+}
+
+/**
+ * Every interpolated value, on its way into a sentence.
+ *
+ * The one transformation applied to all of them is bidi isolation (GAP G-43): a number or a Latin
+ * name dropped into a Hebrew sentence reorders its neighbours on screen while being correct in the
+ * DOM. See `bidi.ts` for why FSI/PDI and why it is conditional on direction.
+ *
+ * Values are stringified here rather than left to i18next's concatenation so that the isolation
+ * decision sees the same text the player will. `null` and `undefined` become empty strings — a
+ * missing param is a defect, but it is `missingInterpolationHandler`'s defect to report, and
+ * printing "undefined" at a child while it is investigated is not an improvement.
+ *
+ * **Not a money formatter.** Amounts still interpolate bare. Deciding how currency renders (symbol,
+ * placement, grouping) changes English output and wants a product decision, so it is deliberately
+ * out of this function rather than smuggled into it.
+ */
+function formatInterpolated(value: unknown, lng: string | undefined): string {
+  const direction = lng !== undefined && isLocale(lng) ? DIRECTION[lng] : "ltr";
+  return isolateForDirection(asText(value), direction);
+}
+
+/**
+ * An interpolated value as text, narrowed rather than coerced.
+ *
+ * `String(value)` would satisfy the compiler and print `[object Object]` at a player, so the scalar
+ * types a sentence can actually carry are listed and anything else becomes empty. An object reaching
+ * here is a caller's defect; rendering nothing keeps the rest of the sentence readable while it is
+ * found, and `missingInterpolationHandler` is the mechanism that is supposed to say so.
+ */
+function asText(value: unknown): string {
+  switch (typeof value) {
+    case "string":
+      return value;
+    case "number":
+    case "bigint":
+    case "boolean":
+      return value.toString();
+    default:
+      return "";
+  }
 }
 
 /**
@@ -85,7 +129,17 @@ export async function initI18n(locale: Locale = "en"): Promise<void> {
         cards: cardsEn,
       },
     },
-    interpolation: { escapeValue: false },
+    interpolation: {
+      escapeValue: false,
+      // `alwaysFormat` is what makes the formatter below run at all: without it i18next calls
+      // `format` only for interpolations that name one (`{{amount, currency}}`), and bidi isolation
+      // must not be something a catalogue author has to remember per placeholder. It is a property
+      // of *where the value lands*, not of the value, so the catalogues stay free of format specs —
+      // which also keeps `{{name}}` matching the placeholder-parity check in
+      // tests/test_locale_parity.py.
+      alwaysFormat: true,
+      format: (value, _format, lng) => formatInterpolated(value, lng),
+    },
     // A missing key must be loud, not a `console.error` nobody watches (GAP G-F17). Both
     // the Vite dev server and a Vitest run should fail hard on it — `import.meta.env.DEV`
     // covers `npm run dev`, `MODE === "test"` covers the test runner, where DEV alone

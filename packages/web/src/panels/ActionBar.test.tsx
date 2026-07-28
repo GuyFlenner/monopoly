@@ -16,7 +16,7 @@ import { makeBoard, makeTile } from "@/test/fixtures";
 import { COMMAND_KINDS, TERMINAL_COMMANDS } from "@/theme";
 
 import { ActionBar, groupCommands } from "./ActionBar";
-import { ACTION_LABEL_KEY, labelKeyFor } from "./ActionLabels";
+import { baseLabelKey, labelKeyFor } from "./actionCommand";
 
 const BOARD = makeBoard({
   tiles: [
@@ -120,7 +120,7 @@ describe("one button per legal command", () => {
     // The bridge is exhaustive by construction; this is the runtime restatement of that, so a raw
     // `build_house` reaching a child would be a red test rather than a screenshot somebody notices.
     for (const kind of COMMAND_KINDS) {
-      expect(ACTION_LABEL_KEY[kind]).toBeTruthy();
+      expect(baseLabelKey(kind)).toBeTruthy();
     }
   });
 });
@@ -387,7 +387,7 @@ describe("labelKeyFor, through the rendered bar", () => {
   it("uses the variant key for a hotel demolition", () => {
     renderBar([{ kind: "sell_house", player: 0, tile: 1, demolish_hotel: true }]);
     expect(labelKeyFor({ kind: "sell_house", player: 0, tile: 1, demolish_hotel: true })).toBe(
-      "action.sellHouse_hotel",
+      "action.sell_house_hotel",
     );
     expect(screen.getByRole("button", { name: /Sell the hotel/ })).toBeInTheDocument();
   });

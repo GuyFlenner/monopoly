@@ -388,7 +388,7 @@ describe("the modal focus contract", () => {
     await user.keyboard("{Escape}");
 
     expect(said.map(({ politeness, key, params }) => ({ politeness, key, params }))).toEqual([
-      { politeness: "polite", key: "auction.cannotLeave", params: {} },
+      { politeness: "polite", key: "auction.cannot_leave", params: {} },
     ]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

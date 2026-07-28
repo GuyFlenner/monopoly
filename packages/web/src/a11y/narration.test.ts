@@ -39,7 +39,7 @@ describe("narrate", () => {
         purpose: "move",
       }),
     ).toEqual([
-      { politeness: "polite", key: "a11y.diceResult", params: { first: 4, second: 3, total: 7 } },
+      { politeness: "polite", key: "a11y.dice_result", params: { first: 4, second: 3, total: 7 } },
     ]);
   });
 

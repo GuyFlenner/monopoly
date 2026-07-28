@@ -162,7 +162,7 @@ describe("legality is the validator's answer, never the panel's opinion", () => 
   it("refuses a draft the validator rejects, and shows the engine's reason", async () => {
     const user = userEvent.setup();
     const { sent } = renderBuilder({
-      answer: { legal: false, reason_key: "error.insufficientFunds", params: {} },
+      answer: { legal: false, reason_key: "error.insufficient_funds", params: {} },
     });
 
     await user.click(within(tray("Ruti")).getByRole("checkbox", { name: /Mediterranean/ }));
@@ -432,7 +432,7 @@ describe("the modal focus contract", () => {
     await user.keyboard("{Escape}");
 
     expect(said.map(({ politeness, key }) => ({ politeness, key }))).toEqual([
-      { politeness: "polite", key: "trade.cannotLeave" },
+      { politeness: "polite", key: "trade.cannot_leave" },
     ]);
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

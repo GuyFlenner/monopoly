@@ -241,9 +241,9 @@ describe("skipping is a real, reachable, remembered switch (G-F1)", () => {
     renderTray(makeDice(), spoken);
     await userEvent.click(screen.getByTestId("skip-animations"));
     expect(spoken).toHaveLength(1);
-    expect(spoken[0]).toMatchObject({ politeness: "polite", key: "a11y.animationsOff" });
+    expect(spoken[0]).toMatchObject({ politeness: "polite", key: "a11y.animations_off" });
     await userEvent.click(screen.getByTestId("skip-animations"));
-    expect(spoken[1]).toMatchObject({ key: "a11y.animationsOn" });
+    expect(spoken[1]).toMatchObject({ key: "a11y.animations_on" });
   });
 
   it("never announces the roll: that is the event stream's job (G-D1/G-54)", () => {

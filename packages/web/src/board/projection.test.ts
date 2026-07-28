@@ -87,31 +87,31 @@ describe("describeTile", () => {
 
   it("names the square and its kind, and says nothing about an owner it has not got", () => {
     const said = describeTile(base, echo);
-    expect(said).toContain("a11y.boardTile");
+    expect(said).toContain("a11y.board_tile");
     expect(said).toContain("name=Boardwalk");
-    expect(said).toContain("tileKind.property");
-    expect(said).not.toContain("a11y.ownedBy");
+    expect(said).toContain("tile_kind.property");
+    expect(said).not.toContain("a11y.owned_by");
   });
 
   it("names the owner when there is one", () => {
-    expect(describeTile({ ...base, ownerName: "Ruti" }, echo)).toContain("a11y.ownedBy name=Ruti");
+    expect(describeTile({ ...base, ownerName: "Ruti" }, echo)).toContain("a11y.owned_by name=Ruti");
   });
 
   it("distinguishes one house, several houses and a hotel", () => {
-    expect(describeTile({ ...base, houses: 1 }, echo)).toContain("a11y.tileOneHouse");
-    expect(describeTile({ ...base, houses: 3 }, echo)).toContain("a11y.tileHouses houses=3");
-    expect(describeTile({ ...base, houses: 5 }, echo)).toContain("a11y.tileHotel");
+    expect(describeTile({ ...base, houses: 1 }, echo)).toContain("a11y.tile_one_house");
+    expect(describeTile({ ...base, houses: 3 }, echo)).toContain("a11y.tile_houses houses=3");
+    expect(describeTile({ ...base, houses: 5 }, echo)).toContain("a11y.tile_hotel");
   });
 
   it("calls the fifth building a hotel without ever calling it four houses", () => {
     const hotel = describeTile({ ...base, houses: 5 }, echo);
-    expect(hotel).not.toContain("a11y.tileHouses");
-    expect(hotel).not.toContain("a11y.tileOneHouse");
+    expect(hotel).not.toContain("a11y.tile_houses");
+    expect(hotel).not.toContain("a11y.tile_one_house");
   });
 
   it("says a square is mortgaged", () => {
-    expect(describeTile({ ...base, mortgaged: true }, echo)).toContain("a11y.tileMortgaged");
-    expect(describeTile(base, echo)).not.toContain("a11y.tileMortgaged");
+    expect(describeTile({ ...base, mortgaged: true }, echo)).toContain("a11y.tile_mortgaged");
+    expect(describeTile(base, echo)).not.toContain("a11y.tile_mortgaged");
   });
 
   it("names every occupant, however few pieces the crowding ladder drew", () => {
@@ -138,8 +138,8 @@ describe("describeTile", () => {
       },
       echo,
     );
-    expect(said.indexOf("a11y.boardTile")).toBeLessThan(said.indexOf("a11y.tileHotel"));
-    expect(said.indexOf("a11y.tileHotel")).toBeLessThan(said.indexOf("a11y.tileMortgaged"));
-    expect(said.indexOf("a11y.tileMortgaged")).toBeLessThan(said.indexOf("a11y.tileOccupants"));
+    expect(said.indexOf("a11y.board_tile")).toBeLessThan(said.indexOf("a11y.tile_hotel"));
+    expect(said.indexOf("a11y.tile_hotel")).toBeLessThan(said.indexOf("a11y.tile_mortgaged"));
+    expect(said.indexOf("a11y.tile_mortgaged")).toBeLessThan(said.indexOf("a11y.tile_occupants"));
   });
 });

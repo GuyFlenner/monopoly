@@ -57,6 +57,7 @@ import {
   Token,
   type Translate,
 } from "@/board";
+import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { EventLog } from "@/panels/EventLog";
@@ -88,7 +89,7 @@ export function useReasonText(): (error: ApiError) => string {
         return t(error.reasonKey, error.params);
       }
       const fallback =
-        error.status >= 400 && error.status < 500 ? "error.illegalMove" : "error.network";
+        error.status >= 400 && error.status < 500 ? "error.illegal_move" : "error.network";
       return t(fallback, error.params);
     },
     [t, i18n],
@@ -143,6 +144,11 @@ function Chrome({
               reachable without hunting for the board's interior. The store behind it is
               module-level, so the two cannot disagree. */}
           <SkipAnimationsToggle />
+          {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
+              structurally rather than by care: this control writes to i18next and the document
+              element, and the game reaches this package as a projection cached by TanStack Query
+              that nothing here invalidates. */}
+          <LocaleSwitch />
           <button
             type="button"
             onClick={onLeave}
@@ -370,7 +376,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             }}
             className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
           >
-            {t("action.trade")}
+            {t("action.propose_trade")}
           </button>
 
           <section aria-labelledby={playersHeadingId} className="flex flex-col gap-2">
@@ -419,7 +425,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
       {/*
         An auction is a phase, so the panel has no `onClose`: `ModalDialog` narrates
-        `auction.cannotLeave` on Escape rather than dropping a player onto a board that is not
+        `auction.cannot_leave` on Escape rather than dropping a player onto a board that is not
         taking commands.
       */}
       {auctionFrame !== undefined && (
