@@ -5,6 +5,15 @@
  * tile (a house pip, a hotel block, a mortgage stamp) whose sizes are physical rather than part of
  * any scale, and the dice tumble's keyframes.
  *
+ * ## The block-axis sizing contract
+ *
+ * Two of the rules below (`.kesef-board-row`'s single track and `.kesef-tile`'s `block-size`) are
+ * not decoration — they are the arithmetic that keeps eleven rows of squares inside a square box.
+ * They live in this file rather than in a Tailwind class list so that `board.css.test.ts` can
+ * assert them by *content*: jsdom has no layout engine, so a Vitest assertion cannot measure an
+ * overflowing board, but it can read the stylesheet and refuse a board whose rows are free to size
+ * themselves to their text. See the comment on each rule for what breaks without it.
+ *
  * ## Logical properties, and the one exception that is not here
  *
  * Every declaration below is direction-neutral or logical, and Stylelint checks that
@@ -31,8 +40,40 @@
     repeating-linear-gradient(-45deg, rgb(0 0 0 / 4%) 0 2px, transparent 2px 4px);
 }
 
-/* A card face lifted off the felt. Warm, chunky, and rimmed by the keyline the theme provides. */
+/*
+ * One row of the ring: eleven grid areas in a single block-axis track.
+ *
+ * `grid-template-rows` is declared, and declared as exactly one track, for two reasons that both
+ * end in an overflowing board.
+ *
+ * A row is a real element rather than `display: contents` — deliberately, so that `role="row"` has
+ * a box the accessibility tree can believe (`display: contents` drops it). Being a real element, it
+ * is a nested grid, and a nested grid with no `grid-template-rows` sizes its one implicit track to
+ * its *content*. Its children ask for `block-size: 100%`, which is cyclic against an auto track and
+ * so resolves to auto: the squares collapse to the height of their own text (6 px at 320 px) and
+ * float at the top of a 26 px band.
+ *
+ * And one explicit track is the ceiling that stops auto-placement inventing more. The bottom edge's
+ * squares are emitted in travel order, which runs from column 11 back to column 2 — *descending* —
+ * and grid's sparse auto-placement cannot put an item in a column behind its cursor, so it starts a
+ * fresh implicit row for each one. That is what made row 11 a 145 px staircase inside a 26 px band,
+ * painting ten squares over the panels below the felt. `Board.tsx` also places every square
+ * explicitly (`grid-row: 1`) so no square is auto-placed at all; this is the second lock on the
+ * same door, and `Board.test.tsx` asserts the first.
+ */
+.kesef-board-row {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+ * A card face lifted off the felt. Warm, chunky, and rimmed by the keyline the theme provides.
+ *
+ * `block-size: 100%` is load-bearing, not cosmetic: a square is a flex column whose parts are
+ * percentages of it (a 22% band, a 10% ownership plinth), so with an auto block size it shrinks to
+ * its text and the percentages resolve against nothing.
+ */
 .kesef-tile {
+  block-size: 100%;
   box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
 }
 

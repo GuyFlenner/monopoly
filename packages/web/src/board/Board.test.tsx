@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { patternDomId, SEAT_COUNT, TILE_THEME_KEYS } from "@/theme";
+import { patternDomId, SEAT_COUNT, ThemeSprite, TILE_THEME_KEYS } from "@/theme";
 
 import { Board } from "./Board";
 import { makeProperties, makeRingBoard, makeRingState, makeSeats } from "./fixtures";
@@ -64,11 +64,18 @@ function renderBoard(
   const board = makeRingBoard();
   const state = makeRingState();
   const result = render(
-    <Board
-      board={board}
-      state={state}
-      {...(options.onOpenTile === undefined ? {} : { onOpenTile: options.onOpenTile })}
-    />,
+    // `<Board>` requires a `<ThemeSprite>` ancestor for the `url(#kesef-band-…)` its colour bands
+    // paint with; the app shell mounts the only one (`App.tsx`), and a Board rendered outside the
+    // shell supplies its own as a sibling. Satisfying the dependency here rather than inside the
+    // component is the difference between one `<defs>` in the document and two.
+    <>
+      <ThemeSprite />
+      <Board
+        board={board}
+        state={state}
+        {...(options.onOpenTile === undefined ? {} : { onOpenTile: options.onOpenTile })}
+      />
+    </>,
   );
   return { ...result, board, state };
 }
@@ -117,6 +124,43 @@ describe("Board layout", () => {
     // Four corners plus the taxes, chances and chests. Painting Free Parking brown would be worse
     // than painting it plain, so the count of bands must be strictly below the count of squares.
     expect(screen.getAllByTestId("group-band").length).toBeLessThan(TILE_COUNT);
+  });
+
+  /**
+   * The other half of the 320 px overflow regression; `board.css.test.ts` owns the sizing half and
+   * explains why neither can be a measurement.
+   *
+   * A square left to grid's auto-placement is a square whose position depends on the *order* the
+   * squares are emitted in, and the bottom edge is emitted in travel order — columns 11, 10, ... 2.
+   * Sparse auto-placement cannot put an item in a column behind its cursor, so it opened a new
+   * implicit row for each of the ten: a 145 px staircase inside a 26 px band, ten squares painting
+   * over the panels under the felt. Explicit placement in both axes is what makes emission order
+   * irrelevant, and it is checkable without layout because it is an inline style.
+   */
+  it("places every square explicitly in both axes, so no square is auto-placed", () => {
+    renderBoard();
+    for (let index = 0; index < TILE_COUNT; index += 1) {
+      const cell = cellAt(index).parentElement;
+      expect(cell, `square ${String(index)} has no grid area`).not.toBeNull();
+      const placed = cell as HTMLElement;
+      expect(placed.style.gridColumn, `square ${String(index)} has no explicit column`).not.toBe(
+        "",
+      );
+      expect(placed.style.gridRow, `square ${String(index)} has no explicit row`).toBe("1");
+    }
+  });
+
+  it("mounts no pattern <defs> of its own, so the ten pattern ids appear once", () => {
+    // The sprite in `renderBoard` is the shell's stand-in and the only one there should be. A second
+    // copy is invisible — `url(#id)` resolves the first — and is ten duplicated element ids.
+    const { container } = renderBoard();
+    expect(container.querySelectorAll("defs")).toHaveLength(1);
+    for (const key of TILE_THEME_KEYS) {
+      expect(
+        container.querySelectorAll(`#${patternDomId(key)}`),
+        `${patternDomId(key)} is not unique`,
+      ).toHaveLength(1);
+    }
   });
 });
 

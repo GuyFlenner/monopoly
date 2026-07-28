@@ -32,6 +32,17 @@
  * "skip to actions" link is the first focusable thing in the subtree, so a keyboard user never has
  * to cross the board to reach a button.
  *
+ * # Requires a `<ThemeSprite>` ancestor
+ *
+ * Every square's colour band paints itself with `fill: url(#kesef-band-…)`, and those ten
+ * `<pattern>` definitions live in the one `<ThemeSprite>` the app shell mounts at the root
+ * (`App.tsx`) — the same way `<DiceTray>` requires an `<AnnouncerProvider>` above it rather than
+ * carrying its own. **This component must not mount one of its own.** It did, and the document then
+ * carried two elements for each of the ten pattern ids: harmless to look at, because `url(#id)`
+ * resolves the first, and invalid HTML all the same. A `<Board>` rendered outside the shell — a
+ * test, a story — supplies its own sprite as a sibling, which is the dependency being visible
+ * rather than the duplicate coming back.
+ *
  * # No rules, and no live region
  *
  * Every field drawn here comes off the projection — `owner`, `houses`, `mortgaged` — and nothing is
@@ -44,7 +55,6 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 
 import type { BoardView, GameStateView } from "@/api";
-import { ThemeSprite } from "@/theme";
 
 import {
   GRID_SPAN,
@@ -254,9 +264,6 @@ export function Board({
         {t("board.skipToActions")}
       </a>
 
-      {/* The pattern definitions every colour band references. Mounted once; see `patterns.tsx`. */}
-      <ThemeSprite />
-
       <p id="kesef-board-hint" className="sr-only">
         {t("board.keyboardHint")}
       </p>
@@ -309,7 +316,9 @@ export function Board({
                 key={row}
                 role="row"
                 aria-rowindex={row}
-                className="col-span-full grid gap-[0.4%]"
+                // `kesef-board-row` carries the single block-axis track. Without it this nested grid
+                // sizes itself to its content and the squares collapse — see `board.css`.
+                className="kesef-board-row col-span-full grid gap-[0.4%]"
                 style={{
                   gridRow: row,
                   gridTemplateColumns: `repeat(${String(GRID_SPAN)}, minmax(0, 1fr))`,
@@ -327,7 +336,12 @@ export function Board({
                   return (
                     <div
                       key={placement.index}
-                      style={{ gridColumn: placement.column }}
+                      // Both axes, always. The row is one track tall, and the bottom edge's columns
+                      // run 11 -> 2, which grid's sparse auto-placement answers by opening a new
+                      // implicit row per square — ten squares staircasing out of the felt. An
+                      // explicit `grid-row` means nothing here is auto-placed, so the order the
+                      // squares are emitted in cannot move any of them (`Board.test.tsx`).
+                      style={{ gridRow: 1, gridColumn: placement.column }}
                       className="h-full w-full"
                     >
                       <Tile
