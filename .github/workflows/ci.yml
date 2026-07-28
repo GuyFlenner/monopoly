@@ -140,7 +140,11 @@ jobs:
       - run: uv sync --frozen
       - name: Export OpenAPI
         run: uv run python -m kesef_server.openapi > openapi.json
+      # Version-pinned on purpose: `npx openapi-typescript` resolves the latest release,
+      # so an upstream patch that changes one line of emitted formatting would fail this
+      # job as "contract drift" on a PR that touched nothing. The pin is the version in
+      # packages/web/package-lock.json, which is what `npm run api:generate` uses locally.
       - name: Generate types and diff
         run: |
-          npx --yes openapi-typescript openapi.json -o /tmp/generated.ts
+          npx --yes openapi-typescript@7.13.0 openapi.json -o /tmp/generated.ts
           diff -u packages/web/src/api/generated.ts /tmp/generated.ts
