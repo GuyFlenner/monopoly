@@ -102,12 +102,9 @@ type Gender = SeatConfig["grammatical_gender"];
 
 const BOT_LEVELS: readonly BotLevel[] = ["easy", "normal", "hard"];
 
-/** The existing catalogue already labels the three difficulties; no second naming scheme. */
-const BOT_LEVEL_KEYS: Readonly<Record<BotLevel, string>> = {
-  easy: "setup.easy",
-  normal: "setup.normal",
-  hard: "setup.hard",
-};
+// No `Record<BotLevel, string>` map here: MON-501 moved the three level names to `bot_level.*`,
+// so the key is the level. The same reason `ActionLabels.ts` no longer exists — a hand-written
+// bridge between the engine's vocabulary and the catalogue's is a bridge that can drift.
 
 const GENDERS: readonly Gender[] = ["n", "m", "f"];
 
@@ -416,7 +413,7 @@ function SeatCard({
             id={`${fieldId}-level`}
             label={t("setup.bot_level_label")}
             value={seat.botLevel}
-            options={BOT_LEVELS.map((level) => ({ value: level, label: t(BOT_LEVEL_KEYS[level]) }))}
+            options={BOT_LEVELS.map((level) => ({ value: level, label: t(`bot_level.${level}`) }))}
             onChange={(value) => {
               onChange({ botLevel: value as BotLevel });
             }}

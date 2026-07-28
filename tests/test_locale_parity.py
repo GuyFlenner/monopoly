@@ -384,6 +384,63 @@ _APP_SHELL = frozenset(
 )
 """The M4 app shell's English-only keys — the two-screen chrome, its states and its headings."""
 
+_REJECTION_REASONS = frozenset(
+    {
+        # The 39 keys MON-501 added once ``tests/test_key_contract.py`` showed that 45 of the 50
+        # ``error.*`` reasons the engine and server can return resolved against nothing at all.
+        # Six of the missing ones were recovered by renaming their camelCase corpses
+        # (``error.evenBuild`` -> ``error.uneven_build``) and kept the Hebrew they already had;
+        # these are the ones that had to be written from scratch, so they have no Hebrew yet.
+        #
+        # They are listed here rather than translated in the same pass for one reason: half of them
+        # are sentences addressed to a player ("You don't own this square", "It isn't your turn to
+        # bid"), and Hebrew inflects both the possessive and the verb for the addressee's gender
+        # (GAP G-42). The other half interpolate a figure, and bidi isolation is still unsolved
+        # (G-43) — a bare ``{{minimum}}`` inside a Hebrew sentence scrambles. Both are MON-501's
+        # remaining work, and neither is improved by a machine-plausible guess landing first.
+        "error.already_mortgaged",
+        "error.at_maximum_development",
+        "error.bankrupt",
+        "error.bid_above_ceiling",
+        "error.bid_too_low",
+        "error.engine_failure",
+        "error.game_already_exists",
+        "error.game_over",
+        "error.group_mortgaged",
+        "error.http_error",
+        "error.invalid_game_id",
+        "error.jail_card_not_held",
+        "error.method_not_allowed",
+        "error.mortgages_disabled",
+        "error.no_buildings",
+        "error.no_hotels_left",
+        "error.no_jail_card",
+        "error.not_buildable",
+        "error.not_found",
+        "error.not_in_jail",
+        "error.not_mortgaged",
+        "error.not_owner",
+        "error.not_the_debtor",
+        "error.not_trade_proposer",
+        "error.not_trade_recipient",
+        "error.not_your_bid_turn",
+        "error.not_your_offer",
+        "error.recipient_bankrupt",
+        "error.save_schema_mismatch",
+        "error.save_too_large",
+        "error.server_at_capacity",
+        "error.tile_already_owned",
+        "error.tile_not_ownable",
+        "error.too_many_watchers",
+        "error.trade_too_complex",
+        "error.trading_disabled",
+        "error.unknown_player",
+        "error.watcher_too_slow",
+        "error.wrong_phase",
+    }
+)
+"""The rejection reasons MON-501 wrote English for. Hebrew follows in the same item."""
+
 AWAITING_HEBREW = (
     _NARRATION_AWAITING_HEBREW
     | _EVENT_LOG_AWAITING_HEBREW
@@ -393,6 +450,7 @@ AWAITING_HEBREW = (
     | _AUCTION_AND_TRADE
     | _PANELS
     | _APP_SHELL
+    | _REJECTION_REASONS
 )
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 

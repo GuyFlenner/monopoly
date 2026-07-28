@@ -1,7 +1,8 @@
 {
-  "app": {
-    "title": "רחוב הכסף",
-    "tagline": "לקנות רחובות. לגבות שכר דירה. לא להתרברב יותר מדי."
+  "a11y": {
+    "dice_result": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
+    "board_tile": "{{name}}, {{kind}}{{owner}}",
+    "owned_by": ", בבעלות {{name}}"
   },
   "action": {
     "roll_dice": "הטל קוביות",
@@ -18,6 +19,54 @@
     "use_jail_card": "השתמש בכרטיס יציאה",
     "roll_for_jail": "הטל לזוגי",
     "declare_bankruptcy": "אני נפרש"
+  },
+  "app": {
+    "title": "רחוב הכסף",
+    "tagline": "לקנות רחובות. לגבות שכר דירה. לא להתרברב יותר מדי."
+  },
+  "board": {
+    "classic": {
+      "name": "קלאסי (אטלנטיק סיטי)"
+    },
+    "israel": {
+      "name": "ישראל"
+    }
+  },
+  "bot_level": {
+    "easy": "קל",
+    "normal": "בינוני",
+    "hard": "קשה"
+  },
+  "dossier": {
+    "title": "הנכסים של {{name}}",
+    "compare": "השווה שחקנים",
+    "pin": "הצמד זה לזה",
+    "unpin": "בטל הצמדה",
+    "complete_set": "סדרה שלמה",
+    "set_progress": "{{owned}} מתוך {{total}}",
+    "empty": "אין נכסים עדיין"
+  },
+  "error": {
+    "not_your_turn": "זה עוד לא התור שלך.",
+    "insufficient_funds": "אין מספיק מזומן לזה.",
+    "game_not_found": "המשחק הזה לא קיים יותר.",
+    "network": "שגיאת רשת. נסו שוב.",
+    "illegal_move": "המהלך הזה לא אפשרי כרגע.",
+    "group_incomplete": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
+    "uneven_build": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
+    "group_has_buildings": "צריך למכור את הבתים בסדרה לפני משכון.",
+    "no_houses_left": "נגמרו הבתים בבנק.",
+    "no_hotel_to_demolish": "אין כאן מלון לפרק."
+  },
+  "group": {
+    "brown": "חום",
+    "light_blue": "תכלת",
+    "pink": "ורוד",
+    "orange": "כתום",
+    "red": "אדום",
+    "yellow": "צהוב",
+    "green": "ירוק",
+    "dark_blue": "כחול כהה"
   },
   "label": {
     "cash": "מזומן",
@@ -36,22 +85,12 @@
     "bank": "הבנק",
     "loading": "טוען…"
   },
-  "group": {
-    "brown": "חום",
-    "light_blue": "תכלת",
-    "pink": "ורוד",
-    "orange": "כתום",
-    "red": "אדום",
-    "yellow": "צהוב",
-    "green": "ירוק",
-    "dark_blue": "כחול כהה"
-  },
-  "board": {
-    "classic": {
-      "name": "קלאסי (אטלנטיק סיטי)"
-    },
-    "israel": {
-      "name": "ישראל"
+  "rent": {
+    "note": {
+      "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}}).",
+      "card_utility_multiplier": "הקלף תמיד גובה פי {{multiplier}} מתוצאת הקוביות, לא משנה כמה מפעלים בבעלות.",
+      "railroad_count": "{{count}} רכבות בבעלות.",
+      "card_doubled": "הקלף מכפיל את שכר הדירה הזה."
     }
   },
   "setup": {
@@ -63,9 +102,6 @@
     "human": "אדם",
     "bot": "מחשב",
     "bot_level_label": "דרגת קושי",
-    "easy": "קל",
-    "normal": "בינוני",
-    "hard": "קשה",
     "board": "לוח",
     "ruleset": "חוקים",
     "universal": "חוקים מלאים",
@@ -73,39 +109,5 @@
     "kids_explainer": "בלי מכירות פומביות ובלי משכנתאות, עסקאות פשוטות, רמזים דולקים, והמשחק נגמר תוך כ-{{minutes}} דקות.",
     "language": "שפה",
     "start": "התחל משחק"
-  },
-  "dossier": {
-    "title": "הנכסים של {{name}}",
-    "compare": "השווה שחקנים",
-    "pin": "הצמד זה לזה",
-    "unpin": "בטל הצמדה",
-    "complete_set": "סדרה שלמה",
-    "set_progress": "{{owned}} מתוך {{total}}",
-    "empty": "אין נכסים עדיין"
-  },
-  "rent": {
-    "note": {
-      "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}}).",
-      "card_utility_multiplier": "הקלף תמיד גובה פי {{multiplier}} מתוצאת הקוביות, לא משנה כמה מפעלים בבעלות.",
-      "railroad_count": "{{count}} רכבות בבעלות.",
-      "card_doubled": "הקלף מכפיל את שכר הדירה הזה."
-    }
-  },
-  "error": {
-    "not_your_turn": "זה עוד לא התור שלך.",
-    "insufficient_funds": "אין מספיק מזומן לזה.",
-    "game_not_found": "המשחק הזה לא קיים יותר.",
-    "network": "שגיאת רשת. נסו שוב.",
-    "illegal_move": "המהלך הזה לא אפשרי כרגע.",
-    "group_incomplete": "צריך להחזיק בכל הסדרה בצבע לפני שבונים.",
-    "uneven_build": "מספר הבתים בסדרה חייב להישאר שווה עד הפרש של בית אחד.",
-    "group_has_buildings": "צריך למכור את הבתים בסדרה לפני משכון.",
-    "no_houses_left": "נגמרו הבתים בבנק.",
-    "no_hotel_to_demolish": "אין כאן מלון לפרק."
-  },
-  "a11y": {
-    "dice_result": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
-    "board_tile": "{{name}}, {{kind}}{{owner}}",
-    "owned_by": ", בבעלות {{name}}"
   }
 }
