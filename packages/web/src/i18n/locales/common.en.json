@@ -71,7 +71,50 @@
     "language": "Language",
     "start": "Start the game",
     "tooFewPlayers": "You need at least {{min}} players.",
-    "tooManyPlayers": "Up to {{max}} players can play."
+    "tooManyPlayers": "Up to {{max}} players can play.",
+    "seats": "Who's playing",
+    "seat": "Seat {{number}}",
+    "token": "Piece",
+    "pronoun": "Talk about this player as",
+    "playerType": "Person or computer",
+    "seed": "Seed",
+    "seedHint": "The same seed deals the same dice. Leave it blank for a fresh game.",
+    "table": "The table",
+    "kidsChanges": "What Kids mode changes",
+    "kidsNoChanges": "Kids mode plays by the full rules here.",
+    "cannotStart": "Can't start yet",
+    "starting": "Starting…"
+  },
+  "ruleset": {
+    "name": "Rule set",
+    "starting_cash": "Starting cash",
+    "go_salary": "GO salary",
+    "jail_fine": "Bail",
+    "houses_available": "Houses in the bank",
+    "hotels_available": "Hotels in the bank",
+    "auctions_enabled": "Auctions",
+    "mortgages_enabled": "Mortgages",
+    "trading_enabled": "Trading",
+    "even_build_enforced": "Even building",
+    "building_shortage_auction": "Auction scarce buildings",
+    "max_jail_turns": "Turns you can sit in jail",
+    "free_parking_pot_enabled": "Free Parking pot",
+    "double_salary_on_exact_go": "Double salary for landing on GO",
+    "hints_enabled": "Hints",
+    "target_duration_minutes": "Target length in minutes",
+    "simplified_trades": "Simpler trades",
+    "starting_cash_denominations": "Notes in the cash tray",
+    "value": {
+      "on": "On",
+      "off": "Off",
+      "none": "None"
+    },
+    "previous": "Full rules: {{value}}"
+  },
+  "gender": {
+    "m": "He",
+    "f": "She",
+    "n": "They"
   },
   "dossier": {
     "title": "{{name}}'s properties",
@@ -82,8 +125,45 @@
     "setProgress": "{{owned}} of {{total}}",
     "empty": "No properties yet"
   },
+  "cash_reason": {
+    "go_salary": "GO salary",
+    "rent": "rent",
+    "purchase": "bought a property",
+    "auction_win": "won an auction",
+    "tax": "tax",
+    "jail_fine": "bail",
+    "card": "a card",
+    "build": "building work",
+    "sell_building": "sold a building",
+    "mortgage": "mortgaged a property",
+    "unmortgage": "paid off a mortgage",
+    "mortgage_transfer_fee": "mortgage transfer fee",
+    "trade": "a trade",
+    "bankruptcy_transfer": "a bankruptcy",
+    "free_parking_pot": "the Free Parking pot"
+  },
+  "auction_reason": {
+    "declined_purchase": "nobody bought it",
+    "bankruptcy_to_bank": "it came back to the bank",
+    "building_shortage": "the bank is short of buildings"
+  },
+  "deck": {
+    "chance": "Chance",
+    "community_chest": "Community Chest"
+  },
+  "building": {
+    "house": "house",
+    "hotel": "hotel"
+  },
+  "game_end_reason": {
+    "last_solvent": "everyone else ran out of money",
+    "time_limit": "time ran out",
+    "concession": "the others gave up",
+    "no_survivors": "nobody was left solvent"
+  },
   "rent": {
     "note": {
+      "full_group_doubled": "Doubled: one player owns the whole {{group}} set.",
       "fullGroupDoubled": "Rent is doubled: {{name}} owns the whole {{group}} set.",
       "railroads": "{{count}} railroads owned.",
       "utilityOne": "One utility: 4 × the dice roll.",
@@ -95,6 +175,54 @@
       "railroad_count": "{{count}} railroads owned.",
       "card_doubled": "The card doubles this rent."
     }
+  },
+  "log": {
+    "title": "What's happened",
+    "empty": "Nothing yet. Roll the dice to start the story.",
+    "unknown_tile": "a space on the board",
+    "turn_started": "Turn {{turn}} begins · {{name}}",
+    "dice_rolled_move": "{{name}} rolled {{first}} and {{second}} — {{total}} in all.",
+    "dice_rolled_jail": "{{name}} rolled {{first}} and {{second}}, trying for doubles to get out of jail.",
+    "dice_rolled_rent": "{{name}} rolled {{first}} and {{second}} — {{total}} — to work out the rent.",
+    "token_moved": "{{name}} moved to {{tile}}.",
+    "token_moved_passed_go": "{{name}} moved to {{tile}}, passing GO on the way.",
+    "token_moved_back": "{{name}} moved backwards to {{tile}}.",
+    "cash_gained": "{{name}} collected {{amount}} for {{reason}}.",
+    "cash_paid": "{{name}} paid {{amount}} for {{reason}}.",
+    "rent_charged": "{{payer}} paid {{owner}} {{amount}} in rent for {{tile}}.",
+    "property_acquired_purchase": "{{name}} bought {{tile}} for {{price}}.",
+    "property_acquired_auction": "{{name}} won {{tile}} at auction for {{price}}.",
+    "property_acquired_trade": "{{name}} picked up {{tile}} in a trade.",
+    "property_acquired_bankruptcy": "{{name}} took over {{tile}} from a bankruptcy.",
+    "auction_started": "{{lot}} goes up for auction — {{reason}}.",
+    "bid_placed": "{{name}} bid {{amount}}.",
+    "bidder_withdrew": "{{name}} dropped out of the auction.",
+    "auction_ended": "{{name}} won {{lot}} for {{price}}.",
+    "auction_ended_unsold": "Nobody bid for {{lot}}.",
+    "card_drawn": "{{name}} drew a {{deck}} card.",
+    "sent_to_jail_tile": "{{name}} landed on Go To Jail and went straight there.",
+    "sent_to_jail_card": "A card sent {{name}} to jail.",
+    "sent_to_jail_three_doubles": "Three doubles in a row sent {{name}} to jail.",
+    "left_jail_fine": "{{name}} paid the bail and left jail.",
+    "left_jail_card": "{{name}} used a Get Out of Jail card.",
+    "left_jail_doubles": "{{name}} rolled doubles and left jail.",
+    "left_jail_time_served": "{{name}} served the full stretch and left jail.",
+    "building_built_one": "A building went up on {{tile}} — {{remaining}} there now.",
+    "building_built_other": "{{count}} buildings went up on {{tile}} — {{remaining}} there now.",
+    "building_sold_one": "A building came down from {{tile}} — {{remaining}} left.",
+    "building_sold_other": "{{count}} buildings came down from {{tile}} — {{remaining}} left.",
+    "mortgaged": "{{tile}} was mortgaged.",
+    "unmortgaged": "{{tile}} was paid off.",
+    "trade_proposed": "{{proposer}} offered {{recipient}} a trade.",
+    "trade_executed": "{{proposer}} and {{recipient}} shook on a trade.",
+    "trade_declined": "{{recipient}} turned down {{proposer}}'s trade.",
+    "trade_cancelled_proposer": "{{proposer}} took the trade offer back.",
+    "trade_cancelled_system": "The trade between {{proposer}} and {{recipient}} was called off.",
+    "debt_incurred": "{{debtor}} owes {{creditor}} {{amount}}.",
+    "debt_settled": "{{debtor}} settled {{amount}} with {{creditor}}.",
+    "player_bankrupted": "{{name}} is out of the game — everything goes to {{creditor}}.",
+    "game_ended": "{{name}} wins — {{reason}}.",
+    "game_ended_no_winner": "The game is over — {{reason}}."
   },
   "event": {
     "passedGo": "{{name}} passed GO and collected {{amount}}.",
@@ -117,7 +245,10 @@
     "noHousesLeft": "The bank has run out of houses.",
     "mustSellFirst": "Sell the houses on this set before mortgaging.",
     "no_houses_left": "The bank has run out of houses.",
-    "no_hotel_to_demolish": "There's no hotel here to demolish."
+    "no_hotel_to_demolish": "There's no hotel here to demolish.",
+    "malformed_request": "Something in the form isn't right yet: {{fields}}.",
+    "invalid_new_game": "Those seats won't work. Every player needs a different name, and a game takes between two and six of them.",
+    "unknown_board": "There's no board called {{board_id}}."
   },
   "a11y": {
     "diceResult": "Rolled {{first}} and {{second}}, total {{total}}.",
