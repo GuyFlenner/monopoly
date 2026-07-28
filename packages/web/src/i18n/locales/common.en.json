@@ -116,6 +116,14 @@
     "f": "She",
     "n": "They"
   },
+  "token": {
+    "kite": "Kite",
+    "drum": "Drum",
+    "boat": "Boat",
+    "rocket": "Rocket",
+    "bicycle": "Bicycle",
+    "umbrella": "Umbrella"
+  },
   "dossier": {
     "title": "{{name}}'s properties",
     "compare": "Compare players",

@@ -182,6 +182,16 @@ _SETUP_AWAITING_HEBREW = frozenset(
         "error.invalid_new_game",
         "error.malformed_request",
         "error.unknown_board",
+        # The playing pieces. Each is a common noun with a gender in Hebrew, and the noun's
+        # gender is what the sentences naming it have to agree with — so these belong with the
+        # rest of MON-501 rather than beside their English, and they are a MON-412 stand-in in
+        # any case (see ``SetupScreen.tsx``).
+        "token.bicycle",
+        "token.boat",
+        "token.drum",
+        "token.kite",
+        "token.rocket",
+        "token.umbrella",
     }
 )
 
