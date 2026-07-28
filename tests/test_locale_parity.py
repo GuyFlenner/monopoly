@@ -24,7 +24,42 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
-AWAITING_HEBREW = frozenset(
+_BOARD = frozenset(
+    {
+        # MON-403's board chrome and the ten tile-kind names. Hebrew is withheld rather than guessed
+        # for the same reason as the narration below: "street", "railroad" and "utility" all take a
+        # definite article that agrees with the noun's gender, and G-F8 records that the existing
+        # Hebrew catalogue already inflects a colour name across an interpolation boundary and gets
+        # three of eight groups wrong. Adding ten more inflected nouns from a non-speaker would
+        # deepen a known defect. MON-501 owns the Hebrew catalogue and the i18next gender context.
+        "board.label",
+        "board.skipToActions",
+        "board.keyboardHint",
+        "board.openTile",
+        "board.moreTokens",
+        "tileKind.go",
+        "tileKind.property",
+        "tileKind.railroad",
+        "tileKind.utility",
+        "tileKind.chance",
+        "tileKind.community_chest",
+        "tileKind.tax",
+        "tileKind.jail",
+        "tileKind.free_parking",
+        "tileKind.go_to_jail",
+        # The square's spoken description. Every one of these is a clause appended to a sentence
+        # about a named square, so word order and agreement are a translator's decision, not a
+        # concatenation a developer can guess at.
+        "a11y.tileOneHouse",
+        "a11y.tileHouses",
+        "a11y.tileHotel",
+        "a11y.tileMortgaged",
+        "a11y.tileOccupants",
+    }
+)
+"""MON-403's English-only keys — the board's chrome, tile kinds and spoken square description."""
+
+AWAITING_HEBREW = _BOARD | frozenset(
     {
         "a11y.moved",
         "a11y.passed_go",

@@ -51,7 +51,24 @@
   },
   "board": {
     "classic": { "name": "Classic (Atlantic City)" },
-    "israel": { "name": "Israel" }
+    "israel": { "name": "Israel" },
+    "label": "Game board",
+    "skipToActions": "Skip to actions",
+    "keyboardHint": "Arrow keys move around the board, Home goes to GO, End goes to jail, and Enter opens a square.",
+    "openTile": "Open {{name}}",
+    "moreTokens": "+{{hidden}}"
+  },
+  "tileKind": {
+    "go": "GO",
+    "property": "street",
+    "railroad": "railroad",
+    "utility": "utility",
+    "chance": "chance",
+    "community_chest": "community chest",
+    "tax": "tax",
+    "jail": "jail",
+    "free_parking": "free parking",
+    "go_to_jail": "go to jail"
   },
   "setup": {
     "title": "New game",
@@ -135,6 +152,11 @@
     "turn": "It is {{name}}'s turn.",
     "phase_auction": "An auction has started.",
     "phase_debt_settlement": "A debt has to be settled before play continues.",
-    "phase_trade_review": "A trade is waiting for an answer."
+    "phase_trade_review": "A trade is waiting for an answer.",
+    "tileOneHouse": ", with one house",
+    "tileHouses": ", with {{houses}} houses",
+    "tileHotel": ", with a hotel",
+    "tileMortgaged": ", mortgaged",
+    "tileOccupants": ". Standing here: {{names}}."
   }
 }
