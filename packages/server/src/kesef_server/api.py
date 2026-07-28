@@ -85,7 +85,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_store = SessionStore(max_sessions=settings.max_sessions)
+_store = SessionStore(
+    max_sessions=settings.max_sessions,
+    ttl_seconds=settings.session_ttl_minutes * 60,
+)
 
 
 def get_store() -> SessionStore:

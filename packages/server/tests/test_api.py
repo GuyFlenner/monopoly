@@ -18,7 +18,7 @@ from collections.abc import MutableMapping
 from typing import Any, Final
 
 import pytest
-from conftest import FakeClock, minimal_state, new_game_payload, seat
+from conftest import SESSION_TTL_SECONDS, FakeClock, minimal_state, new_game_payload, seat
 from fastapi import status
 from fastapi.testclient import TestClient
 
@@ -323,7 +323,7 @@ def test_the_session_cap_cannot_be_wedged_by_ids_that_cannot_be_deleted(client: 
     A one-slot server: every unaddressable id must leave the slot free, because a game under
     such an id could never be deleted and 503 would then be permanent.
     """
-    store = SessionStore(max_sessions=1, clock=FakeClock())
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
     app.dependency_overrides[get_store] = lambda: store
 
     for game_id in UNADDRESSABLE_GAME_IDS:
@@ -345,7 +345,8 @@ def test_a_duplicate_game_id_is_a_conflict_not_a_silent_overwrite(client: TestCl
 
 
 def test_the_session_cap_is_a_key_based_error(client: TestClient) -> None:
-    app.dependency_overrides[get_store] = lambda: SessionStore(max_sessions=0, clock=FakeClock())
+    full = SessionStore(max_sessions=0, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
+    app.dependency_overrides[get_store] = lambda: full
     response = client.post("/games", json=new_game_payload())
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert response.json()["reason_key"] == "error.server_at_capacity"
@@ -520,6 +521,17 @@ def test_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
     # ADR-008 §4 / G-33: errors are `{reason_key, params}` everywhere, not FastAPI's
     # `{detail}` — the key used to arrive under a field the generated client could not type.
     assert response.json()["reason_key"] == "error.game_not_found"
+
+
+def test_an_idle_game_is_evicted_and_answers_the_ordinary_404(client: TestClient, clock: FakeClock) -> None:
+    """`session_ttl_minutes` reaching the wire: from the client's side an evicted game is a
+    game that is not there, which is the same key as one that never was."""
+    game_id = _create(client)["state"]["game_id"]
+    clock.advance(SESSION_TTL_SECONDS + 1)
+    response = client.get(f"/games/{game_id}")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["reason_key"] == "error.game_not_found"
+    assert client.get("/games").json() == []
 
 
 def test_a_negative_cursor_is_refused(client: TestClient) -> None:

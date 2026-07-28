@@ -15,7 +15,7 @@ import asyncio
 from typing import Any, cast
 
 import pytest
-from conftest import minimal_state, new_game_payload
+from conftest import SESSION_TTL_SECONDS, minimal_state, new_game_payload
 from fastapi import WebSocket, status
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
@@ -145,7 +145,7 @@ async def test_an_event_already_replayed_is_never_pushed_a_second_time() -> None
     client: nothing awaits between subscribing and taking the snapshot. Exercising the helper
     is the only way to assert the rule instead of assuming it.
     """
-    store = SessionStore(max_sessions=2)
+    store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
     store.create(minimal_state())
     session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
     already_seen = session.log[0]
@@ -166,7 +166,7 @@ async def test_an_event_already_replayed_is_never_pushed_a_second_time() -> None
 
 async def test_the_helper_stops_when_the_client_goes_away() -> None:
     """A disconnect is an ordinary end of stream, not an error to escalate."""
-    store = SessionStore(max_sessions=2)
+    store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
     store.create(minimal_state())
     session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
 

@@ -9,7 +9,7 @@ silently.
 from __future__ import annotations
 
 import pytest
-from conftest import FakeClock, minimal_state
+from conftest import SESSION_TTL_SECONDS, FakeClock, minimal_state
 
 from kesef_engine.events import PhaseChanged, TurnStarted
 from kesef_engine.phases import Phase
@@ -22,8 +22,12 @@ from kesef_server.sessions import (
 )
 
 
-def _store(max_sessions: int = 4) -> SessionStore:
-    return SessionStore(max_sessions=max_sessions, clock=FakeClock())
+def _store(
+    max_sessions: int = 4,
+    ttl_seconds: float = SESSION_TTL_SECONDS,
+    clock: FakeClock | None = None,
+) -> SessionStore:
+    return SessionStore(max_sessions=max_sessions, ttl_seconds=ttl_seconds, clock=clock or FakeClock())
 
 
 def test_a_new_session_has_an_empty_log_and_a_zero_cursor() -> None:
@@ -58,7 +62,7 @@ def test_events_since_a_cursor_excludes_what_the_client_already_has() -> None:
 
 
 def test_the_cap_is_enforced() -> None:
-    store = SessionStore(max_sessions=0, clock=FakeClock())
+    store = SessionStore(max_sessions=0, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
     with pytest.raises(SessionLimitReachedError):
         store.create(minimal_state())
 
@@ -79,12 +83,67 @@ def test_an_unknown_game_raises() -> None:
 
 
 def test_delete_frees_a_slot() -> None:
-    store = SessionStore(max_sessions=1, clock=FakeClock())
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
     store.create(minimal_state())
     store.delete("g")
     assert len(store) == 0
     store.create(minimal_state())
     assert len(store) == 1
+
+
+# --- Idle eviction (MON-303 security review) --------------------------------
+
+
+def test_an_idle_game_is_evicted_and_its_slot_reclaimed() -> None:
+    """``session_ttl_minutes`` used to be declared, documented and referenced nowhere, so a
+    full ``max_sessions`` had no recovery but a restart."""
+    clock = FakeClock()
+    store = _store(max_sessions=1, ttl_seconds=100.0, clock=clock)
+    store.create(minimal_state())
+
+    clock.advance(101.0)
+    with pytest.raises(UnknownGameError):
+        store.get("g")
+    assert len(store) == 0
+    assert store.all() == ()
+    # And the reclaimed slot is genuinely usable, which is the point of reclaiming it.
+    assert store.create(minimal_state(game_id="next")).state.game_id == "next"
+
+
+def test_a_game_still_being_played_is_never_evicted() -> None:
+    """The sweep reads ``touched_at``, not ``started_at``: a four-hour hotseat game that has
+    seen a command every ten minutes is not idle."""
+    clock = FakeClock()
+    store = _store(ttl_seconds=100.0, clock=clock)
+    store.create(minimal_state())
+
+    for _ in range(10):
+        clock.advance(99.0)
+        assert store.get("g").state.game_id == "g"
+
+    clock.advance(101.0)
+    with pytest.raises(UnknownGameError):
+        store.get("g")
+
+
+def test_listing_games_sweeps_but_does_not_defer_the_eviction() -> None:
+    """A lobby screen polling ``GET /games`` must not keep an abandoned game alive forever."""
+    clock = FakeClock()
+    store = _store(ttl_seconds=100.0, clock=clock)
+    store.create(minimal_state())
+
+    clock.advance(60.0)
+    assert len(store.all()) == 1
+    clock.advance(60.0)
+    assert store.all() == (), "polling the list refreshed touched_at"
+
+
+def test_an_idle_game_is_swept_before_the_cap_refuses_a_new_one() -> None:
+    clock = FakeClock()
+    store = _store(max_sessions=1, ttl_seconds=100.0, clock=clock)
+    store.create(minimal_state())
+    clock.advance(101.0)
+    assert store.create(minimal_state(game_id="new")).state.game_id == "new"
 
 
 def test_all_lists_every_live_session() -> None:
@@ -97,7 +156,7 @@ def test_all_lists_every_live_session() -> None:
 def test_elapsed_seconds_come_from_the_stores_clock_and_are_floored_at_zero() -> None:
     """The server's one deliberate clock read (MON-301 / GAP G-6)."""
     clock = FakeClock()
-    store = SessionStore(max_sessions=4, clock=clock)
+    store = SessionStore(max_sessions=4, ttl_seconds=SESSION_TTL_SECONDS, clock=clock)
     session = store.create(minimal_state())
     assert store.elapsed_seconds(session) == 0
     clock.advance(90.7)

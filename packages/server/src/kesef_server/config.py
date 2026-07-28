@@ -16,7 +16,13 @@ class Settings(BaseSettings):
     """In-memory games are capped so a stray load test cannot exhaust the process."""
 
     session_ttl_minutes: int = 240
-    """Idle games are evicted. Hotseat games are long, so this is generous."""
+    """How long a game may sit untouched before its slot is reclaimed. Hotseat games are long
+    and a turn can take a while, so this is generous.
+
+    Enforced by ``SessionStore._evict_idle``, swept on access. Until MON-303's review this
+    setting was declared, documented as if it did something, and referenced nowhere — which
+    left ``max_sessions`` with no recovery path but a restart. A setting that does nothing is
+    worse than a missing one, because the docstring is then a lie somebody will believe."""
 
     max_save_bytes: int = 512_000
     """Ceiling on an uploaded save file. A real save is ~30 KB, so this is ample; the point

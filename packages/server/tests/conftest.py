@@ -21,6 +21,10 @@ from kesef_server.sessions import SessionStore
 
 BOARD_TILES = 40
 
+SESSION_TTL_SECONDS = 3600.0
+"""The idle-eviction window every test store uses. Generous relative to the seconds the
+``FakeClock`` is wound by elsewhere, so only the tests that mean to provoke an eviction do."""
+
 
 class FakeClock:
     """A monotonic clock a test can wind forward by hand."""
@@ -42,7 +46,7 @@ def clock() -> FakeClock:
 
 @pytest.fixture
 def store(clock: FakeClock) -> SessionStore:
-    return SessionStore(max_sessions=8, clock=clock)
+    return SessionStore(max_sessions=8, ttl_seconds=SESSION_TTL_SECONDS, clock=clock)
 
 
 @pytest.fixture

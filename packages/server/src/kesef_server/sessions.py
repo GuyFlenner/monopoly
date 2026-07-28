@@ -15,11 +15,12 @@ Two things beyond storage live here, and both are deliberate:
   :class:`~kesef_server.schemas.LoggedEvent` carrying a session-assigned ``seq``, so a
   reconnecting client can say "everything after 12" and the animation queue can tell a
   replayed event from a new one (GAP G-34). ``seq`` is assigned here and nowhere else.
-* **The clock lives here.** The server owns exactly one clock read — the
-  ``EndTurn.elapsed_seconds`` stamp that lets Kids Mode's time limit fire (GAP G-6). It is
-  injected, so tests wind it by hand and no other module is tempted to read a clock of its
-  own. A client-supplied elapsed time is never trusted: it would let a player force or
-  dodge the ending.
+* **The clock lives here.** The server reads a clock for two things and only two — the
+  ``EndTurn.elapsed_seconds`` stamp that lets Kids Mode's time limit fire (GAP G-6), and the
+  idle sweep in :meth:`SessionStore._evict_idle`. This is the transport, so a clock is
+  allowed here; the engine's rule 3 forbids one *there*. It is injected, so tests wind it by
+  hand and no other module is tempted to read a clock of its own. A client-supplied elapsed
+  time is never trusted: it would let a player force or dodge the ending.
 """
 
 from __future__ import annotations
@@ -58,6 +59,9 @@ class Session:
     state: GameState
     started_at: float
     """The store's clock reading when the game was created. See the module docstring."""
+    touched_at: float
+    """The store's clock reading when this game was last reached. What the idle sweep reads —
+    ``started_at`` would evict a long game that is being played."""
     log: list[LoggedEvent] = field(default_factory=list)
     """Append-only. Replaying it against the initial state reproduces the game exactly."""
     _subscribers: list[asyncio.Queue[LoggedEvent]] = field(default_factory=list)
@@ -71,6 +75,10 @@ class Session:
     @property
     def subscribers(self) -> tuple[asyncio.Queue[LoggedEvent], ...]:
         return tuple(self._subscribers)
+
+    def touch(self, now: float) -> None:
+        """Mark this game as in use, so the idle sweep leaves it alone."""
+        self.touched_at = now
 
     def events_since(self, cursor: int) -> tuple[LoggedEvent, ...]:
         """Everything after ``cursor``. ``events_since(0)`` is the whole game."""
@@ -94,27 +102,52 @@ class Session:
 class SessionStore:
     """Process-local game storage."""
 
-    def __init__(self, max_sessions: int, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, max_sessions: int, ttl_seconds: float, clock: Callable[[], float] = time.monotonic) -> None:
         self._max_sessions = max_sessions
+        self._ttl_seconds = ttl_seconds
         # An instance attribute, not a class-level default: a plain function stored on a
         # class would bind as a method and swallow the call.
         self._clock = clock
         self._sessions: dict[str, Session] = {}
 
+    def _evict_idle(self) -> None:
+        """Forget every game untouched for longer than the TTL.
+
+        Swept on access rather than on a timer, because the server runs no background task and
+        a sweep that happens when somebody asks is enough for the property that matters: a slot
+        is never held forever by a game nobody is playing. Before this, ``session_ttl_minutes``
+        was declared, documented as "idle games are evicted", and referenced nowhere — so the
+        session cap had no recovery path at all except a restart (MON-303 security review).
+
+        The clock is **monotonic** (see the module docstring), so a system time change can
+        neither evict a live game nor resurrect a dead one. A live WebSocket does not defer
+        eviction: it only reads, and a game no command has touched in four hours is idle
+        whoever is watching it.
+        """
+        now = self._clock()
+        idle = [game_id for game_id, session in self._sessions.items() if now - session.touched_at > self._ttl_seconds]
+        for game_id in idle:
+            del self._sessions[game_id]
+
     def create(self, state: GameState) -> Session:
+        self._evict_idle()
         if state.game_id in self._sessions:
             raise DuplicateGameError(state.game_id)
         if len(self._sessions) >= self._max_sessions:
             raise SessionLimitReachedError(f"server is holding {self._max_sessions} games")
-        session = Session(state=state, started_at=self._clock())
+        now = self._clock()
+        session = Session(state=state, started_at=now, touched_at=now)
         self._sessions[state.game_id] = session
         return session
 
     def get(self, game_id: str) -> Session:
+        self._evict_idle()
         try:
-            return self._sessions[game_id]
+            session = self._sessions[game_id]
         except KeyError as exc:
             raise UnknownGameError(game_id) from exc
+        session.touch(self._clock())
+        return session
 
     def update(self, game_id: str, state: GameState, events: tuple[Event, ...]) -> Session:
         """Commit a command's result: the new state, and its events with ``seq`` assigned."""
@@ -133,6 +166,9 @@ class SessionStore:
         self._sessions.pop(game_id, None)
 
     def all(self) -> tuple[Session, ...]:
+        """Every live game. Sweeps first, but does not *touch*: a polling lobby screen must not
+        be able to keep an abandoned game alive forever."""
+        self._evict_idle()
         return tuple(self._sessions.values())
 
     def elapsed_seconds(self, session: Session) -> int:
