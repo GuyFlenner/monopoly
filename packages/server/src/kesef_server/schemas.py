@@ -38,7 +38,7 @@ JSON is the save file" property is kept, just no longer conflated with what a cl
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, assert_never
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -421,6 +421,12 @@ def _project_frame(frame: AuctionFrame | DebtFrame | TradeFrame | CardFrame) -> 
             return TradeFrameView.from_frame(frame)
         case CardFrame():
             return CardFrameView.from_frame(frame)
+        case _:  # pragma: no cover - unreachable by construction; see below
+            # A fifth frame kind is a *type* error here rather than a `None` that pydantic
+            # rejects at the far end of the call with a message about the wrong field. Excluded
+            # from coverage rather than left as an unexplained miss: the whole point of
+            # `assert_never` is that mypy has already proved no test can reach it.
+            assert_never(frame)
 
 
 # --- The state projection ---------------------------------------------------

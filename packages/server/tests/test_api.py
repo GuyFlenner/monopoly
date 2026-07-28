@@ -575,6 +575,55 @@ def test_a_command_against_an_unknown_game_is_a_404_with_a_key(client: TestClien
     assert response.json()["reason_key"] == "error.game_not_found"
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        {"kind": "roll_dice", "player": 0, "<img src=x>": 1},
+        {"kind": "end_turn", "player": 0, "elapsed_second": 5},
+        {"kind": "place_bid", "player": 0, "amount": 5, "ammount": 500},
+    ],
+    ids=["injected key", "misspelled elapsed_seconds", "misspelled amount"],
+)
+def test_a_command_carrying_a_field_the_engine_does_not_declare_is_refused(
+    client: TestClient, command: dict[str, Any]
+) -> None:
+    """A command is a closed shape, and the wire is the only place one is built from untrusted
+    keys. Silently ignored, a misspelled `elapsed_seconds` drops a player's clock and a 200 says
+    the request was fine."""
+    game_id = _create(client)["state"]["game_id"]
+    response = client.post(f"/games/{game_id}/commands", json={"command": command})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
+
+
+def test_a_trade_payload_forbids_extras_too(client: TestClient) -> None:
+    """`TradeSide` is command payload: a misspelled `cash` that is ignored offers nothing while
+    looking like a full offer."""
+    game_id = _create(client)["state"]["game_id"]
+    offer = {
+        "proposer": 0,
+        "recipient": 1,
+        "give": {"cash": 10, "cashh": 500},
+        "receive": {"tiles": [1]},
+    }
+    response = client.post(
+        f"/games/{game_id}/commands",
+        json={"command": {"kind": "propose_trade", "player": 0, "offer": offer}},
+    )
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
+
+
+def test_a_dumped_command_still_round_trips_through_the_wire(client: TestClient) -> None:
+    """`extra="forbid"` must not break the shape the API hands out. Every command in
+    `legal_commands` is dumped by this server and sent straight back by the UI."""
+    game_id = _create(client)["state"]["game_id"]
+    for command in client.get(f"/games/{game_id}").json()["legal_commands"]:
+        answer = client.post(f"/games/{game_id}/validate", json={"command": command})
+        assert answer.status_code == status.HTTP_200_OK, answer.text
+        assert answer.json()["legal"] is True
+
+
 def test_a_malformed_command_is_a_keyed_422(client: TestClient) -> None:
     game_id = _create(client)["state"]["game_id"]
     response = client.post(f"/games/{game_id}/commands", json={"command": {"kind": "teleport", "player": 0}})

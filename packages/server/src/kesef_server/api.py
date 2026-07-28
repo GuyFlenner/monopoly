@@ -443,7 +443,13 @@ async def submit_command(game_id: str, request: CommandRequest, store: StoreDep)
     """
     session = _session(store, game_id)
     state, events = apply(session.state, _stamped(store, session, request.command))
-    return _view(store.update(game_id, state, events), _logged(session, events))
+    # Two statements on purpose. `_logged` reads the tail of `session.log`, which `store.update`
+    # is what appends to, so as one expression this depended on Python evaluating arguments left
+    # to right — true, but not a thing a reader should have to know to see that the order is the
+    # point. Reordered or reformatted, the one-liner would have silently returned the *previous*
+    # command's events.
+    updated = store.update(game_id, state, events)
+    return _view(updated, _logged(session, events))
 
 
 @app.post("/games/{game_id}/validate", tags=["game"], responses=ERROR_RESPONSES)

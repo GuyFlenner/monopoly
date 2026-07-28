@@ -1136,6 +1136,7 @@
             "title": "Tile"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -1212,6 +1213,7 @@
             "default": "buy_property"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -1232,6 +1234,7 @@
             "default": "cancel_trade"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -1748,6 +1751,7 @@
             "default": "declare_bankruptcy"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -1768,6 +1772,7 @@
             "default": "decline_purchase"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -1926,6 +1931,7 @@
             "title": "Elapsed Seconds"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -2754,6 +2760,7 @@
             "title": "Tile"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -2857,6 +2864,7 @@
             "default": "pay_jail_fine"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -2920,6 +2928,7 @@
             "title": "Amount"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -3295,6 +3304,7 @@
             "$ref": "#/components/schemas/TradeOffer"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -3417,6 +3427,7 @@
             "title": "Accept"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -3465,6 +3476,7 @@
             "default": "roll_dice"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -3484,6 +3496,7 @@
             "default": "roll_for_jail"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -3685,6 +3698,7 @@
             "default": false
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -4016,6 +4030,7 @@
             "$ref": "#/components/schemas/TradeSide"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "proposer",
@@ -4069,9 +4084,10 @@
             "default": []
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "TradeSide",
-        "description": "What one party puts on the table."
+        "description": "What one party puts on the table.\n\n``extra=\"forbid\"`` for the same reason ``_CommandBase`` has it: this is command payload, and\na misspelled ``cash`` that is ignored offers nothing while looking like a full offer."
       },
       "TurnStarted": {
         "properties": {
@@ -4117,6 +4133,7 @@
             "title": "Tile"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player",
@@ -4137,6 +4154,7 @@
             "default": "use_jail_card"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"
@@ -4156,6 +4174,7 @@
             "default": "withdraw_from_auction"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "player"

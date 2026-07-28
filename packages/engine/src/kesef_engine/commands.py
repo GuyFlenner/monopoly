@@ -17,7 +17,13 @@ from kesef_engine.primitives import BOARD_SIZE, Deck, PlayerId, TileIndex
 
 
 class _CommandBase(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    """``extra="forbid"`` because a command is a *closed* shape and the wire is the only place
+    one is ever built from untrusted keys. Ignoring an unknown field means a client that
+    misspells ``elapsed_seconds`` has its clock silently dropped rather than corrected, and
+    ``{"kind": "roll_dice", "player": 0, "<img src=x>": 1}`` answers 200 as though the request
+    were fine (MON-303 review). Nothing round-trips extras: ``model_dump`` emits exactly the
+    declared fields, so a dumped command re-validates unchanged."""
 
     player: PlayerId
 
@@ -109,8 +115,11 @@ class UnmortgageProperty(_CommandBase):
 # --- Trading ---------------------------------------------------------------
 
 
-class TradeSide(BaseModel, frozen=True):
-    """What one party puts on the table."""
+class TradeSide(BaseModel, frozen=True, extra="forbid"):
+    """What one party puts on the table.
+
+    ``extra="forbid"`` for the same reason ``_CommandBase`` has it: this is command payload, and
+    a misspelled ``cash`` that is ignored offers nothing while looking like a full offer."""
 
     cash: int = Field(default=0, ge=0)
     tiles: tuple[TileIndex, ...] = ()
@@ -129,7 +138,7 @@ class TradeSide(BaseModel, frozen=True):
         return self
 
 
-class TradeOffer(BaseModel, frozen=True):
+class TradeOffer(BaseModel, frozen=True, extra="forbid"):
     proposer: PlayerId
     recipient: PlayerId
     give: TradeSide

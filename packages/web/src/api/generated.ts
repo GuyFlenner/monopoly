@@ -1786,6 +1786,9 @@ export interface components {
         /**
          * TradeSide
          * @description What one party puts on the table.
+         *
+         *     ``extra="forbid"`` for the same reason ``_CommandBase`` has it: this is command payload, and
+         *     a misspelled ``cash`` that is ignored offers nothing while looking like a full offer.
          */
         TradeSide: {
             /**
