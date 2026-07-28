@@ -1,0 +1,183 @@
+/*
+ * What the board needs and Tailwind cannot say.
+ *
+ * Three kinds of thing live here and nothing else: the felt's texture, the small printed marks on a
+ * tile (a house pip, a hotel block, a mortgage stamp) whose sizes are physical rather than part of
+ * any scale, and the dice tumble's keyframes.
+ *
+ * ## The block-axis sizing contract
+ *
+ * Two of the rules below (`.kesef-board-row`'s single track and `.kesef-tile`'s `block-size`) are
+ * not decoration — they are the arithmetic that keeps eleven rows of squares inside a square box.
+ * They live in this file rather than in a Tailwind class list so that `board.css.test.ts` can
+ * assert them by *content*: jsdom has no layout engine, so a Vitest assertion cannot measure an
+ * overflowing board, but it can read the stylesheet and refuse a board whose rows are free to size
+ * themselves to their text. See the comment on each rule for what breaks without it.
+ *
+ * ## Logical properties, and the one exception that is not here
+ *
+ * Every declaration below is direction-neutral or logical, and Stylelint checks that
+ * (`.stylelintrc.json` — `margin-left`, `left`, `translateX` and friends are all refused). The
+ * board's single physical-direction exception is the grid container's `dir="ltr"` attribute, which
+ * lives in `Board.tsx` next to the comment explaining it, and deliberately not in CSS: an attribute
+ * in the markup is visible to a reader of the component, and a rule in a stylesheet is not.
+ *
+ * ## Motion
+ *
+ * `--kesef-motion-ms` is set in JS, per element, from `useReducedMotion()` and the player's own
+ * "skip animations" switch — see `motion.ts`. Zero is a real value here: a `0ms` animation
+ * completes on the next frame and fires its `animationend`, so a skipped flourish takes the same
+ * code path as a played one instead of a second, untested one (GAP G-F2/G-F3). The global
+ * `prefers-reduced-motion` block in `index.css` is a floor underneath this, not a substitute:
+ * `!important` on `animation-duration` cannot help a tumble whose duration JS is choosing.
+ */
+
+/* The felt. A faint two-tone weave so the table reads as fabric rather than as a flat green fill. */
+.kesef-felt {
+  background-color: var(--color-table);
+  background-image:
+    repeating-linear-gradient(45deg, rgb(255 255 255 / 3%) 0 2px, transparent 2px 4px),
+    repeating-linear-gradient(-45deg, rgb(0 0 0 / 4%) 0 2px, transparent 2px 4px);
+}
+
+/*
+ * One row of the ring: eleven grid areas in a single block-axis track.
+ *
+ * `grid-template-rows` is declared, and declared as exactly one track, for two reasons that both
+ * end in an overflowing board.
+ *
+ * A row is a real element rather than `display: contents` — deliberately, so that `role="row"` has
+ * a box the accessibility tree can believe (`display: contents` drops it). Being a real element, it
+ * is a nested grid, and a nested grid with no `grid-template-rows` sizes its one implicit track to
+ * its *content*. Its children ask for `block-size: 100%`, which is cyclic against an auto track and
+ * so resolves to auto: the squares collapse to the height of their own text (6 px at 320 px) and
+ * float at the top of a 26 px band.
+ *
+ * And one explicit track is the ceiling that stops auto-placement inventing more. The bottom edge's
+ * squares are emitted in travel order, which runs from column 11 back to column 2 — *descending* —
+ * and grid's sparse auto-placement cannot put an item in a column behind its cursor, so it starts a
+ * fresh implicit row for each one. That is what made row 11 a 145 px staircase inside a 26 px band,
+ * painting ten squares over the panels below the felt. `Board.tsx` also places every square
+ * explicitly (`grid-row: 1`) so no square is auto-placed at all; this is the second lock on the
+ * same door, and `Board.test.tsx` asserts the first.
+ */
+.kesef-board-row {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/*
+ * A card face lifted off the felt. Warm, chunky, and rimmed by the keyline the theme provides.
+ *
+ * `block-size: 100%` is load-bearing, not cosmetic: a square is a flex column whose parts are
+ * percentages of it (a 22% band, a 10% ownership plinth), so with an auto block size it shrinks to
+ * its text and the percentages resolve against nothing.
+ */
+.kesef-tile {
+  block-size: 100%;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 22%);
+}
+
+/*
+ * The active square.
+ *
+ * Drawn separately from `:focus-visible` on purpose. On a narrow board no square is focusable at
+ * all — the grid holds the only tab stop and points at the active square with
+ * `aria-activedescendant` — so the highlight has to be driven by state rather than by focus, or the
+ * keyboard user would move an invisible cursor (GAP G-C1/G-E2).
+ */
+.kesef-tile[data-active="true"] {
+  outline: 3px solid var(--color-focus-inner);
+  outline-offset: -1px;
+  box-shadow:
+    0 0 0 3px var(--color-focus-outer),
+    0 2px 4px rgb(0 0 0 / 28%);
+  z-index: 1;
+}
+
+/* One built house. Sized in absolute units because a pip is a physical object, not type. */
+.kesef-house {
+  display: block;
+  block-size: 0.3rem;
+  inline-size: 0.3rem;
+  border: 1px solid var(--color-hairline);
+  border-radius: 1px;
+  background-color: #1f7a3d;
+}
+
+/* The hotel: one wider block, so five houses never look like four. */
+.kesef-hotel {
+  display: block;
+  block-size: 0.32rem;
+  inline-size: 0.62rem;
+  border: 1px solid var(--color-hairline);
+  border-radius: 1px;
+  background-color: #b3271f;
+}
+
+/* The mortgage stamp: a dashed rim, like an overprint on a deed. */
+.kesef-mortgaged {
+  display: block;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 2px;
+  padding-inline: 2px;
+  font-size: 10cqw;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/*
+ * A drilled pip.
+ *
+ * Inset rather than flat: a real die's pips are holes, and the inner shadow is what makes a flat
+ * square read as an object a child would want to pick up. Sized as a share of the die's own box, so
+ * one rule covers every size the tray is rendered at.
+ */
+.kesef-pip {
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: 50%;
+  background-color: var(--color-ink);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 35%);
+}
+
+/* An undrilled slot. Present so the 3 x 3 grid keeps its shape without any positioning. */
+.kesef-pip-empty {
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+/*
+ * The dice tumble.
+ *
+ * Rotation and scale only — no translation. A `translateX` would need mirroring under `dir="rtl"`
+ * and is refused by Stylelint for exactly that reason; a die that spins in place has no inline axis
+ * to get backwards, which makes the physical-feeling animation the RTL-safe one as well.
+ */
+@keyframes kesef-tumble {
+  0% {
+    rotate: 0deg;
+    scale: 1;
+  }
+
+  35% {
+    rotate: 220deg;
+    scale: 1.14;
+  }
+
+  70% {
+    rotate: 340deg;
+    scale: 0.96;
+  }
+
+  100% {
+    rotate: 360deg;
+    scale: 1;
+  }
+}
+
+.kesef-die {
+  animation-name: kesef-tumble;
+  animation-duration: var(--kesef-motion-ms, 0ms);
+  animation-timing-function: cubic-bezier(0.28, 0.9, 0.3, 1);
+  animation-iteration-count: 1;
+}

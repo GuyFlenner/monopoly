@@ -498,22 +498,27 @@ to "would this test fail if the implementation were wrong". Coverage floor
   same line of code, G-F32). The `he` smoke asserts a Hebrew string present and an English
   string absent.
 
-### MON-503 — Israeli board name catalogue 🚧 **BLOCKED**
-**Tier**: Sonnet (human input required) · **Size**: S · **Depends on**: —
+### MON-503 — Israeli board name catalogue ✅ **DONE**
+**Tier**: Sonnet · **Size**: S · **Depends on**: —
 
-**Research done (2026-07-26, GAP §6); still blocked on owner confirmation.** The classic
-licensed edition's structure is multi-source verified (8 cities × 22 streets, Eilat → Tel
-Aviv, Dizengoff priciest; utilities and functional labels confirmed); 10 of 22 streets are
-cross-verified, 12 are single-source (Hebrew Wikipedia), and **prices and the four station
-names are unverifiable online** — our own price ladder stays, stated as original game data.
-Do not fill the remaining names from memory or inference: a fabricated board looks right and
-will never be re-checked.
+**Source: five high-resolution photographs of the physical licensed Kod Kod (קוד קוד) edition
+(© 1935/2015 Hasbro, product code D-1591-1232-0000 250215), supplied by the owner on
+2026-07-28, all four edges legible.** This replaces the 2026-07-26 web research (GAP §6),
+which had cross-verified only 10 of 22 streets and left prices, the four station names and
+one street (`t34`) unconfirmed. The photographs confirm all 22 streets, 4 railways, 2
+utilities and every functional label verbatim, and correct `t34` to רח' מוריה (the research
+had שד' מוריה). They also confirm that the shipped price ladder in
+`packages/engine/src/kesef_engine/board/data/israel.json` already matches the physical
+board's prices slot for slot — the ADR-003 §4 assumption is now verified, not just assumed.
 
-- Owner confirms the 12 single-source streets (a photo of a physical board suffices), or
-  supplies their own list; sources cited in the PR description.
-- Fill `board-israel.en.json` and `board-israel.he.json`, keyed `tile.israel.t00`–`t39`.
-- Add `board-israel` to `CATALOGUES` in `tests/test_locale_parity.py` and delete
-  `test_the_israeli_board_has_no_catalogue_yet`.
+- `board-israel.en.json` and `board-israel.he.json` filled, keyed `tile.israel.t00`–`t39`,
+  transcribed verbatim from the photographs (including the two deliberate duplicate names
+  and the geresh/quotation-mark punctuation).
+- `board-israel` added to `CATALOGUES` in `tests/test_locale_parity.py`;
+  `test_the_israeli_board_has_no_catalogue_yet` deleted.
+- **Standing rule, unchanged**: never fill board data from memory or inference. A
+  plausible-looking fabricated board is worse than a missing one, because nobody will
+  re-check it.
 
 ### MON-504 — Hebrew typography
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-501
@@ -616,6 +621,32 @@ applies to the Israeli board (cross-reference MON-503).
 
 ---
 
+## E4b — Contract gaps found while building the UI (M4)
+
+Each was found by a component that then had to work around it. Every workaround is either
+a passive-voice sentence, a translation at the render boundary, or a client-side diff — i.e.
+a place where the UI is doing something the engine or the projection should do. **Tier**:
+Opus unless noted · **Size**: S each unless noted.
+
+| ID | Gap | Found by | Fix |
+|---|---|---|---|
+| MON-413 | **`BuildingChanged` cannot say "hotel"** — it carries `tile`, `houses`, `delta` but no building level, so the log says "building". Saying "hotel" in the client would encode "five houses is a hotel" in TypeScript. | MON-407 | Add `level`/`kind` to the event. |
+| MON-414 | **`MortgageChanged` carries no player**, so the log cannot name who mortgaged and renders in the passive voice. | MON-407 | Add `player`. |
+| MON-415 | **`rent.note.full_group_doubled` interpolates a raw `ColorGroup`** (`note_params={"group": group.value}`), so the client translates an engine enum at the render boundary; its catalogue sentence also wants a `{{name}}` the event does not carry. | MON-407 | Send a key, not a value; add the missing param. |
+| MON-416 | **Spec §5.5's "every rent has a note key, including the plain base-rent case" is unmet** — `_property_rent` emits `note_keys=()` when nothing doubles, so the most common rent a child pays has no explanation. | MON-407 | Emit a base note key always. |
+| MON-417 | **`/rulesets` returns raw flags** (G-36 still open), so MON-408 diffs the two rulesets client-side and maintains its own `ruleset.<field>` label map. | MON-408 | `RulesetView` with `label_key` + `differs_from_universal` per flag; deletes both client-side pieces. |
+| MON-418 | **"At least two players" surfaces as `error.malformed_request`** because the constraint is a pydantic `min_length` on the seats field, so the screen cannot tell a parent *what* is wrong. Duplicate names get the barely-better `error.invalid_new_game`. | MON-408 | Keyed errors from the factory (it raises bare `ValueError` today — see the M3 note in `errors.py`). |
+| MON-419 | **`BoardSummary` has no `catalogue_ready`** (G-46 still open), so the picker can offer the Israeli board whose tile keys resolve to nothing and which paints blanks. | MON-408 | Add the flag; filter the picker; server test. |
+| MON-420 | **`TileView` carries no effective current rent** — the multipliers live in private `rules/rent.py::_property_rent`, so MON-405/406's "explain this rent" screen has nothing to render. **Size M.** | M3 review | Engine accessor `state.rent_due(tile, *, payer_id) -> RentQuote \| None` carrying the fields `RentCharged` already does, so quote and charge share one shape; utilities need the throw. |
+| MON-421 | **`GroupHoldings` computes 3 of its 6 numbers by server-side arithmetic**, the third copy of the `properties[i].owner == player` predicate. | M3 review | `state.group_holdings(player, group)` in the engine; the projection becomes a pure copy. |
+| MON-422 | **`TradeBuilder` has no review side.** Its props are `proposer` / `players` / `board` / `validate` / `onSend` with no `frame` or `offer`, so on a live trade-review frame it renders two empty trays instead of the pending offer, and accept/decline are only reachable as `respond_to_trade` chits on the action bar behind the modal. The recipient therefore cannot see what they are being offered in the one panel built to show it. **Tier Opus · Size S.** | M4 browser run | Accept an optional `frame: TradeFrameView`; when it is present render the pending offer read-only — both sides' cash, properties and jail cards, named from `board` — with accept and decline in the panel itself. The draft mode is unchanged and stays the default when `frame` is absent. Test: a review frame renders the offer's *actual* contents (a named property and a cash figure that are in the frame and in neither tray's default), not an empty tray. |
+
+Not filed as items because they are already owned: the catalogue's remaining camelCase leaves
+(G-40 → MON-501), Hebrew for every English-only key added in M4 (MON-501/506), and the
+MON-901 network-play exposures listed in the M3 review.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |
@@ -640,7 +671,7 @@ MON-100 ─► MON-101 ─► MON-102 ─► MON-103 ─► MON-104 ─► MON-1
 MON-106 ─┬─► MON-301 ─► MON-302 ─► MON-303 ─► MON-304                                     (M3)
          │                  │
 MON-401 ─┴─► MON-402 ─► MON-403 ─► MON-404 / 405 / 406 / 407 / 408 / 409 / 410            (M4)
-                 └─► MON-501 ─► MON-502 / 504     (M5, and MON-503 / MON-506 are blocked on a source / a Hebrew pass)
+                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 done, MON-506 still blocked on a Hebrew pass)
 MON-601 ─► MON-602 ─► MON-603 · MON-604 ─► MON-605                                        (M6)
 ```
 

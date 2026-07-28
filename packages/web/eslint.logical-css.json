@@ -1,0 +1,40 @@
+{
+  "comment": [
+    "Right-to-left correctness, enforced rather than reviewed. A physical CSS property is",
+    "invisible in English and obviously broken in Hebrew, which is the worst kind of bug to",
+    "leave to human vigilance. See ADR-003, MON-502 and GAP §3 G-45.",
+    "",
+    "The rule used to look at string Literals only, which missed the normal way a React",
+    "component is written: `className={`flex ${busy ? 'ml-2' : ''}`}` is a TemplateElement, not",
+    "a Literal, and passed silently. It also had no opinion on transforms — `translate-x-*`",
+    "never mirrors and is the highest-probability real RTL bug in a board layout — nor on",
+    "inline styles, nor on scroll geometry.",
+    "",
+    "This file is JSON rather than JS so that eslint.config.js and the Vitest test that proves",
+    "these selectors actually fire can read the exact same bytes. Anything genuinely",
+    "unavoidable (a physical transform inside an already-mirrored context) takes a visible",
+    "eslint-disable comment naming the reason, which is a review artefact rather than silence."
+  ],
+  "restrictions": [
+    {
+      "selector": "Literal[value=/\\b-?(?:ml|mr|pl|pr|inset-x|space-x|divide-x|translate-x|scroll-ml|scroll-mr|scroll-pl|scroll-pr|left|right|border-l|border-r|rounded-l|rounded-r|rounded-tl|rounded-tr|rounded-bl|rounded-br|text-left|text-right)-|\\b(?:border|rounded)-[lr]\\b|\\brounded-[tb][lr]\\b|\\bdivide-x\\b|\\b(?:text|float|clear|origin|bg|object|border|rounded|placeholder|scroll)-(?:left|right)\\b/]",
+      "message": "Physical utility in a string. Use the logical form (ms/me, ps/pe, start/end, text-start/text-end, border-s/border-e, rounded-s/rounded-e, gap instead of space-x, origin/bg/object with an arbitrary logical value) so the layout mirrors in Hebrew."
+    },
+    {
+      "selector": "TemplateElement[value.raw=/\\b-?(?:ml|mr|pl|pr|inset-x|space-x|divide-x|translate-x|scroll-ml|scroll-mr|scroll-pl|scroll-pr|left|right|border-l|border-r|rounded-l|rounded-r|rounded-tl|rounded-tr|rounded-bl|rounded-br|text-left|text-right)-|\\b(?:border|rounded)-[lr]\\b|\\brounded-[tb][lr]\\b|\\bdivide-x\\b|\\b(?:text|float|clear|origin|bg|object|border|rounded|placeholder|scroll)-(?:left|right)\\b/]",
+      "message": "Physical utility inside a template literal — the usual way a className is built, and the case the old rule missed entirely. Use the logical form so the layout mirrors in Hebrew."
+    },
+    {
+      "selector": "MemberExpression[property.name=/^scroll(?:Left|Right)$/]",
+      "message": "scrollLeft/scrollRight is physical, and its sign is inverted under dir=\"rtl\" in a way that differs between engines. Use scrollIntoView, or scrollTo with an offset derived from the element's inline-start edge."
+    },
+    {
+      "selector": "JSXAttribute[name.name='style'] Property[key.name=/^(?:margin|padding|border|inset|scrollMargin|scrollPadding)(?:Left|Right)/]",
+      "message": "Physical property in an inline style. Use the logical name: marginInlineStart, paddingInlineEnd, borderInlineStartWidth, insetInlineStart."
+    },
+    {
+      "selector": "JSXAttribute[name.name='style'] Property[key.name=/^(?:left|right|float|clear)$/]",
+      "message": "Physical property in an inline style. Use insetInlineStart/insetInlineEnd, or float: inline-start/inline-end."
+    }
+  ]
+}

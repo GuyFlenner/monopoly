@@ -1,0 +1,192 @@
+/*
+ * What the action bar and the dossier need and Tailwind cannot say.
+ *
+ * ## The tone variables, and why they are duplicated
+ *
+ * `ACTION_TONE` in `src/theme/actions.ts` is keyed by theme name, because `contrast.test.ts`
+ * measures both. A component cannot pick between them: which theme is live is a media query's
+ * answer, and a media query cannot be written in an inline style. So the four tones exist here as
+ * custom properties in both schemes, exactly the arrangement `index.css` uses for the surfaces —
+ * and, like those, the duplication is tripwired: `panels.css.test.ts` parses this file and fails
+ * if a single value drifts from `ACTION_TONE`.
+ *
+ * ## Logical properties only
+ *
+ * Every declaration below is direction-neutral or logical, and Stylelint refuses the alternative
+ * (`.stylelintrc.json`). The chit's stamped well and the deed spine are both on the inline axis,
+ * so they are spelled `inline-start`/`inline-end` and mirror in Hebrew without a second rule.
+ */
+
+:root {
+  --kesef-tone-primary-ink: #0a5b39;
+  --kesef-tone-primary-fill: #0a5b39;
+  --kesef-tone-primary-on-fill: #f4fbf6;
+  --kesef-tone-neutral-ink: #3c3a34;
+  --kesef-tone-neutral-fill: #eae3d4;
+  --kesef-tone-neutral-on-fill: #241f18;
+  --kesef-tone-caution-ink: #79490a;
+  --kesef-tone-caution-fill: #f6dca8;
+  --kesef-tone-caution-on-fill: #2e1c00;
+  --kesef-tone-danger-ink: #98181d;
+  --kesef-tone-danger-fill: #f7d3d3;
+  --kesef-tone-danger-on-fill: #3a0a0a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --kesef-tone-primary-ink: #79d6a4;
+    --kesef-tone-primary-fill: #1d6b47;
+    --kesef-tone-primary-on-fill: #f4fbf6;
+    --kesef-tone-neutral-ink: #e0d8c8;
+    --kesef-tone-neutral-fill: #4a443b;
+    --kesef-tone-neutral-on-fill: #f8f3e8;
+    --kesef-tone-caution-ink: #f3c76e;
+    --kesef-tone-caution-fill: #6a4a12;
+    --kesef-tone-caution-on-fill: #fff6e2;
+    --kesef-tone-danger-ink: #f5a6a6;
+    --kesef-tone-danger-fill: #7d2126;
+    --kesef-tone-danger-on-fill: #fff0f0;
+  }
+}
+
+/*
+ * The four tones, as classes rather than as inline styles.
+ *
+ * A class per tone keeps `ActionBar.tsx` free of the `as React.CSSProperties` cast a custom
+ * property in a `style` attribute needs, and keeps every colour decision in the stylesheet where
+ * Stylelint can see it. Which tone a command carries is still `ACTION_THEME`'s answer alone.
+ */
+.kesef-chit--primary {
+  --kesef-chit-fill: var(--kesef-tone-primary-fill);
+  --kesef-chit-on-fill: var(--kesef-tone-primary-on-fill);
+}
+
+.kesef-chit--neutral {
+  --kesef-chit-fill: var(--kesef-tone-neutral-fill);
+  --kesef-chit-on-fill: var(--kesef-tone-neutral-on-fill);
+}
+
+.kesef-chit--caution {
+  --kesef-chit-fill: var(--kesef-tone-caution-fill);
+  --kesef-chit-on-fill: var(--kesef-tone-caution-on-fill);
+}
+
+.kesef-chit--danger {
+  --kesef-chit-fill: var(--kesef-tone-danger-fill);
+  --kesef-chit-on-fill: var(--kesef-tone-danger-on-fill);
+}
+
+/*
+ * A chit: one command, stamped like a counter you would pick up off the rail.
+ *
+ * The fill is the tone's, the rim is the keyline — which is the whole reason the fill is allowed to
+ * be the tone's actual colour rather than a darkened compromise (see `surfaces.ts`). The `1px`
+ * inset highlight is what makes a flat rectangle read as a pressed object.
+ */
+.kesef-chit {
+  border: 1px solid var(--color-hairline);
+  border-radius: 0.75rem;
+  background-color: var(--kesef-chit-fill);
+  color: var(--kesef-chit-on-fill);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    0 1px 2px rgb(0 0 0 / 24%);
+}
+
+.kesef-chit:active {
+  box-shadow: inset 0 1px 3px rgb(0 0 0 / 28%);
+  translate: 0 1px;
+}
+
+/*
+ * A terminal command, marked by its *shape*.
+ *
+ * The double dashed rim reads as a tear-off ticket: something you give up rather than something
+ * you press. That channel is deliberate — `actions.ts` is explicit that tone must not be the
+ * load-bearing signal for danger, "because a shade of red is exactly what a protan player cannot
+ * see". The rim survives greyscale, and the confirm step behind it survives everything.
+ */
+.kesef-chit--terminal {
+  border-style: dashed;
+  outline: 1px dashed var(--color-hairline);
+  outline-offset: 2px;
+}
+
+/* The die-cut well the icon sits in. Recessed, so the glyph reads as stamped rather than printed. */
+.kesef-chit__well {
+  border-radius: 0.5rem;
+  background-color: rgb(0 0 0 / 12%);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 26%);
+}
+
+/*
+ * The deed spine: a colour group's band, stood on its end down the inline-start edge of its row.
+ *
+ * A title deed's colour block is at its head; a wallet of deeds seen edge-on shows their spines,
+ * which is the arrangement that lets ten groups be scanned in one column. The keyline is what
+ * makes the band's edge visible at all — yellow's fill cannot reach 3:1 against a card face and
+ * no yellow that could would still be yellow (`surfaces.ts`).
+ */
+.kesef-spine {
+  inline-size: 0.75rem;
+  flex: none;
+  border: 1px solid var(--color-hairline);
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+/*
+ * One square of a colour set, filled or empty.
+ *
+ * The pre-reader's channel for "2 of 3": three boxes, two of them inked. Both numbers come from
+ * `group_holdings`, so the pips and the words say the same projected thing.
+ */
+.kesef-setpip {
+  display: block;
+  inline-size: 0.5rem;
+  block-size: 0.5rem;
+  border: 1px solid var(--color-hairline);
+  border-radius: 2px;
+  background-color: transparent;
+}
+
+.kesef-setpip[data-owned="true"] {
+  background-color: var(--color-ink);
+}
+
+/*
+ * The printed marks on a deed row.
+ *
+ * The same visual vocabulary as a board square's pips (`board/board.css`) and deliberately not the
+ * same rules: a square sizes its marks in `cqw` against its own 29 px container, which is
+ * meaningless in a list row. Sized in `rem` here so a house is the same house at every dossier
+ * width.
+ */
+.kesef-deed-house {
+  display: block;
+  block-size: 0.4rem;
+  inline-size: 0.4rem;
+  border: 1px solid var(--color-hairline);
+  border-radius: 1px;
+  background-color: #1f7a3d;
+}
+
+.kesef-deed-hotel {
+  display: block;
+  block-size: 0.42rem;
+  inline-size: 0.8rem;
+  border: 1px solid var(--color-hairline);
+  border-radius: 1px;
+  background-color: #b3271f;
+}
+
+/* The mortgage overprint: a dashed rim, as a stamp across a deed. */
+.kesef-deed-mortgage {
+  flex: none;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 2px;
+  padding-inline: 3px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.2;
+}

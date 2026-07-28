@@ -1,8 +1,18 @@
+import { readFileSync } from "node:fs";
+import { URL } from "node:url";
+
 import js from "@eslint/js";
 import jsxA11y from "eslint-plugin-jsx-a11y";
 import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+
+// The RTL selectors live in JSON so that this config and the Vitest test which proves they
+// actually fire (src/theme/logical-css.test.ts) read the same bytes. A lint rule nobody has
+// watched fail is a lint rule nobody knows works.
+const logicalCss = JSON.parse(
+  readFileSync(new URL("./eslint.logical-css.json", import.meta.url), "utf8"),
+);
 
 export default tseslint.config(
   { ignores: ["dist", "src/api/generated.ts"] },
@@ -23,18 +33,11 @@ export default tseslint.config(
       ...reactHooks.configs.recommended.rules,
       ...jsxA11y.flatConfigs.recommended.rules,
 
-      // Right-to-left correctness, enforced rather than reviewed. A physical CSS property
-      // is invisible in English and obviously broken in Hebrew, which is the worst kind of
-      // bug to leave to human vigilance. See ADR-003 and MON-502.
-      "no-restricted-syntax": [
-        "error",
-        {
-          selector:
-            "Literal[value=/\\b(ml|mr|pl|pr|left|right|border-l|border-r|rounded-l|rounded-r|text-left|text-right)-/]",
-          message:
-            "Use logical properties (ms/me, ps/pe, start/end, text-start/text-end) so the layout mirrors in Hebrew.",
-        },
-      ],
+      // See eslint.logical-css.json for what these catch and why (ADR-003, MON-502, GAP §3
+      // G-45). CSS files are covered separately by Stylelint, which `npm run lint` runs
+      // alongside this — ESLint does not parse CSS at all, so a `margin-left` in index.css
+      // used to pass in silence.
+      "no-restricted-syntax": ["error", ...logicalCss.restrictions],
     },
   },
 );
