@@ -258,7 +258,51 @@ _DICE = frozenset(
 )
 """MON-404's English-only keys — the dice tray and the animation switch."""
 
-AWAITING_HEBREW = _NARRATION_AWAITING_HEBREW | _EVENT_LOG_AWAITING_HEBREW | _SETUP_AWAITING_HEBREW | _BOARD | _DICE
+_AUCTION_AND_TRADE = frozenset(
+    {
+        # The shared modal chrome (MON-409/410). "No, go back" is an answer to a question, and the
+        # Hebrew for a refusal is not a word-for-word pass.
+        "panel.close",
+        "panel.goBack",
+        # The auction panel (MON-409). Every one of these is a sentence addressed *to* a named
+        # player — "{{name}}, it's your turn to bid", "That is more than half of your money" — so
+        # they carry the same verb- and possessive-agreement problem as the narration above
+        # (GAP G-42): Hebrew inflects "your" for the addressee's gender, and ``grammatical_gender``
+        # exists on ``SeatConfig`` precisely so MON-501 can do that properly. Guessing a masculine
+        # form here would put the error in front of a child rather than a translator.
+        "auction.title",
+        "auction.cannotLeave",
+        "auction.lot",
+        "auction.queueRemaining",
+        "auction.bidders",
+        "auction.biddingNow",
+        "auction.stillBidding",
+        "auction.droppedOut",
+        "auction.noBidsYet",
+        "auction.standingBid",
+        "auction.yourTurnToBid",
+        "auction.nobodyToBid",
+        "auction.floor",
+        "auction.ceiling",
+        "auction.typeAmount",
+        "auction.belowFloor",
+        "auction.aboveCeiling",
+        "auction.shareOfCash",
+        "auction.warnHalfCash",
+        "auction.confirmWholeCash",
+        "auction.confirmWithdraw",
+    }
+)
+"""MON-409/410's English-only keys — the auction panel, the trade builder and the modal chrome."""
+
+AWAITING_HEBREW = (
+    _NARRATION_AWAITING_HEBREW
+    | _EVENT_LOG_AWAITING_HEBREW
+    | _SETUP_AWAITING_HEBREW
+    | _BOARD
+    | _DICE
+    | _AUCTION_AND_TRADE
+)
 """Individual English keys whose Hebrew is owned by a later item, listed one by one.
 
 Split by the item that added them, because the *reason* is what has to survive review, and the

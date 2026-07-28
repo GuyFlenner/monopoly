@@ -165,6 +165,33 @@
     "setProgress": "{{owned}} of {{total}}",
     "empty": "No properties yet"
   },
+  "panel": {
+    "close": "Close",
+    "goBack": "No, go back"
+  },
+  "auction": {
+    "title": "Auction",
+    "cannotLeave": "The auction has to finish before play carries on. Place a bid or drop out.",
+    "lot": "Up for auction: {{lot}}",
+    "queueRemaining": "{{lots}} more to auction after this",
+    "bidders": "Bidders",
+    "biddingNow": "Bidding now",
+    "stillBidding": "Still in",
+    "droppedOut": "Dropped out",
+    "noBidsYet": "No bids yet. Bidding opens at {{amount}}.",
+    "standingBid": "{{name}} holds the bid at {{amount}}.",
+    "yourTurnToBid": "{{name}}, it's your turn to bid",
+    "nobodyToBid": "Nobody is bidding right now",
+    "floor": "Lowest you can bid: {{amount}}",
+    "ceiling": "Highest you can bid: {{amount}}",
+    "typeAmount": "Or type an amount",
+    "belowFloor": "That is under the lowest bid of {{amount}}.",
+    "aboveCeiling": "The most you can bid is {{amount}}.",
+    "shareOfCash": "{{percent}}% of your {{cash}}",
+    "warnHalfCash": "That is more than half of your money.",
+    "confirmWholeCash": "Bidding {{amount}} spends nearly everything you have. Bid it anyway?",
+    "confirmWithdraw": "Dropping out is final — you cannot bid on this one again. Drop out?"
+  },
   "cash_reason": {
     "go_salary": "GO salary",
     "rent": "rent",
