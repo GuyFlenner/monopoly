@@ -14,6 +14,9 @@ defect as a copy of the rule in the server.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import NamedTuple
+
 import pytest
 from conftest import minimal_state
 from pydantic import BaseModel
@@ -31,6 +34,7 @@ from kesef_engine.state import (
     DiceState,
     GameState,
     Obligation,
+    PlayerKind,
     PlayerState,
     PropertyState,
     TradeFrame,
@@ -247,6 +251,215 @@ def test_a_trade_frame_projects_its_offer_verbatim() -> None:
     projected = GameStateView.from_state(state).interrupts[0]
     assert isinstance(projected, TradeFrameView)
     assert projected.offer == offer
+
+
+# --- Who was asked (MON-303 review, MAJOR 4) --------------------------------
+#
+# The semantics tests above compare a promoted field to the engine property it copies, which
+# proves the two *agree* and not that the engine was ever consulted. That is a weaker claim
+# than schemas.py makes, and the gap is not theoretical: replacing every single engine call
+# below with faithful-looking arithmetic left all 111 server tests green. Measured, one mutant
+# at a time:
+#
+#     GroupHoldings.complete            -> len(held) == len(members)                SURVIVED
+#     DebtFrameView.total               -> sum(o.amount for o in obligations)       SURVIVED
+#     DebtFrameView.creditors           -> tuple(o.creditor for o in obligations)   SURVIVED
+#     PlayerView.net_worth              -> cash + unmortgaged prices + buildings    SURVIVED
+#     PlayerView.tiles_owned            -> enumerate(properties) by owner           SURVIVED
+#     PlayerView.is_bot                 -> kind.bot_level is not None               SURVIVED
+#     DiceView.total / is_doubles       -> first + second / first == second         SURVIVED
+#     TileView.is_ownable               -> kind in {PROPERTY, RAILROAD, UTILITY}    SURVIVED
+#     BoardView.go_to_jail_target       -> first tile whose kind is JAIL            SURVIVED
+#     AuctionFrameView.withdrawn        -> eligible not in active                   SURVIVED
+#     houses_remaining/hotels_remaining -> available - counted on the board         SURVIVED
+#
+# Each of those is the rule copy schemas.py says it avoids, and each agrees with the engine on
+# every state a shipped board can produce — which is exactly why comparing values cannot catch
+# it. So these tests assert *who was asked*: the engine member is replaced by a stub returning
+# a value nothing else could produce, and the view has to carry that value through. Arithmetic
+# in the projection then fails, whatever it computes.
+#
+# ``monkeypatch.setattr`` raises when the attribute does not exist, so this also guards the
+# guard: an engine member renamed out from under the projection fails here by name.
+
+SENTINEL_INT = 4242
+"""A number no state below produces by any other route."""
+
+
+def _stub_method(monkeypatch: pytest.MonkeyPatch, model: type, name: str, value: object) -> None:
+    monkeypatch.setattr(model, name, lambda self, *args, **kwargs: value)
+
+
+def _stub_property(monkeypatch: pytest.MonkeyPatch, model: type, name: str, value: object) -> None:
+    monkeypatch.setattr(model, name, property(lambda self: value))
+
+
+def _auction_state() -> GameState:
+    """Nobody has withdrawn, so honest arithmetic would answer ``()``."""
+    frame = AuctionFrame(
+        resume=Phase.AWAITING_PURCHASE_DECISION,
+        lot=TileLot(tile=1),
+        reason=AuctionReason.DECLINED_PURCHASE,
+        eligible=(0, 1),
+        active=(0, 1),
+    )
+    return minimal_state(phase=Phase.AUCTION, interrupts=(frame,))
+
+
+def _debt_state() -> GameState:
+    """One 50 owed to player 1, so honest arithmetic would answer 50 and ``(1,)``."""
+    frame = DebtFrame(
+        resume=Phase.RESOLVING_TILE,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=50),),
+        reason=CashReason.RENT,
+    )
+    return minimal_state(phase=Phase.DEBT_SETTLEMENT, interrupts=(frame,))
+
+
+class _Promotion(NamedTuple):
+    """One promoted field, the engine member it must consult, and a value only that path gives."""
+
+    field: str
+    patch: Callable[[pytest.MonkeyPatch], None]
+    read: Callable[[], object]
+    expected: object
+
+
+def _debt_frame_view() -> DebtFrameView:
+    projected = GameStateView.from_state(_debt_state()).interrupts[0]
+    assert isinstance(projected, DebtFrameView)
+    return projected
+
+
+def _auction_frame_view() -> AuctionFrameView:
+    projected = GameStateView.from_state(_auction_state()).interrupts[0]
+    assert isinstance(projected, AuctionFrameView)
+    return projected
+
+
+def _dice_view() -> DiceView:
+    dice = GameStateView.from_state(minimal_state(dice=DiceState(first=3, second=4))).dice
+    assert dice is not None
+    return dice
+
+
+PROMOTIONS = [
+    _Promotion(
+        "GroupHoldings.complete",
+        lambda mp: _stub_method(mp, GameState, "owns_whole_group", True),
+        lambda: {
+            entry.complete for p in GameStateView.from_state(minimal_state()).players for entry in p.group_holdings
+        },
+        {True},
+    ),
+    _Promotion(
+        "PlayerView.net_worth",
+        lambda mp: _stub_method(mp, GameState, "net_worth", SENTINEL_INT),
+        lambda: [p.net_worth for p in GameStateView.from_state(minimal_state()).players],
+        [SENTINEL_INT, SENTINEL_INT],
+    ),
+    _Promotion(
+        "PlayerView.tiles_owned",
+        lambda mp: _stub_method(mp, GameState, "tiles_owned_by", (7,)),
+        lambda: [p.tiles_owned for p in GameStateView.from_state(minimal_state()).players],
+        [(7,), (7,)],
+    ),
+    _Promotion(
+        "PlayerView.is_bot",
+        lambda mp: _stub_property(mp, PlayerKind, "is_bot", True),
+        lambda: [p.is_bot for p in GameStateView.from_state(minimal_state()).players],
+        [True, True],
+    ),
+    _Promotion(
+        "GameStateView.houses_remaining",
+        lambda mp: _stub_property(mp, GameState, "houses_remaining", SENTINEL_INT),
+        lambda: GameStateView.from_state(minimal_state()).houses_remaining,
+        SENTINEL_INT,
+    ),
+    _Promotion(
+        "GameStateView.hotels_remaining",
+        lambda mp: _stub_property(mp, GameState, "hotels_remaining", SENTINEL_INT),
+        lambda: GameStateView.from_state(minimal_state()).hotels_remaining,
+        SENTINEL_INT,
+    ),
+    _Promotion(
+        "DiceView.total",
+        lambda mp: _stub_property(mp, DiceState, "total", SENTINEL_INT),
+        lambda: _dice_view().total,
+        SENTINEL_INT,
+    ),
+    _Promotion(
+        "DiceView.is_doubles",
+        lambda mp: _stub_property(mp, DiceState, "is_doubles", True),
+        lambda: _dice_view().is_doubles,
+        True,
+    ),
+    _Promotion(
+        "DebtFrameView.total",
+        lambda mp: _stub_property(mp, DebtFrame, "total", SENTINEL_INT),
+        lambda: _debt_frame_view().total,
+        SENTINEL_INT,
+    ),
+    _Promotion(
+        "DebtFrameView.creditors",
+        lambda mp: _stub_property(mp, DebtFrame, "creditors", ("bank",)),
+        lambda: _debt_frame_view().creditors,
+        ("bank",),
+    ),
+    _Promotion(
+        "AuctionFrameView.withdrawn",
+        lambda mp: _stub_property(mp, AuctionFrame, "withdrawn", (5,)),
+        lambda: _auction_frame_view().withdrawn,
+        (5,),
+    ),
+    _Promotion(
+        "TileView.is_ownable",
+        lambda mp: _stub_property(mp, Tile, "is_ownable", True),
+        lambda: {tile.is_ownable for tile in BoardView.from_board(load_board("classic")).tiles},
+        {True},
+    ),
+    _Promotion(
+        "BoardView.go_to_jail_target",
+        lambda mp: _stub_property(mp, Board, "go_to_jail_target", 37),
+        lambda: BoardView.from_board(load_board("classic")).go_to_jail_target,
+        37,
+    ),
+]
+
+
+@pytest.mark.parametrize("promotion", PROMOTIONS, ids=lambda promotion: promotion.field)
+def test_a_promoted_field_carries_the_engines_answer_and_not_its_own(
+    promotion: _Promotion, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stub the engine member; the view must carry the stub's answer.
+
+    Arithmetic in the projection cannot pass this however faithfully it copies the rule, which
+    is the point: every one of these fields *did* pass while it was arithmetic.
+    """
+    baseline = promotion.read()
+    assert baseline != promotion.expected, f"{promotion.field}: the sentinel is not distinguishable"
+
+    promotion.patch(monkeypatch)
+    assert promotion.read() == promotion.expected, f"{promotion.field} did not come from the engine"
+
+
+def test_every_promoted_field_in_the_projection_contract_has_a_falsifier() -> None:
+    """Guards the guard. The promotion sets above enumerate what ADR-008 promotes; each one
+    needs an entry in ``PROMOTIONS``, or a field could go back to arithmetic unnoticed."""
+    covered = {promotion.field.rsplit(".", 1)[1] for promotion in PROMOTIONS}
+    promoted = (
+        STATE_PROMOTES
+        | PLAYER_PROMOTES
+        | DICE_PROMOTES
+        | TILE_PROMOTES
+        | BOARD_PROMOTES
+        | AUCTION_PROMOTES
+        | DEBT_PROMOTES
+    )
+    # ``deck_counts`` and ``group_holdings`` are containers rather than single engine calls; the
+    # numbers inside them are covered by their own entries (``complete``) and by the tests above.
+    assert promoted - covered == {"deck_counts", "group_holdings"}
 
 
 def test_building_stock_is_the_engines_remainder() -> None:
