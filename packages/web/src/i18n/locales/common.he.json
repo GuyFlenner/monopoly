@@ -316,11 +316,14 @@
   },
   "rent": {
     "note": {
+      "base": "שכר הדירה הרשום על המשבצת.",
       "card_doubled": "הקלף מכפיל את שכר הדירה הזה.",
       "card_utility_multiplier": "הקלף תמיד גובה פי {{multiplier}} מתוצאת הקוביות, לא משנה כמה מפעלים בבעלות.",
       "full_group_doubled": "כפול: שחקן אחד מחזיק בכל הסדרה — {{group}}.",
       "railroad_count": "{{count}} רכבות בבעלות.",
-      "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}})."
+      "utility_multiplier": "פי {{multiplier}} מתוצאת הקוביות ({{dice_total}}).",
+      "with_hotel": "יש כאן מלון, שגובה את שכר הדירה הגבוה ביותר.",
+      "with_houses": "שכר הדירה עולה עם כל בית — יש כאן {{houses}}."
     }
   },
   "ruleset": {
