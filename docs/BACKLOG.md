@@ -648,8 +648,51 @@ command) depends on this item and is still open — the setup screen already off
 - Random among legal commands, but always buys what it can afford.
 - Deterministic from `state.rng.fork(...)` — never a global RNG.
 
-### MON-602 — Normal bot
+### MON-602 — Normal bot 🚧 **BLOCKED on a protocol decision**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-601
+
+**Progress 2026-07-29.** The harness (`packages/engine/tests/tournament.py`) and the bot
+(`bots/normal.py`) are written. Measured over the stated 100 games:
+
+> **69/100 wins** (needed 60), 0 draws, **12 capped** (max 5), turns min/median/max 22/114/501
+
+So it **clears the strength bar and fails the capped-game gate** — and the gate is right to fail it.
+
+**The cause is structural, not a tuning problem.** Dumping a capped game's final position shows why:
+
+```
+seed 9: turn 501
+  normal: cash=5712 net= 8222 owns=12 houses=0
+  easy:   cash=7694 net=10874 owns=16 houses=0
+  brown [0,1]  light_blue [1,0,1]  pink [1,0,1]  orange [1,0,1]
+  red [1,0,0]  yellow [0,0,1]     green [1,0,1]  dark_blue [0,1]
+```
+
+**Every colour group is split, so neither side can build — `houses=0` for both.** Rents stay at their
+printed value, both bots bank GO salaries faster than they lose small rents, and the game cannot be
+decided. Two things were tried and neither helped: allowing building past three houses (69→72 wins,
+capped 16→13) and making group valuation opponent-aware so cash stops going into unwinnable groups
+(no change to capping). The remaining fix is not a score tweak.
+
+**The only mechanism that un-splits a group is trading, and a bot cannot propose one.** `Bot.choose`
+promises to return a command from the `legal` tuple, and `ProposeTrade` is *never* enumerated in
+`legal_commands` — ADR-005's documented exception, because the offer space is unbounded. So trades are
+structurally unreachable to every bot, and MON-602's own fourth criterion ("sane trade evaluation") is
+implemented only as *responding*.
+
+**Decision needed** — three options, none of which should be taken silently:
+
+1. **Amend the `Bot` protocol** so a bot may return a constructed `ProposeTrade` even though it is not
+   enumerated, with `apply` validating it as it validates everything else. Cleanest fix to the real
+   problem; touches a documented contract, so it wants an ADR note.
+2. **Run the contest with more than two seats**, where a group is likelier to end up concentrated. Cheap
+   to try, but it changes the stated contest after seeing results, which is the G-62 trap.
+3. **Accept capping as a legitimate outcome** and raise `MAX_CAPPED`. Honest only if the reasoning above
+   is recorded — the threshold was fixed in advance precisely so it would not move to fit a result.
+
+Recommendation: **option 1.** The others make the measurement agree with the bot rather than making the
+bot able to finish a game, and "a bot that cannot close out a game is itself a failure" is the right
+standard to keep.
 
 - Cash buffer, group completion preference, builds to three houses, sane trade evaluation.
 - **Wins ≥ 60 of fixed seeds 1–100 against the easy bot** (binomial α=0.05 critical value is

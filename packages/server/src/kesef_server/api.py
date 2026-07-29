@@ -21,7 +21,17 @@ import asyncio
 import secrets
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Query, Request, Response, WebSocket, WebSocketDisconnect, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Query,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.exceptions import RequestValidationError, WebSocketRequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -329,8 +339,13 @@ def list_rulesets() -> list[Ruleset]:
         **SERVER_ERROR_RESPONSE,
     },
 )
-async def create_game(request: NewGameRequest, store: StoreDep, config: SettingsDep) -> GameView:
-    """Start a game and return the opening view, with any opening bot moves already played."""
+async def create_game(
+    request: NewGameRequest,
+    store: StoreDep,
+    config: SettingsDep,
+    background: BackgroundTasks,
+) -> GameView:
+    """Start a game and return the opening view. Any bot moves stream in behind it."""
     seed = request.seed if request.seed is not None else secrets.randbits(32)
     try:
         state = new_game(
@@ -352,11 +367,10 @@ async def create_game(request: NewGameRequest, store: StoreDep, config: Settings
         raise errors.invalid_new_game() from None
     session = _create(store, state)
     # Seat one can be a computer, and a game that opened waiting on it would look broken before
-    # anybody had touched anything.
-    bot_events = await _advance_bots(store, session.state.game_id, config)
-    if bot_events:
-        session = store.get(session.state.game_id)
-    return _view(session, _logged(session, bot_events) if bot_events else ())
+    # anybody had touched anything. Queued, not awaited — otherwise creating such a game is a request
+    # that sits for as long as the bot's opening turn takes.
+    background.add_task(_advance_bots, store, session.state.game_id, config)
+    return _view(session)
 
 
 @app.get("/games", tags=["game"])
@@ -452,31 +466,44 @@ def save_game(game_id: str, store: StoreDep) -> GameState:
     return _session(store, game_id).state
 
 
-async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> tuple[Event, ...]:
+async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> None:
     """Let every bot that can act do so, storing each move as it happens (MON-304).
 
-    Stored **per step** rather than once at the end, and that is what makes a bot's turn watchable.
-    `store.update` is what appends to the log and pushes to the WebSocket subscribers, so updating
-    inside the loop means a client receives the bot's moves one at a time, spaced by the thinking
-    delay. Batching them into one update would produce exactly the freeze-then-jump the delay exists
-    to avoid.
+    Runs **after the response has been sent**, as a background task, and that is the whole point. The
+    first version awaited this inside the request, which made a human's own action wait for the
+    computer's entire turn: seating a bot in seat one turned game creation into a 3-second request,
+    and ending a turn beside a bot meant the human's click did nothing visible until the bot had
+    finished thinking. The delay is supposed to make the bot *watchable*, not to make the human wait.
 
-    Returns the events in order, so the HTTP response the human is waiting on carries the bot's turn
-    too — a client that never opened a socket still sees what happened.
+    So the human's command answers immediately with the human's own events, and the bot's moves arrive
+    the way every other event does — appended to the log and pushed to the WebSocket subscribers by
+    `store.update`, one at a time, spaced by the thinking delay. That is what the backlog means by
+    "bot events stream like any others; the UI needs no special case".
+
+    A client with no socket open is not stranded: `useGame` refetches from its cursor, so the moves are
+    waiting in the log.
     """
-    produced: list[Event] = []
-    async for step in drive(
-        store.get(game_id).state,
-        think_seconds=config.bot_think_seconds,
-        max_steps=config.bot_max_steps_per_call,
-    ):
-        store.update(game_id, step.state, step.events)
-        produced.extend(step.events)
-    return tuple(produced)
+    for _ in range(config.bot_max_steps_per_call):
+        session = store.get(game_id)
+        async for step in drive(
+            session.state,
+            think_seconds=config.bot_think_seconds,
+            max_steps=1,
+        ):
+            store.update(game_id, step.state, step.events)
+            break
+        else:
+            return
 
 
 @app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)
-async def submit_command(game_id: str, request: CommandRequest, store: StoreDep, config: SettingsDep) -> GameView:
+async def submit_command(
+    game_id: str,
+    request: CommandRequest,
+    store: StoreDep,
+    config: SettingsDep,
+    background: BackgroundTasks,
+) -> GameView:
     """Apply one command, then let the bots answer it. The only way a game changes.
 
     ``async`` on purpose: it puts the handler on the event loop, so appending to a live
@@ -493,11 +520,11 @@ async def submit_command(game_id: str, request: CommandRequest, store: StoreDep,
     # command's events.
     updated = store.update(game_id, state, events)
     # The human's command may have handed the table to a computer — by ending a turn, by declining a
-    # purchase into an auction a bot is eligible for, or by proposing a trade a bot must answer.
-    bot_events = await _advance_bots(store, game_id, config)
-    if bot_events:
-        updated = store.get(game_id)
-    return _view(updated, _logged(session, (*events, *bot_events)))
+    # purchase into an auction a bot is eligible for, or by proposing a trade a bot must answer. Queued
+    # rather than awaited: this response carries the human's move and returns now, and the bot's moves
+    # stream in behind it. See `_advance_bots`.
+    background.add_task(_advance_bots, store, game_id, config)
+    return _view(updated, _logged(session, events))
 
 
 @app.post("/games/{game_id}/validate", tags=["game"], responses=ERROR_RESPONSES)
