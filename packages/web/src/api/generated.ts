@@ -73,7 +73,7 @@ export interface paths {
         put?: never;
         /**
          * Create Game
-         * @description Start a game and return the opening view.
+         * @description Start a game and return the opening view, with any opening bot moves already played.
          */
         post: operations["create_game_games_post"];
         delete?: never;
@@ -176,11 +176,12 @@ export interface paths {
         put?: never;
         /**
          * Submit Command
-         * @description Apply one command. The only way a game changes.
+         * @description Apply one command, then let the bots answer it. The only way a game changes.
          *
          *     ``async`` on purpose: it puts the handler on the event loop, so appending to a live
          *     WebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from
-         *     a thread-pool worker.
+         *     a thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,
+         *     and a handler off the loop could not yield to let those pushes drain.
          */
         post: operations["submit_command_games__game_id__commands_post"];
         delete?: never;

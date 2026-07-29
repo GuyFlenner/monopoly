@@ -19,15 +19,38 @@ from collections import Counter
 from helpers import make_player, make_state
 from kesef_engine.bots import EasyBot
 from kesef_engine.bots.base import Bot
-from kesef_engine.commands import BuyProperty, Command, EndTurn, RollDice
+from kesef_engine.commands import (
+    BuildHouse,
+    BuyProperty,
+    Command,
+    EndTurn,
+    MortgageProperty,
+    RollDice,
+    SellHouse,
+    UnmortgageProperty,
+)
 from kesef_engine.legality import legal_commands
-from kesef_engine.primitives import BotLevel
+from kesef_engine.phases import Phase
+from kesef_engine.primitives import BotLevel, CashReason
 from kesef_engine.reducer import apply
-from kesef_engine.state import GameState, PropertyState
+from kesef_engine.state import DebtFrame, GameState, Obligation, PropertyState
 
 
 def _two_seats() -> GameState:
     return make_state(seats=(make_player(0, cash=1500), make_player(1, cash=1500)))
+
+
+def _in_debt_settlement(*, cash: int) -> GameState:
+    """A state parked in `DEBT_SETTLEMENT`, so rule 3's inverted half can be exercised."""
+    state = make_state(seats=(make_player(0, cash=cash), make_player(1)))
+    frame = DebtFrame(
+        debtor=0,
+        reason=CashReason.RENT,
+        total=cash + 500,
+        obligations=(Obligation(creditor=1, amount=cash + 500),),
+        resume=Phase.AWAITING_END_TURN,
+    )
+    return GameState(**{**dict(state), "phase": Phase.DEBT_SETTLEMENT, "interrupts": (frame,)})
 
 
 def _legal_for(state: GameState, player: int) -> tuple[Command, ...]:
@@ -212,3 +235,64 @@ class TestTheRandomnessDoesNotCollapse:
 
         built = [index for index in owned if state.properties[index].houses > 0]
         assert len(built) > 1, f"every house went onto {built} — the randomness collapsed"
+
+
+class TestItNeverWorksAgainstItself:
+    """Rule 3, in both directions (MON-601, found while building MON-304).
+
+    Both halves were found by *watching two bots play*, which is the first thing that showed a bot
+    turn as a sequence rather than a single choice. Uniform choice over the legal set contains both
+    halves of two undo-pairs:
+
+        build_house, sell_house, build_house, sell_house, ...      (while solvent)
+        mortgage_property, unmortgage_property, mortgage, ...      (while settling a debt)
+
+    Both terminate — each round trip loses money — but the first burned two hundred commands to play
+    one turn, and the second produced 195 mortgage events in a single request. At the server's 0.6 s
+    thinking delay that is a human watching the board twitch for two minutes.
+    """
+
+    def _legal(self, *kinds: str) -> tuple[Command, ...]:
+        made: dict[str, Command] = {
+            "end_turn": EndTurn(player=0, elapsed_seconds=None),
+            "roll_dice": RollDice(player=0),
+            "build_house": BuildHouse(player=0, tile=1),
+            "sell_house": SellHouse(player=0, tile=1, demolish_hotel=False),
+            "mortgage_property": MortgageProperty(player=0, tile=1),
+            "unmortgage_property": UnmortgageProperty(player=0, tile=1),
+        }
+        return tuple(made[kind] for kind in kinds)
+
+    def test_while_solvent_it_does_not_sell_or_mortgage(self) -> None:
+        bot = EasyBot()
+        legal = self._legal("end_turn", "sell_house", "mortgage_property", "build_house")
+        # Every position, not most of them: the exclusion is absolute while solvent, so one leak is a
+        # failure. Cash varies to move the fingerprint, which is what makes these distinct draws.
+        for cash in range(500, 560):
+            state = make_state(seats=(make_player(0, cash=cash), make_player(1)))
+            assert state.phase is not Phase.DEBT_SETTLEMENT
+            assert bot.choose(state, 0, legal).kind not in {"sell_house", "mortgage_property"}
+
+    def test_it_still_sells_when_that_is_all_there_is(self) -> None:
+        # The safety net. A position offering nothing but dismantling moves must still produce one —
+        # refusing the whole tuple would leave the bot with nothing to return and stall the game.
+        bot = EasyBot()
+        state = make_state(seats=(make_player(0, cash=500), make_player(1)))
+        legal = self._legal("sell_house", "mortgage_property")
+        assert bot.choose(state, 0, legal) in legal
+
+    def test_the_exclusion_inverts_in_debt_settlement(self) -> None:
+        """In debt the self-harming move is *spending*, so the rule turns around.
+
+        The first version of rule 3 simply lifted the exclusion here, on the grounds that selling is
+        the only way to raise cash. That was half right: it also re-allowed building and paying off
+        mortgages, which spend the cash the debt needs, and the mortgage/unmortgage loop appeared.
+        """
+        bot = EasyBot()
+        for cash in range(50, 110):
+            state = _in_debt_settlement(cash=cash)
+            legal = self._legal("sell_house", "mortgage_property", "build_house", "unmortgage_property")
+            chosen = bot.choose(state, state.top_interrupt.debtor, legal)  # type: ignore[union-attr]
+            assert chosen.kind not in {"build_house", "unmortgage_property"}, chosen
+            # And it can still do the thing that actually raises money.
+            assert chosen.kind in {"sell_house", "mortgage_property"}
