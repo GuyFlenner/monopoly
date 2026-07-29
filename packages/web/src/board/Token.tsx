@@ -102,6 +102,31 @@ export function planCluster(count: number, tileInlineSize: number): ClusterPlan 
   };
 }
 
+/**
+ * The sizes a piece is drawn at away from the board, as a named scale.
+ *
+ * Five call sites used to pass five magic numbers — 36 in the dossier, 32 in the auction, 24 in the
+ * turn summary and the trade panel, 20 in the seat picker — which is how they drifted apart and how
+ * the dossier's ended up half again the size of the one beside it. Owner feedback on the first
+ * playable build was that the pieces read as oversized, and a scale is the fix that stays fixed: it
+ * shrinks them together and gives the next call site a name to pick rather than a number to invent.
+ *
+ * These are *icon* sizes, not hit targets. Every piece here sits inside a button or a card that keeps
+ * its own 44 px minimum (the `target` class), so shrinking the silhouette does not shrink what a
+ * six-year-old has to hit.
+ *
+ * The board's own pieces are not on this scale: `planCluster` derives their size from the measured
+ * tile, because a square's width is the only thing that can decide how many silhouettes fit in it.
+ */
+export const TOKEN_PX = {
+  /** Beside a name in a list — the seat picker, a trade's two sides. */
+  inline: 18,
+  /** A panel's subject: the auction's bidder list. */
+  panel: 24,
+  /** The heading of a card about one player: the dossier, the turn summary. */
+  heading: 28,
+} as const;
+
 export interface TokenProps {
   readonly seat: SeatNumber;
   /**

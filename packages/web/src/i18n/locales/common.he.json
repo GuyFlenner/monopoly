@@ -351,6 +351,7 @@
   },
   "setup": {
     "add_player": "הוסף שחקן",
+    "advanced": "הגדרות נוספות",
     "board": "לוח",
     "bot": "מחשב",
     "bot_level_label": "דרגת קושי",
