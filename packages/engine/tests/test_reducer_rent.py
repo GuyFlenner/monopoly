@@ -5,12 +5,13 @@ from __future__ import annotations
 import pytest
 
 from helpers import make_player, make_state
-from kesef_engine.commands import RollDice
+from kesef_engine.commands import EndTurn, RollDice
 from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, Event, RentCharged
+from kesef_engine.legality import is_legal
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason
 from kesef_engine.rng import Rng
-from kesef_engine.state import DebtFrame, DiceState, GameState, PropertyState
+from kesef_engine.state import HOTEL_LEVEL, DebtFrame, DiceState, GameState, PropertyState
 
 _PLAIN_SEED = next(seed for seed in range(1000) if (r := Rng(seed=seed).roll_dice())[0] != r[1])
 _DOUBLES_SEED = next(seed for seed in range(1000) if (r := Rng(seed=seed).roll_dice())[0] == r[1])
@@ -182,3 +183,84 @@ def test_paying_rent_on_doubles_still_grants_the_extra_roll() -> None:
         pytest.skip("this doubles seed does not land on an ownable tile from GO")
     new_state, _ = _land_on(target, {target: PropertyState(owner=1)}, seed=_DOUBLES_SEED)
     assert new_state.phase is Phase.AWAITING_ROLL
+
+
+class TestEveryRentIsExplained:
+    """Spec §5.5: every rent figure can be *explained*, not merely charged (MON-416).
+
+    This is a product gate, written into ``CLAUDE.md`` — "every rent figure can be explained, not
+    merely charged (``rent.note.*`` keys exist for this reason)" — and it was unmet in the one case
+    that matters most. ``_property_rent`` emitted ``note_keys=()`` unless the whole-group doubling
+    applied, so the commonest rent in the game, the printed figure on a lone unimproved square, was
+    the only charge with no reason attached. The utility, railroad and card paths always explained
+    themselves; the plain case did not.
+
+    Four cases, and the ordering between them is the part worth testing: a built square is never
+    *also* group-doubled, because the doubling exists to compensate for having no houses.
+    """
+
+    def test_a_plain_unimproved_square_says_it_is_the_printed_rent(self) -> None:
+        _, events = _land_on(19, {19: PropertyState(owner=1)})
+        rent = _rent_event(events)
+        assert rent.note_keys == ("rent.note.base",)
+        assert rent.multiplier == 1
+
+    def test_houses_say_how_many(self) -> None:
+        _, events = _land_on(19, {19: PropertyState(owner=1, houses=3)}, cash=5000)
+        rent = _rent_event(events)
+        assert rent.note_keys == ("rent.note.with_houses",)
+        # The figure jumped because of the tier ladder, so the count is what explains it.
+        assert rent.note_params == {"houses": 3}
+
+    def test_a_hotel_says_hotel_rather_than_five_houses(self) -> None:
+        # "Five houses" is the engine's representation; "a hotel" is what a child sees on the square.
+        _, events = _land_on(19, {19: PropertyState(owner=1, houses=HOTEL_LEVEL)}, cash=5000)
+        rent = _rent_event(events)
+        assert rent.note_keys == ("rent.note.with_hotel",)
+
+    def test_the_group_doubling_still_wins_on_an_unimproved_group(self) -> None:
+        # Regression guard on the ordering: this case existed before MON-416 and must not have been
+        # displaced by the new branches above it.
+        group = make_state().board.tile(19).group
+        assert group is not None
+        siblings = {tile.index: PropertyState(owner=1) for tile in make_state().board.tiles if tile.group is group}
+        _, events = _land_on(19, siblings)
+        rent = _rent_event(events)
+        assert rent.note_keys == ("rent.note.full_group_doubled",)
+        assert rent.multiplier == 2
+
+    def test_no_rent_the_engine_can_charge_is_ever_unexplained(self) -> None:
+        """The invariant, over played games rather than over the four cases above.
+
+        The unit tests pin the *wording* of each case; this pins the property the gate actually
+        states, across every rent any path can produce — including the utility and railroad ones, and
+        including whatever a card reroutes. A fifth rent path added without a note fails here even if
+        nobody thinks to write a unit test for it.
+        """
+        from kesef_engine.reducer import apply  # local, like every other apply in this file
+
+        charged = 0
+        for seed in range(40):
+            state = make_state(seats=(make_player(0, cash=100_000), make_player(1, cash=100_000)), seed=seed)
+            # Give player 1 the whole board's ownables, so almost every landing charges rent.
+            state = GameState(
+                **{
+                    **dict(state),
+                    "properties": tuple(
+                        PropertyState(owner=1) if tile.is_ownable else prop
+                        for tile, prop in zip(state.board.tiles, state.properties, strict=True)
+                    ),
+                }
+            )
+            for _ in range(30):
+                if not is_legal(state, RollDice(player=state.current_player_id)).legal:
+                    break
+                state, events = apply(state, RollDice(player=state.current_player_id))
+                for rent in (e for e in events if isinstance(e, RentCharged)):
+                    charged += 1
+                    assert rent.note_keys, f"rent of {rent.amount} on tile {rent.tile} has no explanation"
+                if is_legal(state, EndTurn(player=state.current_player_id)).legal:
+                    state, _ = apply(state, EndTurn(player=state.current_player_id))
+
+        # A test that charged no rent would pass while asserting nothing.
+        assert charged > 20, f"only {charged} rents charged — the fixture stopped exercising rent"

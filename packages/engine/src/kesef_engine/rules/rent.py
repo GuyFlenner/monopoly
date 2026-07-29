@@ -16,7 +16,7 @@ from kesef_engine.primitives import CashReason, PlayerId, TileIndex
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import post_move_phase
 from kesef_engine.rules.insolvency import open_debt
-from kesef_engine.state import GameState
+from kesef_engine.state import HOTEL_LEVEL, GameState
 
 
 def charge(
@@ -116,17 +116,45 @@ def charge(
 
 
 def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: PlayerId) -> RentCharged:
+    """Rent for a street, with an explanation in every case (MON-416).
+
+    Spec §5.5 asks that *every* rent figure can be explained, not merely charged, and this function
+    used to emit ``note_keys=()`` unless the group doubling applied — which left the **most common
+    rent a child pays**, the printed figure on a lone unimproved square, as the one charge in the
+    game with no reason attached. The three other rent paths (utility, railroad, and the card
+    variants of both) always said why; this was the gap.
+
+    Exactly one note, chosen by which rule produced the number:
+
+    * a hotel, because "with a hotel" is what a child sees on the square;
+    * houses, with how many — the tier ladder is why the figure jumped;
+    * the whole-group doubling, which applies only to an *unimproved* group;
+    * otherwise the printed rent, which is a reason even though it is the boring one.
+
+    The cases are ordered, not independent: a built square is never also group-doubled, because the
+    doubling is the compensation for having no houses.
+    """
     prop = state.properties[tile.index]
     base = tile.rent[prop.houses]
     multiplier = 1
-    note_keys: tuple[str, ...] = ()
     group = tile.group
     assert group is not None  # a PROPERTY tile always carries one
-    if prop.houses == 0 and state.owns_whole_group(owner, group):
+    note_params: dict[str, int | str] = {}
+
+    if prop.houses >= HOTEL_LEVEL:
+        note_keys: tuple[str, ...] = ("rent.note.with_hotel",)
+    elif prop.houses > 0:
+        note_keys = ("rent.note.with_houses",)
+        note_params = {"houses": prop.houses}
+    elif state.owns_whole_group(owner, group):
         # Trap 1. Mortgaged siblings still complete the group (trap 2's second half):
         # owns_whole_group reads ownership, not mortgage flags.
         multiplier = 2
         note_keys = ("rent.note.full_group_doubled",)
+        note_params = {"group": group.value}
+    else:
+        note_keys = ("rent.note.base",)
+
     return RentCharged(
         payer=payer_id,
         owner=owner,
@@ -137,7 +165,7 @@ def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: Play
         multiplier=multiplier,
         group=group,
         note_keys=note_keys,
-        note_params={"group": group.value} if note_keys else {},
+        note_params=note_params,
     )
 
 

@@ -313,11 +313,14 @@
   },
   "rent": {
     "note": {
-      "full_group_doubled": "Doubled: one player owns the whole {{group}} set.",
-      "utility_multiplier": "{{multiplier}} × the dice roll ({{dice_total}}).",
+      "base": "The printed rent for this square.",
+      "card_doubled": "The card doubles this rent.",
       "card_utility_multiplier": "The card always charges {{multiplier}} × the dice roll, no matter how many utilities are owned.",
+      "full_group_doubled": "Doubled: one player owns the whole {{group}} set.",
       "railroad_count": "{{count}} railroads owned.",
-      "card_doubled": "The card doubles this rent."
+      "utility_multiplier": "{{multiplier}} × the dice roll ({{dice_total}}).",
+      "with_hotel": "There is a hotel here, which charges the top rent.",
+      "with_houses": "Rent goes up with each house: {{houses}} here."
     }
   },
   "ruleset": {
