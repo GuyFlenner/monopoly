@@ -289,8 +289,60 @@ describe("App — the game screen", () => {
     expect(within(dialog).getByRole("heading", { name: "Auction" })).toBeInTheDocument();
   });
 
-  it("shows the trade panel when the live interrupt frame is a trade", async () => {
+  /**
+   * MON-422's acceptance criterion, and the assertion that used to encode the defect.
+   *
+   * This test previously asserted the heading "Offer a trade" — the *builder's* title — on a review
+   * frame, and passed while the panel showed the recipient two empty trays and none of the offer. A
+   * test can be green and still be describing the bug.
+   *
+   * The criterion the item states: a review frame renders the offer's **actual contents** — a named
+   * property and a cash figure that are in the frame and in neither tray's default. So the fixture
+   * puts a tile on one side and cash on the other, and both are read off the screen.
+   */
+  it("renders the pending offer's real contents on a trade-review frame", async () => {
     openGameUrl("g1");
+    const trade = {
+      kind: "trade" as const,
+      resume: "awaiting_roll" as const,
+      offer: {
+        proposer: 0,
+        recipient: 1,
+        // Tile 1 is a real square on the ring fixture, so its name has to be looked up rather than
+        // guessed — which is the part that was missing.
+        give: { cash: 50, tiles: [1], jail_cards: [] },
+        receive: { cash: 125, tiles: [], jail_cards: [] },
+      },
+    };
+    renderApp(gameEdge(gameView({ phase: "trade_review", interrupts: [trade] })));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "An offer for you" })).toBeInTheDocument();
+
+    // Both figures, from opposite sides of the offer. Neither is a default: an empty tray shows no
+    // cash row at all, so reading "50" and "125" can only come from the frame.
+    const cash = within(dialog)
+      .getAllByTestId("offer-cash")
+      .map((node) => node.textContent);
+    expect(cash).toEqual(["50", "125"]);
+
+    // The named square, and the side it is on. `data-owner` is the player id, so this also catches
+    // the give/receive sides being rendered the wrong way round — which would show a player the
+    // opposite of the deal.
+    const tile = within(dialog).getByTestId("offer-tile");
+    expect(tile).toHaveAttribute("data-tile", "1");
+    expect(tile.closest("[data-testid='offer-side']")).toHaveAttribute("data-owner", "0");
+
+    // And the two answers are in the panel, not on the bar behind it.
+    expect(within(dialog).getByTestId("trade-accept")).toBeInTheDocument();
+    expect(within(dialog).getByTestId("trade-decline")).toBeInTheDocument();
+  });
+
+  it("sends respond_to_trade for the recipient, not for whoever's turn it is", async () => {
+    openGameUrl("g1");
+    // The proposer's turn is interrupted by the review, so "current player" is 0 while the only seat
+    // that may answer is 1. The engine rejects the wrong one with `error.not_trade_recipient`, so
+    // reading the acting seat here would make accept fail for the player looking at it.
     const trade = {
       kind: "trade" as const,
       resume: "awaiting_roll" as const,
@@ -301,10 +353,18 @@ describe("App — the game screen", () => {
         receive: { cash: 0, tiles: [], jail_cards: [] },
       },
     };
-    renderApp(gameEdge(gameView({ phase: "trade_review", interrupts: [trade] })));
+    const edge = gameEdge(
+      gameView({ phase: "trade_review", current_player_id: 0, interrupts: [trade] }),
+    );
+    renderApp(edge);
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("heading", { name: "Offer a trade" })).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByTestId("trade-accept"));
+
+    const posted = edge.calls.find((call) => call.path.endsWith("/commands"));
+    expect(posted?.body).toEqual({
+      command: { kind: "respond_to_trade", player: 1, accept: true },
+    });
   });
 
   it("shows neither panel when the phase is an ordinary one", async () => {

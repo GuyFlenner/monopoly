@@ -419,8 +419,10 @@
     "recipient": "עסקה עם",
     "refused": "לא ניתן לשלוח את ההצעה הזו.",
     "remove_cash": "הורד {{amount}}",
+    "review_title": "הצעה בשבילך",
     "send": "שלח את ההצעה",
     "side_cash": "מזומן מהצד של {{name}}",
+    "side_empty": "שום דבר בצד הזה.",
     "side_gives": "הצד של {{name}}",
     "simplified_hint": "מצב ילדים: דבר אחד מכל צד בכל עסקה.",
     "title": "הצעת עסקה"
