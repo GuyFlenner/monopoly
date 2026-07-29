@@ -343,8 +343,31 @@ to "would this test fail if the implementation were wrong". Coverage floor
 - A late or reconnecting client can replay from the session's append-only log.
 - Disconnects do not affect game state.
 
-### MON-304 — Bot turn driving
+### MON-304 — Bot turn driving ✅ **DONE**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-601, MON-303
+
+**Delivered 2026-07-29.** `kesef_server/bots.py` — a loop around the same door a human uses: ask
+`legal_commands`, hand the tuple to the bot, post what it returns through `apply`. No privileged
+path, so "the bot cheated" is un-implementable rather than merely untrue. Driven after every command
+and after game creation (seat one can be a computer). `drive` is an async **generator** so the caller
+stores each step as it is yielded — batching the turn would make the thinking delay a pause with
+nothing behind it.
+
+**Two defects found by running it**, both invisible to any unit test of the pieces:
+
+1. **The driver asked the wrong seat.** It acted for the first bot with anything legal, and mortgaging
+   is legal *off-turn* — so seat 0 fidgeted with its portfolio for 200 steps while seat 1 never took
+   its turn. It now acts only for the seat the engine is waiting on: the current player, or the actor
+   the interrupt frame itself names.
+2. **The easy bot worked against itself** (fixed in MON-601): `build_house, sell_house, build_house…`
+   while solvent, and `mortgage, unmortgage, mortgage…` in debt settlement. Rule 3 now excludes
+   dismantling while solvent and *spending* while in debt — the same rule, with the phase deciding
+   which direction "undoing" points.
+
+Worst case is now ~6 commands per turn, against 200 for a single turn before. `bot_think_seconds`
+(0.6 s, zeroed in tests) and `bot_max_steps_per_call` (200) are settings. An all-bot game has no human
+to hand back to, so it advances a chunk per request — a real limitation, recorded in a test rather
+than a comment.
 
 - When the current seat is a bot, the server advances it without a client command.
 - A configurable "thinking" delay, so a bot's turn is watchable rather than instant.

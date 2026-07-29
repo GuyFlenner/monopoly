@@ -38,6 +38,7 @@ from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset, RulesetName
 from kesef_engine.state import GameState
 from kesef_server import errors
+from kesef_server.bots import drive
 from kesef_server.config import Settings, settings
 from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
 from kesef_server.log import configure_logging, get_logger
@@ -328,8 +329,8 @@ def list_rulesets() -> list[Ruleset]:
         **SERVER_ERROR_RESPONSE,
     },
 )
-def create_game(request: NewGameRequest, store: StoreDep) -> GameView:
-    """Start a game and return the opening view."""
+async def create_game(request: NewGameRequest, store: StoreDep, config: SettingsDep) -> GameView:
+    """Start a game and return the opening view, with any opening bot moves already played."""
     seed = request.seed if request.seed is not None else secrets.randbits(32)
     try:
         state = new_game(
@@ -349,7 +350,13 @@ def create_game(request: NewGameRequest, store: StoreDep) -> GameView:
         raise errors.unknown_board(request.board_id) from None
     except ValueError:
         raise errors.invalid_new_game() from None
-    return _view(_create(store, state))
+    session = _create(store, state)
+    # Seat one can be a computer, and a game that opened waiting on it would look broken before
+    # anybody had touched anything.
+    bot_events = await _advance_bots(store, session.state.game_id, config)
+    if bot_events:
+        session = store.get(session.state.game_id)
+    return _view(session, _logged(session, bot_events) if bot_events else ())
 
 
 @app.get("/games", tags=["game"])
@@ -445,13 +452,37 @@ def save_game(game_id: str, store: StoreDep) -> GameState:
     return _session(store, game_id).state
 
 
+async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> tuple[Event, ...]:
+    """Let every bot that can act do so, storing each move as it happens (MON-304).
+
+    Stored **per step** rather than once at the end, and that is what makes a bot's turn watchable.
+    `store.update` is what appends to the log and pushes to the WebSocket subscribers, so updating
+    inside the loop means a client receives the bot's moves one at a time, spaced by the thinking
+    delay. Batching them into one update would produce exactly the freeze-then-jump the delay exists
+    to avoid.
+
+    Returns the events in order, so the HTTP response the human is waiting on carries the bot's turn
+    too — a client that never opened a socket still sees what happened.
+    """
+    produced: list[Event] = []
+    async for step in drive(
+        store.get(game_id).state,
+        think_seconds=config.bot_think_seconds,
+        max_steps=config.bot_max_steps_per_call,
+    ):
+        store.update(game_id, step.state, step.events)
+        produced.extend(step.events)
+    return tuple(produced)
+
+
 @app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)
-async def submit_command(game_id: str, request: CommandRequest, store: StoreDep) -> GameView:
-    """Apply one command. The only way a game changes.
+async def submit_command(game_id: str, request: CommandRequest, store: StoreDep, config: SettingsDep) -> GameView:
+    """Apply one command, then let the bots answer it. The only way a game changes.
 
     ``async`` on purpose: it puts the handler on the event loop, so appending to a live
     WebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from
-    a thread-pool worker.
+    a thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,
+    and a handler off the loop could not yield to let those pushes drain.
     """
     session = _session(store, game_id)
     state, events = apply(session.state, _stamped(store, session, request.command))
@@ -461,7 +492,12 @@ async def submit_command(game_id: str, request: CommandRequest, store: StoreDep)
     # point. Reordered or reformatted, the one-liner would have silently returned the *previous*
     # command's events.
     updated = store.update(game_id, state, events)
-    return _view(updated, _logged(session, events))
+    # The human's command may have handed the table to a computer — by ending a turn, by declining a
+    # purchase into an auction a bot is eligible for, or by proposing a trade a bot must answer.
+    bot_events = await _advance_bots(store, game_id, config)
+    if bot_events:
+        updated = store.get(game_id)
+    return _view(updated, _logged(session, (*events, *bot_events)))
 
 
 @app.post("/games/{game_id}/validate", tags=["game"], responses=ERROR_RESPONSES)

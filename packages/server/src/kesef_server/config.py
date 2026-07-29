@@ -25,6 +25,27 @@ class Settings(BaseSettings):
     left ``max_sessions`` with no recovery path but a restart. A setting that does nothing is
     worse than a missing one, because the docstring is then a lie somebody will believe."""
 
+    bot_think_seconds: float = Field(default=0.6, ge=0.0, le=10.0)
+    """How long a bot pauses before each of its moves (MON-304).
+
+    A bot's turn has to be *watchable*: applied at machine speed, six bot moves arrive as one block
+    and a child sees the board jump rather than a player taking a turn. The pause yields the event
+    loop, so the WebSocket queues drain between moves and the turn unfolds.
+
+    Zero disables it, which is what the tests use — they assert on what the bot did, not on how long
+    it took, and a suite that slept would be paying 0.6 s per bot move to test nothing.
+    """
+
+    bot_max_steps_per_call: int = Field(default=200, ge=1)
+    """A hard bound on how many commands one bot-driving call will apply.
+
+    Not decoration. The easy bot picks uniformly among its legal moves, and on a developed board that
+    includes mortgage, unmortgage, build and sell — so it can legitimately churn before it happens to
+    pick ``end_turn``. That terminates, but a request handler needs a bound rather than a proof: an
+    engine change that made two commands mutually re-enabling would turn the loop into a hang, and a
+    hang is worse than a bot that stops and logs why. Per call, so the next command resumes.
+    """
+
     max_subscribers_per_game: int = Field(default=8, ge=1)
     """How many WebSocket listeners one game will carry. Hotseat play needs one or two — six
     players share a screen — so this is already generous. Uncapped, an unauthenticated client

@@ -51,7 +51,11 @@ def store(clock: FakeClock) -> SessionStore:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings()
+    # `bot_think_seconds=0` for every test, not just the bot ones. The delay exists so a bot's turn is
+    # watchable (MON-304) and there is nothing about it a test can usefully assert: a suite that slept
+    # would pay 0.6 s per bot move to check a number it already knows from the settings object. Any
+    # test that wants to observe the pause should build its own `Settings` and say so.
+    return Settings(bot_think_seconds=0)
 
 
 @pytest.fixture

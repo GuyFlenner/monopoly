@@ -1,6 +1,6 @@
 """The easy bot: random, cheerful, and reliably beatable (MON-601).
 
-Two rules, and the second is the only opinion it holds:
+Three rules, and the last two are the only opinions it holds:
 
 1. Pick uniformly at random among the legal commands.
 2. **Always buy what it can afford.** Affordability is not this file's judgement — a
@@ -8,9 +8,38 @@ Two rules, and the second is the only opinion it holds:
    ``legality.py`` rejects the unaffordable case with ``error.insufficient_funds``. So the rule
    reduces to "if buying is offered, buy", which is a preference rather than a rule and therefore
    allowed here.
+3. **Never work against itself.** While solvent it does not dismantle — no selling buildings, no
+   mortgaging. While settling a debt it does not spend — no building, no paying off mortgages.
 
 That is the whole strategy. It exists so a six-year-old has an opponent who loses cheerfully, and
 so MON-602 has a floor to beat.
+
+## Why rule 3 exists, because "random among legal" sounds like it should not
+
+It was added after watching MON-304 drive two of these bots against each other, which is the first
+time anybody saw a bot turn as a *sequence*. The trace read:
+
+    build_house, sell_house, build_house, sell_house, build_house, sell_house, …
+
+Uniform choice over the legal set includes both halves of that pair, so the bot spent its turn
+building a house and immediately selling it back at half price. It terminates — selling refunds less
+than building costs, so the cash drains — but it burned two hundred commands to play one turn, and at
+the server's 0.6 s thinking delay that is a human waiting two minutes while the board twitches.
+
+The honest framing is that a bot dismantling its own houses for no reason is not "losing cheerfully",
+it is broken, and "random" was never meant to include self-harm. So the same category of preference
+that makes it buy makes it decline to sell.
+
+**Debt settlement inverts it rather than lifting it.** Selling and mortgaging are the *only* ways to
+raise cash, so a bot forbidden from them would sit in ``DEBT_SETTLEMENT`` with nothing it was willing
+to do and bankruptcy as the only move left. But simply allowing everything there reproduced the same
+defect with the other pair — the first version of this rule did exactly that, and an all-bot game
+answered with 195 ``mortgage_changed`` events in one request: mortgage to raise cash, pay a mortgage
+off to spend it, repeat, never settling.
+
+So the exclusion flips. Solvent: do not give assets up for cash. In debt: do not spend cash on assets.
+Both readings are the same rule — *do not undo what you just did* — and the phase decides which
+direction "undoing" points in.
 
 ## Where the randomness comes from, and why it is not ``fork`` alone
 
@@ -40,6 +69,7 @@ from __future__ import annotations
 from typing import Final
 
 from kesef_engine.commands import Command
+from kesef_engine.phases import Phase
 from kesef_engine.primitives import BotLevel, PlayerId
 from kesef_engine.rng import Rng
 from kesef_engine.state import GameState
@@ -82,6 +112,13 @@ def _stream_for(state: GameState, player: PlayerId, legal: tuple[Command, ...]) 
     return STREAM_BOT_BASE + player + ((mixed & _MASK64) << 8)
 
 
+_DISMANTLING: Final = frozenset({"sell_house", "mortgage_property"})
+"""Give an asset up for cash. Excluded while solvent."""
+
+_SPENDING: Final = frozenset({"build_house", "unmortgage_property"})
+"""Spend cash on an asset. Excluded while settling a debt, where the cash is needed for the debt."""
+
+
 class EasyBot:
     """Random among the legal moves, except that it always buys.
 
@@ -98,11 +135,16 @@ class EasyBot:
             # seat it is waiting on. Raising beats returning something invented.
             raise ValueError("no legal commands to choose from")
 
-        # Rule 2, and the only preference this bot has. `legal` containing a purchase is the engine's
-        # own statement that it is affordable, so there is no arithmetic here.
+        # Rule 2. `legal` containing a purchase is the engine's own statement that it is affordable,
+        # so there is no arithmetic here.
         for command in legal:
             if command.kind == "buy_property":
                 return command
+
+        # Rule 3, in whichever direction the phase points. `or legal` is the safety net: if every
+        # legal move is an excluded one, refusing them all would leave nothing to return.
+        against_itself = _SPENDING if state.phase is Phase.DEBT_SETTLEMENT else _DISMANTLING
+        legal = tuple(c for c in legal if c.kind not in against_itself) or legal
 
         index, _ = Rng(seed=state.rng.seed, stream=_stream_for(state, player, legal)).below(len(legal))
         chosen = legal[index]
