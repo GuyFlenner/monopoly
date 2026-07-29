@@ -597,8 +597,30 @@ applies to the Israeli board (cross-reference MON-503).
 
 ## E6 — Bots and Kids Mode · M6
 
-### MON-601 — Easy bot
+### MON-601 — Easy bot ✅ **DONE**
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-101
+
+**Delivered 2026-07-29.** `bots/easy.py`. Random among the legal commands, with one preference:
+always buy. Affordability is not the bot's judgement — a `BuyProperty` in `legal` *is* the engine
+saying it is affordable, since `legality.py` rejects the unaffordable case, so the rule reduces to
+"if buying is offered, buy" and there is no arithmetic in the bot at all.
+
+**The design decision worth knowing** is where the randomness comes from. `state.rng.fork(stream)`
+resets the counter to zero, which is not enough: building draws no randomness, so a bot offered
+"build here / build there / end turn" gets the same index every time and pours every house onto one
+square while looking random. That would also make MON-602's ≥ 60/100 threshold meaningless, since it
+is measured against this bot. The stream is therefore derived from a cheap fingerprint of the
+position (turn, the seat's cash and position, the option count) — chosen for what each field varies
+with, not for entropy. `choose` stays a pure function of `(state, player, legal)`.
+
+Eleven tests, and two of them fail on the naive `fork` — including the observable form of the
+collapse, that more than one square in a completed group gets a house. Also pinned: the bot never
+returns a command outside the tuple it was handed, and consulting it does not move `state.rng`, so a
+bot's presence cannot change the dice a human sees.
+
+**Not yet playable against a human.** MON-304 (the server advancing a bot seat without a client
+command) depends on this item and is still open — the setup screen already offers computer seats and
+`SeatConfig.bot_level` already reaches the wire, but nothing drives them.
 
 - Random among legal commands, but always buys what it can afford.
 - Deterministic from `state.rng.fork(...)` — never a global RNG.

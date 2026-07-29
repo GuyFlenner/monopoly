@@ -18,5 +18,6 @@ Three levels ship (MON-601..603):
 """
 
 from kesef_engine.bots.base import Bot, BotLevel
+from kesef_engine.bots.easy import EasyBot
 
-__all__ = ["Bot", "BotLevel"]
+__all__ = ["Bot", "BotLevel", "EasyBot"]
