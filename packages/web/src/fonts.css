@@ -1,0 +1,68 @@
+/*
+ * The typeface, self-hosted (MON-504).
+ *
+ * ## Heebo, and why it is the whole stack
+ *
+ * Heebo (Oded Ezer, SIL OFL 1.1 — see `assets/fonts/OFL.txt`) is a Hebrew face built on Roboto's
+ * Latin, so the two scripts were designed to sit at the same weight and the same apparent size. That
+ * matters more here than in most products: a board square shows a Hebrew street name in one build and
+ * a Latin one in the other, in the same box, at the same size.
+ *
+ * `--font-sans` used to read `"Rubik", "Heebo", ui-sans-serif, …` while the repository shipped
+ * neither. Naming a font you do not serve is a lottery on the player's machine: whoever happened to
+ * have Rubik installed saw a different product, and everybody else saw a system font with none of the
+ * Hebrew/Latin metric matching the design assumes. So exactly one family is named ahead of the system
+ * stack, and it is the one in this directory.
+ *
+ * ## Two files, two ranges, one variable axis
+ *
+ * The Latin and Hebrew subsets are separate `@font-face` rules with `unicode-range`, which is what
+ * lets an English game download 30 kB and never fetch the Hebrew glyphs at all. Both are *variable*
+ * on weight 400–700, so bold costs no extra request — which is why there is no `font-weight: 700`
+ * face below. 42 kB for the pair.
+ *
+ * `font-display: swap` is required by the item and is the right call regardless: the alternative is a
+ * board that is briefly blank, and a six-year-old reads a system-font board perfectly well for the
+ * 80 ms before the real one arrives.
+ *
+ * ## The Hebrew size bump
+ *
+ * Hebrew has no capitals and no case, so a Hebrew line has no ascender/descender rhythm to fill the
+ * box a Latin line fills — at an identical `font-size` it reads smaller. A scale tuned on English
+ * therefore under-sets Hebrew, which the item names directly.
+ *
+ * The correction is applied once, on the root, in the one place that already knows the language:
+ * `applyLocale` sets `<html lang>`. It is deliberately *not* a second set of type-scale tokens —
+ * duplicating the scale per language is how the two drift, and every size in the product is relative
+ * to the root, so one declaration moves all of them together.
+ *
+ * 6.25% (16px -> 17px) rather than a rounder number: it is the smallest step that measurably closes
+ * the gap on Heebo's x-height without pushing the 320 px board past its container, which
+ * `e2e/rtl.spec.ts` measures in both locales.
+ */
+
+@font-face {
+  font-family: "Heebo";
+  font-style: normal;
+  /* One variable face, not two static ones. */
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./assets/fonts/heebo-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Heebo";
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("./assets/fonts/heebo-hebrew.woff2") format("woff2");
+  /* U+20AA is the shekel sign, and it belongs with the Hebrew subset rather than the Latin one. */
+  unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+}
+
+html[lang="he"] {
+  font-size: 106.25%;
+}

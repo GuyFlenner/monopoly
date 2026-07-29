@@ -19,16 +19,22 @@ import { expect, test } from "@playwright/test";
 
 import { inBothLocales, type Rect, rectOf, startGame, switchTo } from "./helpers";
 
-/** Boxes agree to within a pixel. Sub-pixel layout differences are not a mirrored board. */
-function expectSameRect(
+/**
+ * Two normalised rectangles agree to within 1% of the board.
+ *
+ * Two decimal places, not more: the comparison has to survive a legitimate re-scale (the Hebrew size
+ * bump changes the board's pixel size) while still failing on a mirror, which moves a corner by most
+ * of the axis. There is a wide gap between 0.01 and 0.9, and this sits in it deliberately.
+ */
+function expectSameFraction(
   actual: { x: number; y: number; width: number; height: number },
   expected: { x: number; y: number; width: number; height: number },
   because: string,
 ): void {
-  expect(actual.x, `${because}: x`).toBeCloseTo(expected.x, 0);
-  expect(actual.y, `${because}: y`).toBeCloseTo(expected.y, 0);
-  expect(actual.width, `${because}: width`).toBeCloseTo(expected.width, 0);
-  expect(actual.height, `${because}: height`).toBeCloseTo(expected.height, 0);
+  expect(actual.x, `${because}: x`).toBeCloseTo(expected.x, 2);
+  expect(actual.y, `${because}: y`).toBeCloseTo(expected.y, 2);
+  expect(actual.width, `${because}: width`).toBeCloseTo(expected.width, 2);
+  expect(actual.height, `${because}: height`).toBeCloseTo(expected.height, 2);
 }
 
 test.describe("the board does not mirror", () => {
@@ -47,14 +53,27 @@ test.describe("the board does not mirror", () => {
     // That is the chrome mirroring correctly — asserted in the next describe block. Taking the
     // viewport reading as the criterion fails on a working board, which is the worse error: it would
     // have been "fixed" by un-mirroring the page.
-    const offsetInBoard = async (): Promise<Rect> => {
+    // Expressed as a *fraction* of the board rather than in pixels, which is a second correction to
+    // this criterion. MON-504's Hebrew size bump makes the root font 6.25% larger, which widens the
+    // 22rem side panel and therefore shrinks the board column — so tile 0's offset within the board
+    // legitimately differs by 22 px between locales while sitting in the same corner. A pixel
+    // comparison fails on that, and "fixing" it would have meant dropping the size bump.
+    //
+    // A fraction is scale-free and still catches what matters: a mirrored ring moves GO from one end
+    // of the inline axis to the other, which is a change of about 0.9, not 0.001.
+    const cornerFraction = async (): Promise<Rect> => {
       const grid = await rectOf(page.getByTestId("board-grid"));
       const go = await rectOf(page.locator('[data-tile-index="0"]'));
-      return { x: go.x - grid.x, y: go.y - grid.y, width: go.width, height: go.height };
+      return {
+        x: (go.x - grid.x) / grid.width,
+        y: (go.y - grid.y) / grid.height,
+        width: go.width / grid.width,
+        height: go.height / grid.height,
+      };
     };
 
-    const [english, hebrew] = await inBothLocales(page, offsetInBoard);
-    expectSameRect(hebrew, english, "GO changed corners when the language changed");
+    const [english, hebrew] = await inBothLocales(page, cornerFraction);
+    expectSameFraction(hebrew, english, "GO changed corners when the language changed");
   });
 
   test("the ring's corners keep their order, so travel direction is unchanged", async ({

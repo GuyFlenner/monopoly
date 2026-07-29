@@ -60,7 +60,14 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardView, GroupHoldings, PlayerView, TileView } from "@/api";
-import { HOTEL_LEVEL, seatOf, tileThemeKey, Token, type PropertyProjection } from "@/board";
+import {
+  HOTEL_LEVEL,
+  seatOf,
+  tileThemeKey,
+  Token,
+  TOKEN_PX,
+  type PropertyProjection,
+} from "@/board";
 import { bandFill, GROUP_ORDER, Icon, patternDomId, TILE_THEME, type TileThemeKey } from "@/theme";
 
 import "./panels.css";
@@ -428,7 +435,7 @@ export function PlayerDossier({
         .join(" ")}
     >
       <header className="flex items-center gap-3">
-        {seat !== undefined && <Token seat={seat} size={36} isCurrent={isCurrent} />}
+        {seat !== undefined && <Token seat={seat} size={TOKEN_PX.heading} isCurrent={isCurrent} />}
         <div className="flex min-w-0 flex-col">
           <h2 className="truncate text-base font-bold">{player.name}</h2>
           <p className="flex flex-wrap items-center gap-2 text-[0.625rem] font-semibold tracking-[0.1em] uppercase opacity-70">
@@ -460,49 +467,80 @@ export function PlayerDossier({
       )}
 
       {/*
-        `group_holdings` in the order the server sent it — all eight colour groups, always, which is
-        what keeps two dossiers side by side aligned in the compare case. Not sorted, not filtered:
-        "0 of 3" is real information about a set that is still wide open.
-      */}
-      <ul className="flex flex-col">
-        {player.group_holdings.map((holdings) => (
-          <GroupRow
-            key={holdings.group}
-            themeKey={holdings.group}
-            holdings={holdings}
-            deeds={deedsByKey.get(holdings.group) ?? []}
-            onSelectSquare={onSelectSquare}
-            t={translate}
-          />
-        ))}
-      </ul>
+        The deed list folds away, and starts folded (owner feedback on the first playable build: the
+        card left no room for the history beside it).
 
-      {others.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <h3 className="text-[0.625rem] font-semibold tracking-[0.12em] uppercase opacity-65">
-            {t("dossier.other_holdings")}
-          </h3>
+        Only this part folds. The header and the four figures — cash, net worth, squares, jail cards —
+        stay open, because those are what a player checks between moves; hiding them to make room
+        would trade the information people read constantly for the information they read occasionally.
+        The deed list is also the part that *grows*: it is what squeezes the log out of the column by
+        turn thirty, so folding it is what actually buys the room.
+
+        A native `<details>` rather than a `useState` toggle: it is keyboard-operable, exposed to a
+        screen reader as an expandable group, findable by in-page search even while closed, and it
+        holds its own state — none of which a div with an `onClick` gets for free.
+      */}
+      <details className="group min-w-0">
+        <summary className="target -mx-1 flex cursor-pointer items-center gap-2 rounded-lg px-1 text-[0.625rem] font-semibold tracking-[0.12em] uppercase opacity-65 hover:opacity-100">
           {/*
+            Plus and minus, swapped by `group-open`, rather than a chevron that rotates. A chevron
+            has to point along the inline axis, and CSS transforms have no logical variant — the
+            `rtl:-scale-x-*` needed to mirror one is in the physical-property deny list for exactly
+            that reason. A vertical-symmetric pair needs no mirroring in the first place.
+          */}
+          <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
+          <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
+          {t("label.properties")}
+          <span className="tabular-nums opacity-80">
+            {t("label.squares", { count: player.tiles_owned.length })}
+          </span>
+        </summary>
+
+        {/*
+          `group_holdings` in the order the server sent it — all eight colour groups, always, which is
+          what keeps two dossiers side by side aligned in the compare case. Not sorted, not filtered:
+          "0 of 3" is real information about a set that is still wide open.
+        */}
+        <ul className="mt-2 flex flex-col">
+          {player.group_holdings.map((holdings) => (
+            <GroupRow
+              key={holdings.group}
+              themeKey={holdings.group}
+              holdings={holdings}
+              deeds={deedsByKey.get(holdings.group) ?? []}
+              onSelectSquare={onSelectSquare}
+              t={translate}
+            />
+          ))}
+        </ul>
+
+        {others.length > 0 && (
+          <div className="flex flex-col gap-1">
+            <h3 className="text-[0.625rem] font-semibold tracking-[0.12em] uppercase opacity-65">
+              {t("dossier.other_holdings")}
+            </h3>
+            {/*
             No completion figure here, and that is a contract gap rather than a design choice:
             `GroupHoldings.group` is typed `ColorGroup`, so the projection ships no roll-up for the
             four railroads or the two utilities even though both sets change what rent is owed. The
             honest rendering is the squares without a fraction — inventing "2 of 4" would be
             counting a set, which is the one thing this file must not do.
           */}
-          <ul className="flex flex-col">
-            {others.map((key) => (
-              <GroupRow
-                key={key}
-                themeKey={key}
-                holdings={undefined}
-                deeds={deedsByKey.get(key) ?? []}
-                onSelectSquare={onSelectSquare}
-                t={translate}
-              />
-            ))}
-          </ul>
-        </div>
-      )}
+            <ul className="flex flex-col">
+              {others.map((key) => (
+                <GroupRow
+                  key={key}
+                  themeKey={key}
+                  holdings={undefined}
+                  deeds={deedsByKey.get(key) ?? []}
+                  onSelectSquare={onSelectSquare}
+                  t={translate}
+                />
+              ))}
+            </ul>
+          </div>
+        )}
+      </details>
     </section>
   );
 }

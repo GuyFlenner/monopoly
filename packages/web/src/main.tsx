@@ -30,7 +30,11 @@ const root = createRoot(container);
 // Wrapped rather than a top-level `await`: the configured build target (see
 // vite.config.ts's default browser matrix) predates top-level await support.
 async function bootstrap(): Promise<void> {
-  await initI18n("en");
+  // Hebrew, not English. This product's first audience plays in Hebrew — the Israeli board is one of
+  // the two shipped boards and the whole of M5 exists to serve that reader — so opening in English
+  // and asking them to find a switch is the wrong default for the wrong majority. English is one
+  // click away in the same control, on both screens.
+  await initI18n("he");
 
   root.render(
     <StrictMode>

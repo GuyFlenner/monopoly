@@ -36,6 +36,7 @@ import {
   type SeatConfig,
 } from "@/api";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
+import { Icon } from "@/theme";
 
 import {
   diffRulesets,
@@ -287,28 +288,48 @@ export function SetupScreen({
           }}
         />
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`${formId}-seed`} className="text-sm font-medium">
-            {t("setup.seed")}
-          </label>
-          <input
-            id={`${formId}-seed`}
-            type="number"
-            inputMode="numeric"
-            min={0}
-            step={1}
-            dir="ltr"
-            value={seed}
-            onChange={(event) => {
-              setSeed(event.target.value);
-            }}
-            aria-describedby={`${formId}-seed-hint`}
-            className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
-          />
-          <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
-            {t("setup.seed_hint")}
-          </p>
-        </div>
+        {/*
+          The seed is behind a disclosure, closed by default.
+
+          It is a real feature — the engine's RNG is seeded from an integer that is part of the
+          serialized state (ADR-002), so the same seed deals the same dice and the same card order,
+          which is what makes a game reproducible for a replay, a bug report, or an honest rematch.
+          But it is a *developer's* feature wearing a player's clothes: the owner's first question on
+          seeing the built form was "what is the seed option at the bottom", and a parent setting up a
+          game for a six-year-old will ask the same thing and then worry they have to fill it in.
+
+          Closed, it is one line of text nobody has to understand. Open, it is unchanged. That is
+          cheaper than removing it and much cheaper than explaining it in the main flow.
+        */}
+        <details className="group flex flex-col gap-1">
+          <summary className="target -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium opacity-75 hover:opacity-100">
+            <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
+            <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
+            {t("setup.advanced")}
+          </summary>
+          <div className="mt-2 flex flex-col gap-1">
+            <label htmlFor={`${formId}-seed`} className="text-sm font-medium">
+              {t("setup.seed")}
+            </label>
+            <input
+              id={`${formId}-seed`}
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={1}
+              dir="ltr"
+              value={seed}
+              onChange={(event) => {
+                setSeed(event.target.value);
+              }}
+              aria-describedby={`${formId}-seed-hint`}
+              className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+            />
+            <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
+              {t("setup.seed_hint")}
+            </p>
+          </div>
+        </details>
       </fieldset>
 
       {rejection !== null && (
@@ -442,11 +463,15 @@ function SeatCard({
  */
 function TokenBadge({ identity }: { readonly identity: TokenIdentity }): React.JSX.Element {
   return (
-    <span aria-hidden="true" className="relative grid size-11 shrink-0 place-items-center">
+    // `size-9` (36 px), not `size-11` (44 px). The badge is decorative and `aria-hidden`; the 44 px
+    // minimum belongs to the *label* around it, which keeps `min-h-11` — so the thing a six-year-old
+    // has to hit is unchanged and only the silhouette got smaller. Owner feedback on the first
+    // playable build was that the pieces read as oversized, and this was the largest of them.
+    <span aria-hidden="true" className="relative grid size-9 shrink-0 place-items-center">
       <svg viewBox="0 0 32 32" className="absolute inset-0 size-full">
         <path d={identity.shape} fill={identity.color} />
       </svg>
-      <span className="relative text-base">{identity.icon}</span>
+      <span className="relative text-sm">{identity.icon}</span>
     </span>
   );
 }

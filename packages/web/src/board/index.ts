@@ -23,7 +23,7 @@ export type { MotionPreference } from "./motion";
 export { Tile } from "./Tile";
 export type { TileProps } from "./Tile";
 
-export { ICON_MIN_PX, planCluster, Token, TokenCluster, TOKEN_MIN_PX } from "./Token";
+export { ICON_MIN_PX, planCluster, Token, TokenCluster, TOKEN_MIN_PX, TOKEN_PX } from "./Token";
 export type { ClusterPlan, TokenClusterProps, TokenOccupant, TokenProps } from "./Token";
 
 export {

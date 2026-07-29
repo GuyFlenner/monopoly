@@ -31,6 +31,12 @@ export interface Rect {
 export async function startGame(page: Page): Promise<void> {
   await page.goto("/");
 
+  // The product opens in **Hebrew** (see `main.tsx`), so a spec that reads English labels has to ask
+  // for English first. Done here rather than in each spec because it is a property of the app, not of
+  // any one test — and asserted on its own in `locale.spec.ts`, so switching here cannot hide a
+  // regression in what the app opens in.
+  await switchTo(page, "en");
+
   const names = page.getByLabel("Name");
   await expect(names.first()).toBeVisible();
   await names.nth(0).fill("Ruti");
@@ -56,7 +62,25 @@ export async function startGame(page: Page): Promise<void> {
  * the same line of `applyLocale` that sets it (G-F32).
  */
 export async function switchTo(page: Page, locale: Locale): Promise<void> {
-  await page.getByTestId(`locale-${locale}`).click();
+  // The product has two locale controls on two screens, and this helper has to work on both. The
+  // game chrome carries `<LocaleSwitch>` (a button group); the setup screen carries a form radio,
+  // because a language choice made while filling in a form belongs to the form. Both write through
+  // `useLocale`, so whichever is on screen produces the same result — which is the property that
+  // makes trying one and falling back to the other sound rather than sloppy.
+  const chromeSwitch = page.getByTestId(`locale-${locale}`);
+  if ((await chromeSwitch.count()) > 0) {
+    await chromeSwitch.click();
+  } else {
+    // The setup screen's radios are real inputs kept `sr-only` inside a clickable `<label>`, so that
+    // arrow keys work and the focus ring lands on the card a player can see. `.check()` fails their
+    // actionability for exactly that reason — the input has no box. Clicking the label is what a
+    // person does, and it is what activates the input.
+    //
+    // Selected by the input's `value`, which is the locale code, rather than by the visible endonym:
+    // the group's legend is itself translated, so a name-based lookup would depend on the language
+    // this call is trying to change.
+    await page.locator(`label:has(input[name$="-locale"][value="${locale}"])`).click();
+  }
   await expect(page.locator("html")).toHaveAttribute("lang", locale);
   await expect(page.locator("html")).toHaveAttribute("dir", DIRECTION[locale]);
 }

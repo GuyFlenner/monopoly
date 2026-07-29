@@ -86,7 +86,15 @@ export function applyLocale(locale: Locale): void {
 
 export const i18n = i18next.use(initReactI18next);
 
-export async function initI18n(locale: Locale = "en"): Promise<void> {
+/**
+ * Load the catalogues and apply a locale.
+ *
+ * The default is Hebrew because that is what the product opens in — see `main.tsx`. Both real callers
+ * pass a locale explicitly (the test setup pins `"en"`, since that is the language its assertions are
+ * written in), so this default exists to give "what does Kesef Street open in" one answer rather than
+ * two.
+ */
+export async function initI18n(locale: Locale = "he"): Promise<void> {
   await i18n.init({
     lng: locale,
     fallbackLng: "en",

@@ -55,6 +55,7 @@ import {
   seatOf,
   SkipAnimationsToggle,
   Token,
+  TOKEN_PX,
   type Translate,
 } from "@/board";
 import { LocaleSwitch } from "@/i18n/LocaleSwitch";
@@ -183,7 +184,7 @@ function TurnSummary({
         {t("label.turn", { number: turnNumber })}
       </p>
       <p className="flex items-center gap-2 text-sm font-bold">
-        {seat !== undefined && <Token seat={seat} size={24} isCurrent />}
+        {seat !== undefined && <Token seat={seat} size={TOKEN_PX.heading} isCurrent />}
         <span>{current?.name ?? String(currentId)}</span>
       </p>
       <p className="flex items-baseline gap-2 text-xs">
@@ -403,7 +404,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                     }}
                     className="target bg-tile text-ink border-hairline flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold aria-pressed:font-bold"
                   >
-                    {seat !== undefined && <Token seat={seat} size={20} />}
+                    {seat !== undefined && <Token seat={seat} size={TOKEN_PX.inline} />}
                     <span>{player.name}</span>
                   </button>
                 );

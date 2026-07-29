@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* The self-hosted typeface and the Hebrew size bump (MON-504). Imported before the theme block so
+ * `--font-sans` names a family the browser has actually been given. */
+@import "./fonts.css";
+
 /*
  * Design tokens.
  *
@@ -18,7 +22,9 @@
  * Both themes are required — families play in the evening.
  */
 @theme {
-  --font-sans: "Rubik", "Heebo", ui-sans-serif, system-ui, sans-serif;
+  /* One named family, and it is the one `fonts.css` serves. Naming a font the repository does not
+   * ship makes the design depend on what the player happens to have installed — see fonts.css. */
+  --font-sans: "Heebo", ui-sans-serif, system-ui, sans-serif;
 
   --color-table: #33754f; /* the felt playing surface */
   --color-on-table: #f2f8f3; /* ink for text directly on the felt */

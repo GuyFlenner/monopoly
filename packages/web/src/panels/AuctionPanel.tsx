@@ -38,7 +38,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardView, Command, InterruptFrameView, PlayerView } from "@/api";
-import { seatOf, Token } from "@/board";
+import { seatOf, Token, TOKEN_PX } from "@/board";
 import { Icon, requiresConfirmation } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
@@ -367,7 +367,7 @@ function BidderRail({
                 isTurn ? "border-on-table bg-on-table/15" : "border-transparent"
               } ${isWithdrawn ? "opacity-55" : ""}`}
             >
-              {seat !== undefined && <Token seat={seat} size={32} isCurrent={isTurn} />}
+              {seat !== undefined && <Token seat={seat} size={TOKEN_PX.panel} isCurrent={isTurn} />}
               <div className="min-w-0 grow">
                 <p className={`truncate font-bold ${isWithdrawn ? "line-through" : ""}`}>
                   {playerName(id)}

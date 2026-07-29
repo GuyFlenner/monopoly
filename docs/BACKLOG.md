@@ -549,8 +549,22 @@ board's prices slot for slot — the ADR-003 §4 assumption is now verified, not
   plausible-looking fabricated board is worse than a missing one, because nobody will
   re-check it.
 
-### MON-504 — Hebrew typography
+### MON-504 — Hebrew typography ✅ **DONE**
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-501
+
+**Delivered 2026-07-29.** Heebo (Oded Ezer, SIL OFL 1.1) self-hosted as two variable `woff2`
+subsets — Latin 30 kB, Hebrew 12 kB, weight 400–700 in one axis so bold costs no extra request.
+`--font-sans` previously read `"Rubik", "Heebo", …` while the repo shipped **neither**, so the design
+depended on what the player happened to have installed; it now names exactly the family served here.
+The Hebrew size bump is one root-level `html[lang="he"] { font-size: 106.25% }` rather than a second
+type scale, keyed off `lang` and not `dir` because it is the language whose x-height differs.
+
+Two corrections found by testing. The e2e claim "the Hebrew face loads only once Hebrew is on screen"
+is **false and should be**: the language picker labels itself with the endonym `עברית`, so Hebrew
+glyphs are on the first frame — labelling it "Hebrew" is what would make the subset lazy, and is
+exactly what a Hebrew reader cannot use. And MON-502's mirror assertion had to become a *fraction* of
+the board, because the size bump widens the 22 rem side panel and shrinks the board column by 22 px;
+mirroring still moves GO by 0.91 against a 0.01 tolerance, so the test lost no power.
 
 - Heebo or Rubik, self-hosted, subset, `font-display: swap`.
 - The type scale checked in both languages — Hebrew has no capitals and a different

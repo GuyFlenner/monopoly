@@ -396,4 +396,52 @@ describe("robustness", () => {
     renderDossier(player, propertiesAt({ 1: property() }));
     expect(screen.getAllByTestId("deed-row")).toHaveLength(1);
   });
+
+  describe("the deed list folds away", () => {
+    // Owner feedback on the first playable build: the card left no room for the history beside it.
+    // Only the deed list folds — the figures stay open, because cash and net worth are what a player
+    // checks between moves, and the deed list is the part that grows and squeezes the log by turn
+    // thirty.
+    /** The one `<details>` in the card. */
+    function fold(): HTMLDetailsElement {
+      const element = screen.getByTestId("player-dossier").querySelector("details");
+      expect(element, "the deed list is not inside a <details>").not.toBeNull();
+      return element as HTMLDetailsElement;
+    }
+
+    it("starts closed, with the figures still showing", () => {
+      const player = seat({ tiles_owned: [1, 3] });
+      renderDossier(player, propertiesAt({ 1: property(), 3: property() }));
+
+      // Asserted on the `open` attribute rather than with `toBeVisible`. jsdom implements `<details>`
+      // as an element but applies none of the UA stylesheet that actually hides a closed one, so its
+      // children report as visible either way — the same class of blind spot as `scrollHeight` being
+      // 0 for everything. Whether the list is *painted* is asserted in `e2e/dossier.spec.ts`.
+      expect(fold().open).toBe(false);
+      expect(screen.getByTestId("dossier-cash")).toBeVisible();
+      expect(screen.getByTestId("dossier-net-worth")).toBeVisible();
+    });
+
+    it("says how many squares while still closed, so the fold costs no information", () => {
+      const player = seat({ tiles_owned: [1, 3] });
+      renderDossier(player, propertiesAt({ 1: property(), 3: property() }));
+
+      // A closed card still answers "how many squares", which is what the list is usually consulted
+      // for. Read from inside the summary, so a count rendered elsewhere cannot satisfy this.
+      const summary = fold().querySelector("summary");
+      expect(summary).toHaveTextContent("Properties");
+      expect(summary).toHaveTextContent("2 squares");
+    });
+
+    it("opens when the summary is activated", async () => {
+      const player = seat({ tiles_owned: [1, 3] });
+      renderDossier(player, propertiesAt({ 1: property(), 3: property() }));
+
+      // The summary element itself, not the text: "Properties" is also the label of the figure above
+      // it, which is the point of that figure — the count and the list are named the same thing.
+      const summary = fold().querySelector("summary");
+      await userEvent.click(summary as HTMLElement);
+      expect(fold().open).toBe(true);
+    });
+  });
 });
