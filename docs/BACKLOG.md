@@ -474,9 +474,13 @@ engine can return resolving against nothing *in either language* — invisible t
 catalogue-to-catalogue diff, and blanking `TradeBuilder`'s refusal panel, which renders
 `t(verdict.reason_key)` with no `exists` guard. 90 keys renamed, 40 dead or duplicated ones
 deleted, `ActionLabels.ts` and `BOT_LEVEL_KEYS` deleted as derivable, bidi isolation added, and
-Hebrew written for 225 keys. **The `AWAITING_HEBREW` exemption is down from 270 keys to 45** —
-only those naming a person and hanging a verb off them; see
-`docs/MON-501_HEBREW_WORKSHEET.md`. One criterion below was corrected in flight: Hebrew's plural
+Hebrew written for **all 270 keys — `AWAITING_HEBREW` is deleted**, along with its rot tripwire.
+The last 45 named a player and hung a verb off them, which is the real G-42 case; they are
+gender-free now, using the technique Hebrew UI localization settled on (noun in the head position,
+person as the object of a preposition). `grammatical_gender` still reaches the wire and adding
+`_m`/`_f` pairs later is purely additive, but **no component knows a player's gender, because there
+is no form to select between** — see `docs/MON-501_HEBREW_GENDER.md`. One criterion below was
+corrected in flight: Hebrew's plural
 categories are `one`/`two`/`other`, not `one`/`two`/`many` — CLDR removed `many` for Hebrew, and
 `packages/web/src/i18n/plurals.test.ts` asks `Intl.PluralRules` rather than a hardcoded table.
 

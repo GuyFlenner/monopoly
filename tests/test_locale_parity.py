@@ -26,86 +26,29 @@ LANGUAGES = ("en", "he")
 # the exemption cannot be quietly forgotten once MON-506 lands.
 ENGLISH_ONLY_CATALOGUES = ("cards",)
 
-AWAITING_HEBREW = frozenset(
-    {
-        # Spoken by ``<Announcer>`` (MON-411).
-        "a11y.cash_gained",
-        "a11y.cash_paid",
-        "a11y.moved",
-        "a11y.passed_go",
-        "a11y.rent_charged",
-        "a11y.turn",
-        # The written history (MON-407). The bulk of it, because every line is a sentence about somebody.
-        "log.auction_ended",
-        "log.bid_placed",
-        "log.bidder_withdrew",
-        "log.card_drawn",
-        "log.cash_gained",
-        "log.cash_paid",
-        "log.debt_incurred",
-        "log.debt_settled",
-        "log.dice_rolled_jail",
-        "log.dice_rolled_move",
-        "log.dice_rolled_rent",
-        "log.game_ended",
-        "log.left_jail_card",
-        "log.left_jail_doubles",
-        "log.left_jail_fine",
-        "log.left_jail_time_served",
-        "log.player_bankrupted",
-        "log.property_acquired_auction",
-        "log.property_acquired_bankruptcy",
-        "log.property_acquired_purchase",
-        "log.property_acquired_trade",
-        "log.rent_charged",
-        "log.sent_to_jail_card",
-        "log.sent_to_jail_three_doubles",
-        "log.sent_to_jail_tile",
-        "log.token_moved",
-        "log.token_moved_back",
-        "log.token_moved_passed_go",
-        "log.trade_cancelled_proposer",
-        "log.trade_cancelled_system",
-        "log.trade_declined",
-        "log.trade_executed",
-        "log.trade_proposed",
-        "log.turn_started",
-        # The auction panel (MON-409), where a bid is attributed to a bidder.
-        "auction.standing_bid",
-        "auction.your_turn_to_bid",
-        # The trade builder (MON-410): ``{{name}} gives`` is a verb agreeing with a named subject.
-        "trade.between",
-        "trade.side_cash",
-        "trade.side_gives",
-    }
-)
-"""The 45 keys whose Hebrew is the owner's, and the only reason left for an exemption.
-
-Every one of these **names a person and hangs a verb or a possessive off them**, and Hebrew
-conjugates to the subject's gender (GAP G-42). ``רותי עבר`` is wrong to every Hebrew speaker, and
-wrong in a children's game is worse than absent. ``grammatical_gender`` exists on ``SeatConfig`` and
-``PlayerState`` and reaches the wire (owner decision 5) precisely so i18next can select between a
-masculine and a feminine form once the owner supplies the pairs — see
-``docs/MON-501_HEBREW_WORKSHEET.md``.
-
-This used to be nine sets covering roughly 270 keys, one per item that added English-only text. Eight
-of them are gone: MON-501 translated 225 of those keys, and the reason the other sets gave for
-withholding turned out not to survive examination. Two examples worth keeping, because the same
-mistake is easy to make again:
-
-* **Second person is not a gender problem in unpointed Hebrew.** ``setup.seed_hint``,
-  ``error.not_owner`` and ``confirm.consequence.*`` were withheld for carrying "you"/"your", but
-  ``שלך`` and ``שלכם`` read as either gender once niqqud is off (owner decision 4), and an impersonal
-  construction — the style ``error.group_incomplete`` already used — has no verb to agree at all.
-* **A reason interpolated into a sentence should be a noun, not a verb.** The ``cash_reason.*`` and
-  ``auction_reason.*`` labels were withheld because a past-tense English verb ("won an auction")
-  would need to agree with whoever won. Rendered as Hebrew noun phrases (``זכייה במכירה פומבית``)
-  there is nothing to agree with, and they read better in the carrying sentence.
-
-A per-key list rather than a ``log.*`` prefix exemption, and a tripwire test below, so the exemption
-cannot outlive its reason: a key that gains Hebrew, or that stops existing in English, fails the
-build until it is removed from here. A prefix would let the next key added under it inherit an excuse
-nobody re-read."""
+# There is no `AWAITING_HEBREW` any more, and that is the point of this comment.
+#
+# It began as nine frozensets covering roughly 270 keys, one per item that had added English-only
+# text, each with a written reason. MON-501 emptied it in three passes, and the reasons are worth
+# keeping because each was believed at the time and each turned out to be narrower than it looked:
+#
+# 1. **225 keys** were labels, nouns and impersonal sentences with nothing to agree with. Withheld on
+#    the general ground that "Hebrew needs a native speaker", which is true of card flavour text and
+#    board names and not true of "Close" or "Auctions".
+# 2. **Second person is not a gender problem in unpointed Hebrew.** Everything carrying "you"/"your"
+#    was exempt, but `שלך` and `שלכם` read as either gender once niqqud is off (owner decision 4).
+# 3. **The last 45 named a person and hung a verb off them** — the real G-42 case, and the only one.
+#    They are gender-free now, using the technique Hebrew UI localization settled on: put the noun in
+#    the head position (`תשלום`, `מעבר`, `קנייה`) so nothing conjugates, and let the person be the
+#    object of a preposition. Where a verb was worth keeping, its subject is a thing whose gender is
+#    fixed — money is plural (`נכנסו`), an offer is feminine (`נדחתה`).
+#
+# The consequence is architectural, not just editorial: **no component needs to know a player's
+# gender**, because there is no form to select between. `grammatical_gender` still reaches the wire
+# and is still the right field to have — it is what a future pass would use to make the two known
+# cases read more naturally — but nothing is blocked on it and no plumbing carries it today.
+#
+# `cards` remains English-only (MON-506), tracked by `ENGLISH_ONLY_CATALOGUES` and its own tripwire.
 
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
@@ -172,8 +115,7 @@ def test_languages_define_exactly_the_same_keys(catalogue: str) -> None:
     # `label.squares_two` is a correct Hebrew key with no English counterpart. See `_plural_base`.
     english_bases = _plural_bases(english)
     hebrew_bases = _plural_bases(hebrew)
-    exempt = _plural_bases(AWAITING_HEBREW)
-    missing_in_hebrew = sorted(english_bases - hebrew_bases - exempt)
+    missing_in_hebrew = sorted(english_bases - hebrew_bases)
     extra_in_hebrew = sorted(hebrew_bases - english_bases)
     assert not missing_in_hebrew, f"untranslated: {missing_in_hebrew}"
     assert not extra_in_hebrew, f"orphaned Hebrew keys: {extra_in_hebrew}"
@@ -189,20 +131,6 @@ def test_languages_define_exactly_the_same_keys(catalogue: str) -> None:
 # The risk it was aiming at is covered where the answer is knowable: a misspelled `label.squares_ohter`
 # leaves the required `other` category missing, and `packages/web/src/i18n/plurals.test.ts` asks
 # `Intl.PluralRules` — the resolver i18next actually uses — which categories each language requires.
-
-
-def test_the_awaiting_hebrew_exemption_has_not_rotted() -> None:
-    """Every entry in :data:`AWAITING_HEBREW` still names an English key with no Hebrew.
-
-    Without this, the exemption list is a place where a key can hide from the parity check
-    forever — either because it was translated and nobody removed it, or because it was renamed
-    and the list now silently excuses a key that does not exist.
-    """
-    english, hebrew = _load("common", "en"), _load("common", "he")
-    unknown = sorted(key for key in AWAITING_HEBREW if key not in english)
-    assert not unknown, f"AWAITING_HEBREW names keys that are not in common.en.json: {unknown}"
-    translated = sorted(key for key in AWAITING_HEBREW if key in hebrew)
-    assert not translated, f"these now have Hebrew — remove them from AWAITING_HEBREW: {translated}"
 
 
 @pytest.mark.parametrize("catalogue", CATALOGUES)

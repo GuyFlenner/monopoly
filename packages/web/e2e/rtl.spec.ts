@@ -115,6 +115,30 @@ test.describe("the Hebrew build is actually Hebrew", () => {
     await expect(page.getByRole("heading", { name: "Kesef Street" })).toHaveCount(0);
     await expect(page.getByText("What's happened")).toHaveCount(0);
   });
+
+  test("plays a turn in Hebrew and writes a Hebrew log line", async ({ page }) => {
+    // The catalogue-level checks in tests/test_locale_parity.py prove every key *has* Hebrew. They
+    // cannot prove the sentences survive interpolation, and that is where the remaining risk is now
+    // that the last 45 keys are written: a placeholder Hebrew names but nothing supplies renders
+    // literal braces, and a number dropped into an RTL sentence reorders its neighbours.
+    //
+    // So this rolls the dice with the page in Hebrew and reads the log. It is the one assertion in
+    // the suite that exercises the Hebrew *sentences* rather than the layout around them.
+    await startGame(page);
+    await switchTo(page, "he");
+
+    await page.getByRole("button", { name: "הטל קוביות" }).click();
+
+    const log = page.getByRole("region", { name: "מה קרה" });
+    await expect(log).toBeVisible();
+
+    // A brace on screen means a placeholder the sentence names and the call site does not pass.
+    await expect(log).not.toContainText("{{");
+    // Latin script in the log would be an untranslated key or an English fallback leaking through.
+    // The player names are Latin ("Ruti", "Dan"), so they are excluded before the check.
+    const withoutNames = ((await log.textContent()) ?? "").replaceAll(/Ruti|Dan/g, "");
+    expect(withoutNames, "Latin text in a Hebrew log").not.toMatch(/[A-Za-z]{3,}/);
+  });
 });
 
 test.describe("the board fits the space it is given", () => {

@@ -154,16 +154,16 @@ def test_every_displayed_enum_member_resolves(language: str) -> None:
     Parameterised over language rather than checked in English only: the *reason* these keys
     exist is that an untranslated member interpolates the engine's English identifier into a
     Hebrew sentence, so English-only coverage checks the wrong half.
-    """
-    from test_locale_parity import AWAITING_HEBREW
 
+    No exemption argument any more. This used to subtract ``AWAITING_HEBREW``; MON-501 emptied it,
+    so both languages are now held to the same bar with nothing to opt out of.
+    """
     catalogue = _catalogue("common", language)
-    exempt = AWAITING_HEBREW if language == "he" else frozenset()
     missing = sorted(
         f"{namespace}{member.value}"
         for enum, namespace in _displayed_enums()
         for member in enum
-        if f"{namespace}{member.value}" not in catalogue and f"{namespace}{member.value}" not in exempt
+        if f"{namespace}{member.value}" not in catalogue
     )
     assert not missing, f"enum members with no {language} leaf: {missing}"
 
