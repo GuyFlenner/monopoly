@@ -32,11 +32,10 @@ legal. An all-bot game answered with this:
 Seat 0 fidgeted with its own portfolio forever and seat 1 never took its turn. The bot was behaving
 exactly as designed; the driver was asking the wrong seat.
 
-So the driver acts only for the seat the engine is **waiting on**, which is `_seat_to_act`: the current
-player normally, and the frame's own named actor during an interrupt — an auction's `turn`, a trade's
-`recipient`, a debt's `debtor`. Those are *reads of a field*, not decisions about a rule: the same
-three fields the projection already publishes in `schemas.py`. Nothing here works out who may bid; it
-asks the frame who is bidding.
+So the driver acts only for the seat the engine is **waiting on** — and that question is answered by
+`GameState.seat_to_act`, in the engine, rather than here. It was implemented here first and then moved:
+the tournament harness needed the same answer, and "who is the game blocked on" having two
+implementations is exactly how this defect happened in the first place.
 
 ## The step cap
 
@@ -96,33 +95,9 @@ def bot_for(level: BotLevel | None) -> Bot | None:
     return None if level is None else _BOTS.get(level)
 
 
-def _seat_to_act(state: GameState) -> PlayerId | None:
-    """The one seat the engine is waiting on, or `None` if the game is over.
-
-    A read, not a decision — see the module docstring. Normally the current player; during an
-    interrupt, the seat the frame itself names. The alternative, "any seat with a legal command", is
-    what produced the off-turn mortgage loop.
-    """
-    frame = state.top_interrupt
-    if frame is None:
-        return state.current_player_id
-    match frame.kind:
-        case "auction":
-            # `None` between lots, when the engine is mid-resolution and waiting on nobody.
-            return frame.turn
-        case "trade":
-            return frame.offer.recipient
-        case "debt":
-            return frame.debtor
-        case _:
-            # A card frame is transient: the engine resolves it, and the seat it resolves for is the
-            # one whose turn it is.
-            return state.current_player_id
-
-
 def _next_bot_move(state: GameState) -> tuple[PlayerId, Command] | None:
     """The move the seat-being-waited-on would make, if it is a bot. `None` otherwise."""
-    seat = _seat_to_act(state)
+    seat = state.seat_to_act
     if seat is None:
         return None
     player = next((candidate for candidate in state.players if candidate.id == seat), None)

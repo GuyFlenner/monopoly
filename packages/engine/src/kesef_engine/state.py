@@ -506,6 +506,36 @@ class GameState(BaseModel, frozen=True):
         return self.interrupts[-1] if self.interrupts else None
 
     @property
+    def seat_to_act(self) -> PlayerId | None:
+        """The one seat the game is waiting on, or ``None`` if it is waiting on nobody.
+
+        A *read*, and the distinction matters: this is not "who may act" — mortgaging is legal
+        off-turn, so on any turn after their first every solvent player has something legal to do.
+        This is who the game is **blocked on**, which during an interrupt is not whose turn it is.
+
+        It lives here because the frames live here. Two callers derived it independently before this
+        property existed — the server's bot driver and the tournament harness — and the server's first
+        version got it wrong in a way that was invisible until two bots played each other: it acted for
+        the first seat with a legal command, so one bot mortgaged and unmortgaged its own property for
+        two hundred moves while the other never took its turn. A second opinion about who is blocking
+        is exactly the kind of thing that belongs in one place.
+
+        ``None`` is a real answer, not an error: an auction between lots is mid-resolution and blocked
+        on nobody, and so is a finished game.
+        """
+        frame = self.top_interrupt
+        if frame is None:
+            return None if self.phase is Phase.GAME_OVER else self.current_player_id
+        if isinstance(frame, AuctionFrame):
+            return frame.turn
+        if isinstance(frame, DebtFrame):
+            return frame.debtor
+        if isinstance(frame, TradeFrame):
+            return frame.offer.recipient
+        # A card frame is transient — the engine resolves it for whoever is playing.
+        return self.current_player_id
+
+    @property
     def auction(self) -> AuctionFrame | None:
         """The innermost auction, live or suspended. Read convenience only: what may be
         *done* is decided by :attr:`top_interrupt`."""

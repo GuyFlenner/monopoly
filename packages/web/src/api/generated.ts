@@ -73,7 +73,7 @@ export interface paths {
         put?: never;
         /**
          * Create Game
-         * @description Start a game and return the opening view, with any opening bot moves already played.
+         * @description Start a game and return the opening view. Any bot moves stream in behind it.
          */
         post: operations["create_game_games_post"];
         delete?: never;

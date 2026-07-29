@@ -11,21 +11,44 @@ have", and "the bot's moves did not reach anybody".
 
 from __future__ import annotations
 
+# `Any` rather than `object` for decoded JSON. These helpers walk a response body whose shape the
+# server's schemas already guarantee; typing it as `object` bought nothing but a cast at every
+# subscript, which is noise that hides the assertions.
+from typing import Any
+
 from conftest import new_game_payload, seat
 from fastapi.testclient import TestClient
 
 
-def _bot(name: str, level: str = "easy") -> dict[str, object]:
+def _refetch(client: TestClient, game_id: str) -> dict[str, Any]:
+    """The game as it stands now, with `events` replayed from the start.
+
+    Bot moves do **not** come back in the response to the human's command: they are driven in a
+    background task so the human's own action returns immediately, and they reach a client the way
+    every other event does — the WebSocket push, or a refetch from the cursor. Awaiting them inside
+    the request is what made seating a bot turn game creation into a 3-second wait.
+
+    Starlette's TestClient runs background tasks before handing back the response, so by the time a
+    call returns here the bot has already moved and this refetch sees it. Convenient, and also the
+    reason these tests are not racy.
+    """
+    response = client.get(f"/games/{game_id}?since=0")
+    assert response.status_code == 200, response.json()
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def _bot(name: str, level: str = "easy") -> dict[str, Any]:
     return seat(name, is_bot=True, bot_level=level)
 
 
-def _current(view: dict[str, object]) -> int:
+def _current(view: dict[str, Any]) -> int:
     state = view["state"]
     assert isinstance(state, dict)
     return int(state["current_player_id"])
 
 
-def _kinds(view: dict[str, object]) -> list[str]:
+def _kinds(view: dict[str, Any]) -> list[str]:
     """The event types in a view.
 
     Events arrive in the `{seq, event}` envelope the transport adds (G-34) — `seq` is a fact about
@@ -37,13 +60,13 @@ def _kinds(view: dict[str, object]) -> list[str]:
     return [entry["event"]["type"] for entry in entries]
 
 
-def _events_of_type(view: dict[str, object], event_type: str) -> list[dict[str, object]]:
+def _events_of_type(view: dict[str, Any], event_type: str) -> list[dict[str, Any]]:
     entries = view["events"]
     assert isinstance(entries, list)
     return [entry["event"] for entry in entries if entry["event"]["type"] == event_type]
 
 
-def _play_human_turn(client: TestClient, game_id: str, player: int) -> dict[str, object]:
+def _play_human_turn(client: TestClient, game_id: str, player: int) -> dict[str, Any]:
     """Play a human seat's turn by taking its first legal command until it has none left.
 
     Not `roll_dice` then `end_turn`: landing on an unowned square puts the game in
@@ -56,7 +79,7 @@ def _play_human_turn(client: TestClient, game_id: str, player: int) -> dict[str,
     no legal commands" instead would never return: the bot hands control straight back, so the human
     always has something legal to do next.
     """
-    view: dict[str, object] = client.get(f"/games/{game_id}").json()
+    view: dict[str, Any] = client.get(f"/games/{game_id}").json()
     for _ in range(30):
         offered = view["legal_commands"]
         assert isinstance(offered, list)
@@ -79,7 +102,7 @@ def _play_human_turn(client: TestClient, game_id: str, player: int) -> dict[str,
     raise AssertionError("the human's turn did not finish in 30 commands")
 
 
-def _seat_of(view: dict[str, object], player_id: int) -> dict[str, object]:
+def _seat_of(view: dict[str, Any], player_id: int) -> dict[str, Any]:
     state = view["state"]
     assert isinstance(state, dict)
     players = state["players"]
@@ -99,13 +122,14 @@ class TestABotSeatDoesNotStallTheGame:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("Robo"), seat("Ruti")]))
         assert response.status_code == 201
-        view = response.json()
+        created = response.json()
+        assert _seat_of(created, 0)["is_bot"] is True
 
-        # The bot has played, so the table is now waiting on the human.
-        assert _current(view) == 1
-        assert _seat_of(view, 0)["is_bot"] is True
-        # And its moves are in the response, so a client that never opened a socket still saw them.
-        assert view["events"], "the bot's opening turn produced no events in the creation response"
+        # The creation response is the game as created — the bot's turn is not waited for. What matters
+        # is that it happened: refetching shows the table now waiting on the human.
+        view = _refetch(client, created["state"]["game_id"])
+        assert _current(view) == 1, "the bot never took its opening turn"
+        assert view["events"], "the bot's opening turn produced no events at all"
 
     def test_ending_a_human_turn_hands_over_and_comes_back(self, client: TestClient) -> None:
         """The round trip a hotseat game is made of."""
@@ -113,12 +137,13 @@ class TestABotSeatDoesNotStallTheGame:
         game_id = created["state"]["game_id"]
         assert _current(created) == 0, "a human in seat one should be asked first"
 
-        view = _play_human_turn(client, game_id, player=0)
+        _play_human_turn(client, game_id, player=0)
 
-        # The human handed over; the bot took its turn inside that last request and handed back.
+        # The human handed over; the bot took its turn in the background and handed back.
+        view = _refetch(client, game_id)
         assert _current(view) == 0, "the game should be back with the human, not parked on the bot"
         kinds = _kinds(view)
-        assert "turn_started" in kinds, f"the bot's turn is not in the response: {kinds}"
+        assert "turn_started" in kinds, f"the bot's turn is not in the log: {kinds}"
 
     def test_two_bots_play_each_other_without_any_client_command(self, client: TestClient) -> None:
         """The strongest form of the claim: nobody speaks for either seat.
@@ -130,9 +155,10 @@ class TestABotSeatDoesNotStallTheGame:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("A"), _bot("B")]))
         assert response.status_code == 201
-        view = response.json()
+        view = _refetch(client, response.json()["state"]["game_id"])
 
-        # An all-bot game has no human to hand back to, so this call runs to `bot_max_steps_per_call`
+        # An all-bot game has no human to hand back to, so the background task runs to
+        # `bot_max_steps_per_call`
         # and logs that it did. That is the intended behaviour rather than a defect: the cap is what
         # keeps a request finite, and the product's modes are human-vs-human and human-vs-bots. An
         # all-bot game therefore advances a chunk per request, which is a real limitation and is
@@ -147,7 +173,8 @@ class TestItOnlyMovesForBots:
         # The regression that would be worst: the driver playing a human's turn for them. A game with
         # no bots must come back exactly as it did before MON-304.
         response = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), seat("Dan")]))
-        view = response.json()
+        game_id = response.json()["state"]["game_id"]
+        view = _refetch(client, game_id)
         assert view["events"] == []
         assert _current(view) == 0
 
@@ -166,17 +193,23 @@ class TestItOnlyMovesForBots:
         created = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), _bot("Robo")])).json()
         game_id = created["state"]["game_id"]
 
-        # Hand over and let the bot run.
-        view = _play_human_turn(client, game_id, player=0)
+        # Hand over, then read *only* what happened afterwards. Refetching from zero would include the
+        # human's own purchases, which is what the first version of this assertion tripped over — the
+        # events were seat 0's, and correctly so, because the human bought those squares.
+        handover = _play_human_turn(client, game_id, player=0)
+        cursor = handover["event_cursor"]
+        after = client.get(f"/games/{game_id}?since={cursor}")
+        assert after.status_code == 200, after.json()
+        view = after.json()
 
-        # Every event the bot's turn produced belongs to seat 1 or to nobody in particular. Seat 0's
-        # only appearances would have to come from a command the human posted, and the last one was
-        # `end_turn`.
+        # Everything from here belongs to the bot's turn. Seat 0 may still *receive* money — rent, a
+        # GO salary — but nothing in this window may be seat 0 *spending*, because that would mean the
+        # driver played the human's seat.
         cash_events = [event for event in _events_of_type(view, "cash_changed") if event.get("player") == 0]
         for event in cash_events:
-            # A human seat can legitimately *receive* money during a bot's turn — rent, for instance.
-            # What it must never do is pay for something the bot chose, so the reason is what matters.
-            assert event.get("reason") in {"rent", "go_salary", "free_parking_pot", None}, event
+            # A human seat can legitimately receive money during a bot's turn — rent it is owed. What it
+            # must never do is *pay* for something the bot chose, so the sign is what matters.
+            assert event["delta"] > 0, f"seat 0 spent money during the bot's turn: {event}"
 
 
 class TestUnknownLevelsDoNotBreakAGame:
@@ -192,6 +225,7 @@ class TestUnknownLevelsDoNotBreakAGame:
         view = response.json()
 
         # Nothing was driven, so the game is still waiting on seat 0 — and it is still a valid game.
+        view = _refetch(client, view["state"]["game_id"])
         assert _current(view) == 0
         assert view["events"] == []
         assert view["legal_commands"], "the seat should still have legal moves, just nobody to play them"
