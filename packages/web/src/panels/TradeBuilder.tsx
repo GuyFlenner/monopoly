@@ -53,7 +53,14 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { BoardView, Command, CommandOfKind, LegalityView, PlayerView } from "@/api";
+import type {
+  BoardView,
+  Command,
+  CommandOfKind,
+  InterruptFrameView,
+  LegalityView,
+  PlayerView,
+} from "@/api";
 import { seatOf, Token, TOKEN_PX } from "@/board";
 import { Icon } from "@/theme";
 
@@ -62,6 +69,15 @@ import { ModalDialog } from "./ModalDialog";
 /** The offer and its two halves, taken off the command union rather than restated. */
 export type TradeOffer = CommandOfKind<"propose_trade">["offer"];
 export type TradeSide = TradeOffer["give"];
+
+/**
+ * The trade frame, narrowed out of the interrupt union rather than restated.
+ *
+ * Same shape of declaration as `AuctionPanel`'s `AuctionFrameView`, and for the same reason: the
+ * projection owns the fields, so restating them here would create a second opinion about what a
+ * pending trade contains.
+ */
+export type TradeFrameView = Extract<InterruptFrameView, { kind: "trade" }>;
 /** Which pack a Get Out of Jail card came from. Off `PlayerView`, so it cannot drift. */
 export type Deck = PlayerView["jail_cards"][number];
 
@@ -93,6 +109,17 @@ function toggle<T>(list: readonly T[], item: T): readonly T[] {
 }
 
 export interface TradeBuilderProps {
+  /**
+   * A live trade-review frame, when there is one. Present ⇒ **review mode** (MON-422).
+   *
+   * The defect this closes: with no `frame`, a review rendered the *draft* form — two empty trays and
+   * a recipient picker — so the one panel built to show an offer showed everything except the offer.
+   * Accept and decline were only reachable as `respond_to_trade` chits on the action bar *behind* the
+   * modal, which is to say the recipient could not see what they were agreeing to.
+   *
+   * Absent ⇒ draft mode, unchanged and still the default.
+   */
+  readonly frame?: TradeFrameView | undefined;
   /** Who is making the offer. The panel builds `propose_trade` on their behalf. */
   readonly proposer: number;
   /** Seat order, names, holdings. The only source of what either side can put up. */
@@ -120,7 +147,30 @@ export interface TradeBuilderProps {
   readonly renderDossier?: ((playerId: number) => ReactNode) | undefined;
 }
 
-export function TradeBuilder({
+/**
+ * The panel, in whichever of its two modes the table is in.
+ *
+ * A dispatch rather than a branch inside one body, because the two modes share almost nothing: review
+ * has no draft state, no debounce, no validator call and no recipient to choose — it renders a frame
+ * the engine already accepted. Threading `frame === undefined` through a dozen hooks would make every
+ * one of them answer a question it does not care about.
+ */
+export function TradeBuilder(props: TradeBuilderProps): React.JSX.Element {
+  return props.frame === undefined ? (
+    <TradeDraft {...props} />
+  ) : (
+    <TradeReview
+      frame={props.frame}
+      players={props.players}
+      board={props.board}
+      onSend={props.onSend}
+      onClose={props.onClose}
+      renderDossier={props.renderDossier}
+    />
+  );
+}
+
+function TradeDraft({
   proposer,
   players,
   board,
@@ -326,6 +376,197 @@ export function TradeBuilder({
  * actually change hands is a rule (a built colour group cannot be broken up), and this component
  * does not know it. The validator answers for the draft as a whole.
  */
+/**
+ * A pending offer, read-only, with the two answers to it (MON-422).
+ *
+ * Everything on screen is `frame.offer` — the engine's own record of what was proposed. Nothing is
+ * recomputed and nothing is validated: the offer was already checked when it was proposed, and this
+ * seat's only decision is yes or no. `respond_to_trade` carries that decision and nothing else, which
+ * is why there is no draft state here at all.
+ *
+ * The two buttons are in the panel, not on the bar behind it. That was the defect: a modal showing an
+ * offer with its answers somewhere else is a modal you have to dismiss to use.
+ */
+function TradeReview({
+  frame,
+  players,
+  board,
+  onSend,
+  onClose,
+  renderDossier,
+}: {
+  readonly frame: TradeFrameView;
+  readonly players: readonly PlayerView[];
+  readonly board: BoardView;
+  readonly onSend: (command: Command) => void;
+  readonly onClose?: (() => void) | undefined;
+  readonly renderDossier?: ((playerId: number) => ReactNode) | undefined;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const { offer } = frame;
+
+  const playerName = useCallback(
+    (playerId: number) =>
+      players.find((player) => player.id === playerId)?.name ?? t("label.player"),
+    [players, t],
+  );
+  const tileName = useCallback(
+    (index: number) => {
+      // Namespaced by board, the same lookup the draft trays make. A square's name lives in
+      // `board-classic` / `board-israel`, not in `common`, so an unqualified `t(name_key)` resolves
+      // against nothing — and a missing key *throws* in dev and test by design (G-F17), which is how
+      // the first run of this component took the whole dialog down rather than showing a bad name.
+      const nameKey = board.tiles.find((candidate) => candidate.index === index)?.name_key;
+      return nameKey === undefined
+        ? t("label.unknown_square")
+        : t(nameKey, { ns: `board-${board.id}` });
+    },
+    [board, t],
+  );
+
+  /**
+   * The answer, as a command.
+   *
+   * `player` is the offer's **recipient**, not the acting seat: the engine decides whose response is
+   * legal (`error.not_trade_recipient`), and the one seat that can answer is named in the frame. This
+   * panel reports that rather than guessing from whose turn it is — a trade review interrupts the
+   * proposer's turn, so "current player" is the wrong answer here.
+   */
+  const respond = (accept: boolean): void => {
+    onSend({ kind: "respond_to_trade", player: offer.recipient, accept });
+  };
+
+  return (
+    <ModalDialog
+      title={t("trade.review_title")}
+      onClose={onClose}
+      cannotCloseKey="trade.cannot_leave"
+      headline={t("trade.between", {
+        proposer: playerName(offer.proposer),
+        recipient: playerName(offer.recipient),
+      })}
+      footer={
+        <>
+          <button
+            type="button"
+            data-testid="trade-decline"
+            onClick={() => {
+              respond(false);
+            }}
+            className="target border-hairline flex items-center gap-2 rounded-2xl border-2 px-5 text-lg font-bold"
+          >
+            <Icon name="cross" size={20} />
+            {t("action.respond_to_trade_decline")}
+          </button>
+          <button
+            type="button"
+            data-testid="trade-accept"
+            onClick={() => {
+              respond(true);
+            }}
+            className="target border-hairline bg-ink text-tile flex items-center gap-2 rounded-2xl border-2 px-5 text-lg font-bold"
+          >
+            <Icon name="check" size={20} />
+            {t("action.respond_to_trade_accept")}
+          </button>
+        </>
+      }
+    >
+      <div className="mt-2 grid gap-4 sm:grid-cols-2">
+        {/* `give` is what the proposer hands over, `receive` what they ask for — so the receive side
+            is headed by the *recipient*, because those are the recipient's things. Getting these two
+            the wrong way round would show a player the opposite of the deal. */}
+        <OfferSide
+          heading={t("trade.side_gives", { name: playerName(offer.proposer) })}
+          side={offer.give}
+          ownerId={offer.proposer}
+          tileName={tileName}
+          renderDossier={renderDossier}
+        />
+        <OfferSide
+          heading={t("trade.side_gives", { name: playerName(offer.recipient) })}
+          side={offer.receive}
+          ownerId={offer.recipient}
+          tileName={tileName}
+          renderDossier={renderDossier}
+        />
+      </div>
+    </ModalDialog>
+  );
+}
+
+/** One half of a pending offer, as a list. No controls: this is a statement, not a form. */
+function OfferSide({
+  heading,
+  side,
+  ownerId,
+  tileName,
+  renderDossier,
+}: {
+  readonly heading: string;
+  readonly side: TradeSide;
+  readonly ownerId: number;
+  readonly tileName: (index: number) => string;
+  readonly renderDossier?: ((playerId: number) => ReactNode) | undefined;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const empty = side.cash === 0 && side.tiles.length === 0 && side.jail_cards.length === 0;
+
+  return (
+    <section
+      aria-label={heading}
+      data-testid="offer-side"
+      data-owner={ownerId}
+      className="border-hairline rounded-2xl border-2 p-3"
+    >
+      <h3 className="text-base font-bold">{heading}</h3>
+
+      {renderDossier !== undefined && <div className="mt-2">{renderDossier(ownerId)}</div>}
+
+      {/* An empty side is a real offer — a gift, or a demand for nothing in return — so it says so
+          rather than rendering three blank sections. */}
+      {empty && <p className="mt-3 text-sm font-medium opacity-80">{t("trade.side_empty")}</p>}
+
+      {side.cash > 0 && (
+        <p className="mt-3 text-sm font-semibold">
+          {t("trade.cash")}
+          <span data-testid="offer-cash" dir="ltr" className="ms-2 tabular-nums">
+            {side.cash}
+          </span>
+        </p>
+      )}
+
+      {side.tiles.length > 0 && (
+        <div className="mt-3">
+          <p className="text-sm font-semibold">{t("trade.properties")}</p>
+          <ul className="mt-1 flex flex-col gap-1">
+            {side.tiles.map((index) => (
+              <li key={index} data-testid="offer-tile" data-tile={index} className="text-sm">
+                {tileName(index)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {side.jail_cards.length > 0 && (
+        <div className="mt-3">
+          <p className="text-sm font-semibold">{t("trade.jail_cards")}</p>
+          <ul className="mt-1 flex flex-col gap-1">
+            {/* Deduplicated the way the draft trays are: two Chance cards are not two rows with the
+                same name on them. */}
+            {[...new Set(side.jail_cards)].map((deck) => (
+              <li key={deck} data-testid="offer-jail-card" className="text-sm">
+                {t(`deck.${deck}`)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Tray({
   owner,
   draft,

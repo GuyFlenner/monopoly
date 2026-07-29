@@ -441,20 +441,42 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
       {/*
         The trade panel, in either of the two situations that call for it: a draft this seat opened,
-        or an offer waiting for an answer. The review case is a known mismatch — `TradeBuilder` is
-        a builder and has no review mode, so it shows empty trays rather than the pending offer,
-        and accepting or declining happens on the `respond_to_trade` chits in the bar behind it.
-        Hence the `onClose`: the panel must be dismissable or the answer is unreachable. Reshaping
-        `TradeBuilder` is MON-410's call, not this file's.
+        or an offer waiting for an answer.
+
+        The review case used to be a known mismatch — the panel had no review mode, so it drew two
+        empty trays and the answers were only reachable as chits on the bar *behind* the modal. MON-422
+        closed that: passing the live `frame` puts the panel in review mode, where it renders the
+        pending offer read-only with accept and decline in the footer. `frame` is `undefined` for a
+        draft, which is what selects the builder.
+
+        `onClose` stays. In review it is the way out for a player who wants to look at the board before
+        answering — the offer is still on the interrupt stack, so the panel comes back.
       */}
       {(reviewingTrade || draftingTrade) && (
         <TradeBuilder
+          frame={reviewingTrade ? tradeFrame : undefined}
           proposer={tradeFrame?.offer.proposer ?? state.current_player_id}
           players={state.players}
           board={board}
           simplifiedTrades={state.ruleset.simplified_trades}
           validate={validate}
-          onSend={dispatch}
+          /*
+            Sending closes the panel, because in both modes the panel's job is finished: a draft that
+            has been proposed is no longer a draft, and an answered review has nothing left to show.
+
+            Without this, `draftingTrade` (`panel === "trade"`) stays true after a `propose_trade`, so
+            the moment the review interrupt resolves the *builder* reopens over the board with two
+            empty trays. Answering a trade appeared to do nothing. A pre-existing wart the MON-422 e2e
+            spec surfaced — before it, the same reopen happened after answering on the action bar and
+            nothing was watching the whole round trip.
+
+            Proposing still shows the review: `reviewingTrade` comes from the interrupt stack, not from
+            the panel state, so closing the panel here cannot hide an offer that is genuinely pending.
+          */
+          onSend={(command) => {
+            dispatch(command);
+            closePanel();
+          }}
           onClose={() => {
             setDismissedTrade(tradeKey);
             closePanel();
