@@ -466,8 +466,19 @@ to "would this test fail if the implementation were wrong". Coverage floor
 
 ## E5 — Hebrew and RTL · M5
 
-### MON-501 — i18n wiring and language switch
+### MON-501 — i18n wiring and language switch ✅ **DONE** (PR #9)
 **Tier**: Sonnet · **Size**: M · **Depends on**: MON-401
+
+**Delivered 2026-07-28.** The cross-boundary test found 45 of the 50 `error.*` reason keys the
+engine can return resolving against nothing *in either language* — invisible to a
+catalogue-to-catalogue diff, and blanking `TradeBuilder`'s refusal panel, which renders
+`t(verdict.reason_key)` with no `exists` guard. 90 keys renamed, 40 dead or duplicated ones
+deleted, `ActionLabels.ts` and `BOT_LEVEL_KEYS` deleted as derivable, bidi isolation added, and
+Hebrew written for 225 keys. **The `AWAITING_HEBREW` exemption is down from 270 keys to 45** —
+only those naming a person and hanging a verb off them; see
+`docs/MON-501_HEBREW_WORKSHEET.md`. One criterion below was corrected in flight: Hebrew's plural
+categories are `one`/`two`/`other`, not `one`/`two`/`many` — CLDR removed `many` for Hebrew, and
+`packages/web/src/i18n/plurals.test.ts` asks `Intl.PluralRules` rather than a hardcoded table.
 
 - `initI18n` wired in `main.tsx`; switching locale sets `lang` and `dir` on `<html>`.
 - Language switchable **mid-game** with no effect on game state — asserted by a Vitest case,
@@ -481,8 +492,22 @@ to "would this test fail if the implementation were wrong". Coverage floor
   (G-41), asserts Hebrew is not a copied-English catalogue (G-F17-locale), and forbids
   Hebrew-letter/`{{` adjacency (morphology never crosses an interpolation boundary, G-F8).
 
-### MON-502 — RTL audit
+### MON-502 — RTL audit ✅ **DONE**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-501, MON-403
+
+**Delivered 2026-07-28.** Three criteria were already enforced and were verified rather than
+rebuilt (the lint, the FSI/PDI isolates from MON-501, the pinned board). The fourth stood up
+**MON-707's Playwright surface early** — `playwright.config.ts` and `e2e/` did not exist —
+because the claim is geometric. Both mirror specs and the overflow spec are verified
+non-vacuous by mutation: removing the `dir="ltr"` pin fails the first two by name, and forcing a
+60 px tile height fails the third (329 against a 296 ceiling, the same shape as M4's 414/295).
+
+**Correction to the last bullet below.** "Tile 0's rect is identical across locales" fails on a
+*working* board: the game screen is two columns, so under `dir="rtl"` the side panel moves to the
+inline-start edge and the board slides 22 rem with it — tile 0's viewport `x` moves 368 px, which
+is the chrome mirroring *correctly*. The invariant is tile 0's offset **within the board grid**,
+plus a second spec asserting squares 0 and 10 keep their order (a partial mirror that tile 0 alone
+would miss). Asserting the viewport reading would have been "fixed" by un-mirroring the page.
 
 - **Zero physical CSS properties** in `packages/web` — enforced by lint that actually covers
   the real cases (G-45): ESLint over string literals **and template literals**, Stylelint

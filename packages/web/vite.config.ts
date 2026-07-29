@@ -39,5 +39,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: true,
+    // Vitest owns `src`, Playwright owns `e2e` (MON-502). Stated rather than left to the default
+    // glob, which matches `**/*.spec.ts` and therefore swept up the Playwright specs the moment they
+    // existed — they import `@playwright/test`, so they fail to collect under a jsdom runner and the
+    // suite went red for a reason that had nothing to do with the code.
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
 });

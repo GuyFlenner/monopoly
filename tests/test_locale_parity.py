@@ -8,6 +8,7 @@ text in front of a Hebrew-speaking child. A JSON diff catches it in a second.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -238,6 +239,63 @@ def test_no_translation_names_a_placeholder_nobody_supplies(catalogue: str) -> N
         if _placeholders(hebrew[key]) - _placeholders(english[key])
     }
     assert not unsupplied, f"Hebrew names placeholders nothing passes: {unsupplied}"
+
+
+HEBREW_LETTER = r"֐-׿"
+"""The Hebrew block. Written as an escape range because a literal one reorders in a diff."""
+
+
+@pytest.mark.parametrize("catalogue", CATALOGUES)
+def test_no_hebrew_word_is_glued_to_an_interpolation(catalogue: str) -> None:
+    """Morphology never crosses an interpolation boundary (GAP G-F8).
+
+    Hebrew attaches the definite article, prepositions and possessives as *prefixes*, so it is
+    natural to write ``ל{{owner}}`` — and wrong, because the value arriving is a proper noun that
+    already carries its own article: the result is ``להבנק`` where Hebrew wants ``לבנק``. The same
+    defect had the catalogue gluing an article and a feminine suffix onto a translated colour name
+    (``ה{{group}}ה``), which is wrong for three of the eight groups.
+
+    The rule is mechanical: **no Hebrew letter immediately beside a brace.** The fix is never to
+    inflect more cleverly, it is to add a field per form, or to restructure so the value is not the
+    object of a prefix — a leading ``{{tile}}:`` or an apposition after a dash.
+
+    A hyphenated prefix (``ו-{{second}}``, ``כ-{{minutes}}``, ``ב-{{amount}}``) passes, and should:
+    the hyphen is the conventional Hebrew spelling before a numeral or a Latin token, and it does not
+    change with the value — which is what makes it not this defect.
+    """
+    if catalogue in ENGLISH_ONLY_CATALOGUES:
+        pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
+    glued = re.compile(rf"[{HEBREW_LETTER}]\{{\{{|\}}\}}[{HEBREW_LETTER}]")
+    offenders = {key: value for key, value in _load(catalogue, "he").items() if glued.search(value)}
+    assert not offenders, (
+        "Hebrew morphology is glued to a placeholder — add a field per form, or restructure so the "
+        f"value is not the object of a prefix: {offenders}"
+    )
+
+
+@pytest.mark.parametrize("catalogue", CATALOGUES)
+def test_the_hebrew_catalogue_is_not_a_copy_of_the_english_one(catalogue: str) -> None:
+    """A Hebrew value identical to its English one is an untranslated string hiding from the diff.
+
+    The parity check above only asks whether a *key* exists. Copying the English file to
+    ``common.he.json`` would satisfy it completely while shipping an English game under a Hebrew
+    flag — and that is not a hypothetical failure mode, it is the shortest path to a green build.
+
+    Identical is allowed only where the string has **no letters of its own**: ``+{{hidden}}`` and
+    ``{{name}}, {{kind}}{{owner}}`` are punctuation and placeholders, so there is nothing in them to
+    translate and a difference would be the surprising outcome. A rule rather than an allowlist,
+    because an allowlist is where the next untranslated string goes to hide.
+    """
+    if catalogue in ENGLISH_ONLY_CATALOGUES:
+        pytest.skip(f"{catalogue} has no Hebrew catalogue yet — MON-506")
+    english, hebrew = _load(catalogue, "en"), _load(catalogue, "he")
+    has_letters = re.compile(r"[A-Za-z]")
+    untranslated = {
+        key: english[key]
+        for key in english.keys() & hebrew.keys()
+        if english[key] == hebrew[key] and has_letters.search(re.sub(r"\{\{\w+\}\}", "", english[key]))
+    }
+    assert not untranslated, f"identical to English, so not translated: {untranslated}"
 
 
 @pytest.mark.parametrize("board_id", ("classic", "israel"))
