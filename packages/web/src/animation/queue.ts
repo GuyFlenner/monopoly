@@ -251,6 +251,8 @@ function squareAt(step: TokenMoveStep, elapsed: number): number {
   }
   const perSquare = step.durationMs / squares;
   const index =
-    perSquare <= 0 ? squares - 1 : Math.min(Math.max(Math.floor(elapsed / perSquare), 0), squares - 1);
+    perSquare <= 0
+      ? squares - 1
+      : Math.min(Math.max(Math.floor(elapsed / perSquare), 0), squares - 1);
   return step.path[index] ?? destinationOf(step);
 }

@@ -78,7 +78,11 @@ function Flourish({
       data-testid={testId}
       data-beat={nonce}
       className={[active ? animationClass : "", className ?? ""].filter(Boolean).join(" ")}
-      style={active ? ({ "--kesef-motion-ms": `${String(durationMs(fullMs))}ms` } as React.CSSProperties) : undefined}
+      style={
+        active
+          ? ({ "--kesef-motion-ms": `${String(durationMs(fullMs))}ms` } as React.CSSProperties)
+          : undefined
+      }
     >
       {children}
     </span>

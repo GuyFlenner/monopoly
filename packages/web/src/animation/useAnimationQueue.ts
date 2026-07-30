@@ -118,10 +118,13 @@ export function useAnimationQueue(options: AnimationQueueOptions = {}): Animatio
     clearTimer();
     const wake = held.nextWakeMs(now());
     if (wake !== null) {
-      timer.current = setTimeout(() => {
-        timer.current = null;
-        pump.current();
-      }, Math.max(wake, 0));
+      timer.current = setTimeout(
+        () => {
+          timer.current = null;
+          pump.current();
+        },
+        Math.max(wake, 0),
+      );
     }
   };
 
