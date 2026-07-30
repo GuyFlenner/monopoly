@@ -37,6 +37,26 @@ So the driver acts only for the seat the engine is **waiting on** — and that q
 the tournament harness needed the same answer, and "who is the game blocked on" having two
 implementations is exactly how this defect happened in the first place.
 
+## One trade proposal per seat per turn
+
+ADR-009 lets a bot return a constructed `ProposeTrade`, which `legal_commands` never enumerates. That
+buys a bot the one move that un-splits a colour group, and it brings a loop with it: a bot is a pure
+function of the position, and declining an offer puts the position back to essentially what it was, so
+a bot asked again would offer the identical swap forever — to a human, a decline button that summons
+the same trade back immediately.
+
+The loop is broken **here**, not with a flag in the engine's state and not with memory inside the bot
+(a bot with memory is a second place the game's history lives, and it would break replay-from-seed).
+Each seat gets one proposal per turn, spent whether the offer is accepted or declined.
+
+Where the fact is *kept* is the interesting part. This driver cannot remember it: `_advance_bots` calls
+`drive` with `max_steps=1` so each move is a fresh call, and a proposal to a human seat ends the call
+entirely — the next `drive` happens in the *next HTTP request*, after the human has answered. A
+local variable would reset every time and the human would be back in the loop. So it is read off the
+**event log**, which is the game's own record of what has already happened: `TradeProposed` since the
+last `TurnStarted`. `tournament.py` enforces the identical rule with a plain set, because that loop owns
+every step and can simply remember.
+
 ## The step cap
 
 A hard bound on how many commands one call will apply, and it is not decoration. The easy bot picks
@@ -51,15 +71,15 @@ command resumes.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 
 import structlog
 
-from kesef_engine.bots import EasyBot
+from kesef_engine.bots import EasyBot, NormalBot
 from kesef_engine.bots.base import Bot, BotLevel
 from kesef_engine.commands import Command
-from kesef_engine.events import Event
+from kesef_engine.events import Event, TradeProposed, TurnStarted
 from kesef_engine.legality import legal_commands
 from kesef_engine.primitives import PlayerId
 from kesef_engine.reducer import apply
@@ -67,14 +87,30 @@ from kesef_engine.state import GameState
 
 log = structlog.get_logger(__name__)
 
-_BOTS: dict[BotLevel, Bot] = {BotLevel.EASY: EasyBot()}
+_BOTS: dict[BotLevel, Bot] = {BotLevel.EASY: EasyBot(), BotLevel.NORMAL: NormalBot()}
 """One instance per level, shared across every game.
 
-Safe because a bot holds no state — that is a promise of the `Bot` protocol, and
-`test_bot_easy.py` pins it. `normal` and `hard` join this table at MON-602/603; a level with no entry
-is treated as "no bot drives it", which leaves the seat waiting rather than crashing a game that a
-newer client seated with a level this server does not implement.
+Safe because a bot holds no state — that is a promise of the `Bot` protocol, and `test_bot_easy.py`
+pins it. `hard` joins this table at MON-603; a level with no entry is treated as "no bot drives it",
+which leaves the seat waiting rather than crashing a game that a newer client seated with a level this
+server does not implement.
 """
+
+
+def seats_that_proposed_this_turn(events: Iterable[Event]) -> frozenset[PlayerId]:
+    """Which seats have already spent their one trade proposal in the current turn.
+
+    Read off the log rather than remembered — see the module docstring on why this driver cannot keep
+    it. Scanned backwards and stopped at the `TurnStarted` that opened the current turn, so the cost is
+    the length of one turn rather than the length of the game.
+    """
+    spent: set[PlayerId] = set()
+    for event in reversed(list(events)):
+        if isinstance(event, TurnStarted):
+            break
+        if isinstance(event, TradeProposed):
+            spent.add(event.offer.proposer)
+    return frozenset(spent)
 
 
 @dataclass(frozen=True)
@@ -95,8 +131,14 @@ def bot_for(level: BotLevel | None) -> Bot | None:
     return None if level is None else _BOTS.get(level)
 
 
-def _next_bot_move(state: GameState) -> tuple[PlayerId, Command] | None:
-    """The move the seat-being-waited-on would make, if it is a bot. `None` otherwise."""
+def _next_bot_move(
+    state: GameState, *, traded_seats: frozenset[PlayerId] = frozenset()
+) -> tuple[PlayerId, Command] | None:
+    """The move the seat-being-waited-on would make, if it is a bot. `None` otherwise.
+
+    `traded_seats` are the seats that have already proposed a trade this turn and so are offered the
+    move without the permission (ADR-009).
+    """
     seat = state.seat_to_act
     if seat is None:
         return None
@@ -109,7 +151,7 @@ def _next_bot_move(state: GameState) -> tuple[PlayerId, Command] | None:
     mine = tuple(command for command in legal_commands(state) if command.player == seat)
     if not mine:
         return None
-    return seat, bot.choose(state, seat, mine)
+    return seat, bot.choose(state, seat, mine, may_trade=seat not in traded_seats)
 
 
 async def drive(
@@ -117,6 +159,7 @@ async def drive(
     *,
     think_seconds: float,
     max_steps: int,
+    traded_seats: frozenset[PlayerId] = frozenset(),
 ) -> AsyncIterator[BotStep]:
     """Yield each bot move in turn, pausing before each one.
 
@@ -127,12 +170,22 @@ async def drive(
     receive six moves in a single frame, which is the freeze-then-jump this delay exists to prevent.
 
     `async` also means the pause yields the event loop, which is what lets those queues drain.
+
+    `traded_seats` comes in from the caller because the log this driver would have to read is the
+    session's, not the engine's — see the module docstring. It is carried forward inside the loop too,
+    so a multi-step call obeys the same one-proposal rule a single-step one does.
     """
+    turn = state.turn_number
     for _ in range(max_steps):
-        move = _next_bot_move(state)
+        if state.turn_number != turn:
+            turn = state.turn_number
+            traded_seats = frozenset()
+        move = _next_bot_move(state, traded_seats=traded_seats)
         if move is None:
             return
         player, command = move
+        if command.kind == "propose_trade":
+            traded_seats |= {player}
 
         if think_seconds > 0:
             await asyncio.sleep(think_seconds)
