@@ -44,6 +44,13 @@ the minimum legal bid (with the legal range shipped on the auction view), and `P
 is not enumerated at all — the trade builder validates its draft through `is_legal`, exposed
 over HTTP by the `validate` route (ADR-008).
 
+*Amended 2026-07-30 by ADR-009*: the trade builder is no longer the only caller doing that. A
+bot may construct a `ProposeTrade` and validate it through `is_legal` the same way, because a
+bot that could only return an enumerated command could never open a trade and therefore could
+never un-split a colour group. **The enumeration exception itself is unchanged** — nothing about
+the offer space or the cost of enumerating it changed — and so is the property that matters here:
+the bot has no path into the state that a human does not have.
+
 ## Alternatives considered
 
 **The UI derives affordances from the state.** The conventional approach, and the source of
