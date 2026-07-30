@@ -10,7 +10,7 @@ or waits in a ``DebtFrame`` when it cannot.
 from __future__ import annotations
 
 from kesef_engine.board.models import Tile, TileKind
-from kesef_engine.events import Event, RentCharged
+from kesef_engine.events import Event, RentCharged, RentQuote
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason, PlayerId, TileIndex
 from kesef_engine.rules.cash import move_cash
@@ -90,32 +90,95 @@ def charge(
             note_params={"multiplier": multiplier, "dice_total": dice_total},
         )
     elif tile.kind is TileKind.RAILROAD:
-        count = state.count_of_kind_owned(owner, TileKind.RAILROAD)
-        amount = tile.rent[count - 1]  # 25 / 50 / 100 / 200
-        # The doubling is the *card's*, so it is a multiplier over the printed tier rather
-        # than a second table: the explanation stays "N railroads, doubled by the card".
-        doubling = 2 if card_doubles_rent else 1
-        notes: tuple[str, ...] = ("rent.note.railroad_count",)
-        if card_doubles_rent:
-            notes = (*notes, "rent.note.card_doubled")
-        rent = RentCharged(
-            payer=payer_id,
-            owner=owner,
-            tile=tile_index,
-            amount=amount * doubling,
-            base_rent=amount,
-            multiplier=doubling,
-            note_keys=notes,
-            note_params={"count": count},
-        )
+        rent = _charged(_railroad_quote(state, tile, owner, card_doubles_rent=card_doubles_rent), payer_id)
     else:
-        rent = _property_rent(state, payer_id, tile, owner)
+        rent = _charged(_property_quote(state, tile, owner), payer_id)
 
     events.append(rent)
     return _settle(state, rent, events, resting=resting)
 
 
-def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: PlayerId) -> RentCharged:
+def quote(state: GameState, tile_index: TileIndex, *, payer_id: PlayerId) -> RentQuote | None:
+    """What ``tile_index`` would charge ``payer_id`` right now, or ``None`` for nothing at all.
+
+    The accessor behind ``GameState.rent_due`` (MON-420), and the reason the "explain this rent"
+    affordance can print real numbers: the tier ladder, the whole-group doubling and the railroad
+    and utility multipliers all live in this module and nowhere else, so a screen that wanted the
+    current figure previously had to either stay silent or grow a second copy of them.
+
+    ``None`` is the answer for every square that charges nothing — unowned, owned by the payer,
+    mortgaged, or owned by a player who has left the game. That is the *same* set of conditions
+    :func:`charge` short-circuits on, read from one place, so a quote can never promise a rent the
+    charge would not take (and a UI never has to work out that a mortgaged deed is dormant).
+
+    Pure and roll-free. A utility's rent is a multiple of a throw, and quoting one does **not**
+    roll: see :class:`~kesef_engine.events.RentQuote` for why the amount is ``None`` there rather
+    than a plausible guess.
+    """
+    tile = state.board.tile(tile_index)
+    prop = state.properties[tile_index]
+    owner = prop.owner
+    if owner is None or owner == payer_id or prop.mortgaged or state.player(owner).bankrupt:
+        return None
+    if tile.kind is TileKind.UTILITY:
+        return _utility_quote(state, tile, owner)
+    if tile.kind is TileKind.RAILROAD:
+        return _railroad_quote(state, tile, owner, card_doubles_rent=False)
+    return _property_quote(state, tile, owner)
+
+
+def _charged(quoted: RentQuote, payer_id: PlayerId) -> RentCharged:
+    """The same facts, with a payer attached.
+
+    One conversion rather than two constructor calls per rent path: ``RentCharged`` *is* a
+    ``RentQuote`` plus ``payer``, so spelling the fields out twice would be the place the two
+    drifted apart the first time one of them gained a note.
+    """
+    assert quoted.amount is not None, "only a utility quote is amountless, and charging one rolls"
+    return RentCharged(payer=payer_id, **dict(quoted))
+
+
+def _utility_quote(state: GameState, tile: Tile, owner: PlayerId) -> RentQuote:
+    """A utility's rent, expressed as the multiplier because the throw has not happened.
+
+    An ordinary landing charges 4× the throw for one utility held and 10× for both. ``charge``
+    builds its own ``RentCharged`` for this square rather than going through here, because it has
+    a roll and this deliberately does not — the note key differs for exactly that reason.
+    """
+    multiplier = tile.rent[state.count_of_kind_owned(owner, TileKind.UTILITY) - 1]
+    return RentQuote(
+        owner=owner,
+        tile=tile.index,
+        multiplier=multiplier,
+        note_keys=("rent.note.utility_quote",),
+        note_params={"multiplier": multiplier},
+    )
+
+
+def _railroad_quote(state: GameState, tile: Tile, owner: PlayerId, *, card_doubles_rent: bool) -> RentQuote:
+    """25 / 50 / 100 / 200 by how many the owner holds, optionally doubled by a card.
+
+    The doubling is the *card's*, so it is a multiplier over the printed tier rather than a second
+    table: the explanation stays "N railroads, doubled by the card".
+    """
+    count = state.count_of_kind_owned(owner, TileKind.RAILROAD)
+    amount = tile.rent[count - 1]
+    doubling = 2 if card_doubles_rent else 1
+    notes: tuple[str, ...] = ("rent.note.railroad_count",)
+    if card_doubles_rent:
+        notes = (*notes, "rent.note.card_doubled")
+    return RentQuote(
+        owner=owner,
+        tile=tile.index,
+        amount=amount * doubling,
+        base_rent=amount,
+        multiplier=doubling,
+        note_keys=notes,
+        note_params={"count": count},
+    )
+
+
+def _property_quote(state: GameState, tile: Tile, owner: PlayerId) -> RentQuote:
     """Rent for a street, with an explanation in every case (MON-416).
 
     Spec §5.5 asks that *every* rent figure can be explained, not merely charged, and this function
@@ -151,12 +214,17 @@ def _property_rent(state: GameState, payer_id: PlayerId, tile: Tile, owner: Play
         # owns_whole_group reads ownership, not mortgage flags.
         multiplier = 2
         note_keys = ("rent.note.full_group_doubled",)
-        note_params = {"group": group.value}
+        # `group_key`, not `group`: the sentence names a colour, and shipping `group.value` put
+        # the engine's English identifier ("light_blue") into a Hebrew page unless the client
+        # translated an engine enum at the render boundary (MON-415). The `_key` suffix is the
+        # convention that makes it resolvable without the client knowing what a ColorGroup is —
+        # see `RentQuote.note_params`. `multiplier` travels too, so the note that *is* about a
+        # doubling is not the one note whose number the event cannot state.
+        note_params = {"group_key": f"group.{group.value}", "multiplier": multiplier}
     else:
         note_keys = ("rent.note.base",)
 
-    return RentCharged(
-        payer=payer_id,
+    return RentQuote(
         owner=owner,
         tile=tile.index,
         amount=base * multiplier,

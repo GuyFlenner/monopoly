@@ -159,7 +159,9 @@ describe("narrate", () => {
   });
 
   it("stays quiet on an event with no sentence yet, rather than reading out its type", () => {
-    expect(narrateOne({ type: "mortgage_changed", tile: 6, mortgaged: true })).toEqual([]);
+    expect(narrateOne({ type: "mortgage_changed", player: 0, tile: 6, mortgaged: true })).toEqual(
+      [],
+    );
   });
 
   it("covers exactly the three phases in which the acting player may not be the turn holder", () => {

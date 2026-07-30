@@ -51,6 +51,21 @@ export type GameSummary = Schemas["GameSummary"];
 export type Ruleset = Schemas["Ruleset"];
 
 /**
+ * A rule set as `/rulesets` returns it: identified, labelled, and explained (MON-417).
+ *
+ * `RulesetView` is what the setup screen reads. The bare `Ruleset` is still aliased above because
+ * the *game* screen reads flags off `state.ruleset` — `jail_fine`, `simplified_trades` — which is a
+ * copy rather than a diff.
+ */
+export type RulesetView = Schemas["RulesetView"];
+export type RuleFlagView = Schemas["RuleFlagView"];
+/** One rule's value, tagged by kind so nothing has to sniff at `boolean | number | number[]`. */
+export type RuleValue = RuleFlagView["value"];
+
+/** What a square would charge, sharing its shape with `RentCharged` (MON-420). */
+export type RentQuote = Schemas["RentQuote"];
+
+/**
  * The save file — the only shape that carries hidden information (ADR-008 §2).
  *
  * Exposed so `GET /games/{id}/save` and `POST /games/load` are typed, and deliberately not

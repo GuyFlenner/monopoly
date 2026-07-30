@@ -44,7 +44,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from kesef_engine.board.models import Board, ColorGroup, Tile, TileKind
 from kesef_engine.commands import Command, TradeOffer
-from kesef_engine.events import Event
+from kesef_engine.events import Event, RentQuote
 from kesef_engine.factory import Seat
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import (
@@ -58,8 +58,6 @@ from kesef_engine.primitives import (
 )
 from kesef_engine.ruleset import Ruleset, RulesetName
 from kesef_engine.state import (
-    MAX_PLAYERS,
-    MIN_PLAYERS,
     AuctionFrame,
     CardFrame,
     DebtFrame,
@@ -168,7 +166,20 @@ class SeatConfig(BaseModel):
 
 
 class NewGameRequest(BaseModel):
-    seats: tuple[SeatConfig, ...] = Field(min_length=MIN_PLAYERS, max_length=MAX_PLAYERS)
+    seats: tuple[SeatConfig, ...]
+    """Unconstrained on purpose, since MON-418: **how many players a game takes is a rule.**
+
+    This field used to carry ``min_length=MIN_PLAYERS, max_length=MAX_PLAYERS``, and the effect was
+    that removing a seat on the setup screen was answered with ``error.malformed_request`` and a
+    field path — pydantic refused the body, so ``new_game`` never ran and the engine never got to
+    say what was wrong. A parent was told the *form* was broken when the answer is "a game needs
+    two players". The factory now raises keyed errors
+    (:class:`~kesef_engine.errors.InvalidSeatingError`) and ``api.create_game`` forwards them, so
+    the count is enforced in one place and explained in the player's language.
+
+    Nothing is lost by dropping the ceiling: pydantic validated every item before checking
+    ``max_length`` anyway, so the work an oversized body costs is unchanged.
+    """
     board_id: str = "classic"
     ruleset: RulesetName = RulesetName.UNIVERSAL
     locale: str = "en"
@@ -220,6 +231,10 @@ class BoardView(BaseModel):
     id: str
     name_key: str
     tiles: tuple[TileView, ...]
+    catalogue_ready: bool
+    """Copied from the board data (MON-419). Shipped here as well as on ``BoardSummary`` because
+    the parity contract is that every engine field reaches the wire; in a game already under way
+    it is inert, since the picker is what filters on it."""
     go_to_jail_target: TileIndex
     """Promoted: where the GO_TO_JAIL tile sends a token. Finding it client-side means
     knowing that it is the JAIL tile's index, which is a rule."""
@@ -230,6 +245,7 @@ class BoardView(BaseModel):
             id=board.id,
             name_key=board.name_key,
             tiles=tuple(TileView.from_tile(tile) for tile in board.tiles),
+            catalogue_ready=board.catalogue_ready,
             go_to_jail_target=board.go_to_jail_target,
         )
 
@@ -238,12 +254,19 @@ class BoardView(BaseModel):
 
 
 class GroupHoldings(BaseModel):
-    """One colour group as one player holds it (G-31/G-32).
+    """One colour group as one player holds it (G-31/G-32) — a verbatim copy since MON-421.
 
-    Every number is a copy or an engine call: ``complete`` is
-    ``state.owns_whole_group(...)``, not ``owned == total``, because "may this player
-    build" is the engine's answer to give. ``houses`` sums ``PropertyState.houses`` with
-    the engine's own semantics, in which 5 means a hotel.
+    Every number used to be "a copy or an engine call", and three of the six were the second kind
+    only in the sense that they were arithmetic *beside* an engine call: ``owned``, ``houses`` and
+    ``mortgaged_count`` were computed here from ``state.properties``, which made this the third
+    copy of the ``properties[i].owner == player`` predicate while ``complete`` came from the
+    engine. Half a row from the rules and half from a loop next to them is how the two halves end
+    up able to disagree.
+
+    ``kesef_engine.state.GroupHoldings`` now answers all six, and this is the wire twin of it —
+    declared rather than re-exported for the reason the module docstring gives: a view is a copy
+    with an explicit, greppable shape, and ``test_projection.py`` checks the field-by-field parity
+    mechanically.
     """
 
     group: ColorGroup
@@ -255,16 +278,7 @@ class GroupHoldings(BaseModel):
 
     @classmethod
     def from_state(cls, state: GameState, player_id: PlayerId, group: ColorGroup) -> Self:
-        members = state.board.group_members(group)
-        held = tuple(state.properties[index] for index in members if state.properties[index].owner == player_id)
-        return cls(
-            group=group,
-            owned=len(held),
-            total=len(members),
-            complete=state.owns_whole_group(player_id, group),
-            houses=sum(prop.houses for prop in held),
-            mortgaged_count=sum(1 for prop in held if prop.mortgaged),
-        )
+        return cls(**dict(state.group_holdings(player_id, group)))
 
 
 class PlayerView(BaseModel):
@@ -471,6 +485,25 @@ class GameStateView(BaseModel):
     """The bank's stock, which the engine derives from the ruleset. A hotel is not four
     houses, so counting buildings client-side is a rule, not a sum."""
 
+    rent_quotes: tuple[RentQuote | None, ...] = ()
+    """What each square would charge the seat that is about to act (MON-420).
+
+    ``state.rent_due(index, payer_id=current_player_id)`` per square, index-aligned with
+    ``board.tiles``; ``None`` where nothing is owed — unowned, mortgaged, owned by that seat, or
+    owned by somebody who has left the game.
+
+    **Quoted against ``current_player_id``, deliberately.** A quote is payer-dependent only in
+    whether it exists at all (nobody pays themselves), so one array answers the question the UI is
+    actually asking — "what would this cost the player being asked to decide" — and the alternative,
+    a quote per seat per square, is thirty times the payload for a question nobody poses. A screen
+    wanting another seat's exposure asks the engine, which is what the accessor is for.
+
+    Ships the engine's ``RentQuote`` verbatim rather than a view of it, like ``PropertyState`` and
+    ``Obligation``: there is no hidden information in a rent figure and nothing to promote. Forty
+    entries of which most are ``None`` — the array is index-aligned rather than a map so a client
+    never has to parse a key into a tile index.
+    """
+
     @classmethod
     def from_state(cls, state: GameState) -> Self:
         return cls(
@@ -497,6 +530,9 @@ class GameStateView(BaseModel):
             winner=state.winner,
             houses_remaining=state.houses_remaining,
             hotels_remaining=state.hotels_remaining,
+            rent_quotes=tuple(
+                state.rent_due(tile.index, payer_id=state.current_player_id) for tile in state.board.tiles
+            ),
         )
 
 
@@ -561,3 +597,130 @@ class BoardSummary(BaseModel):
     name_key: str
     tile_count: int
     ownable_count: int
+    catalogue_ready: bool
+    """Whether every square on this board has a verified name (MON-419, G-46).
+
+    A copy of ``Board.catalogue_ready`` — see that field for why the flag is declared in the board
+    data rather than worked out here: the names live in the web package's catalogues, which this
+    service cannot read and may be deployed without.
+
+    The picker offers only boards where this is true. Without it, a board could be selected whose
+    forty ``tile.*`` keys resolve to nothing, and the result is a board of blank squares — which is
+    what the ``i18n.exists`` guards in the event log, the action bar and the dossier were added to
+    survive rather than to make acceptable.
+    """
+
+
+# --- The ruleset projection (MON-417, G-36) ---------------------------------
+#
+# ``GET /rulesets`` returned the raw engine model, so the setup screen diffed the two rule sets in
+# TypeScript and kept its own ``Record<keyof Ruleset, "ruleset.${string}">`` label map. Both are
+# deleted by what follows: a client that works out which rules are in force is one rename away from
+# explaining the wrong ones, and a hand-kept label map is a bridge between the engine's vocabulary
+# and the catalogue's that can silently drift (the GAP G-40 argument, applied to rule names).
+#
+# Neither the diff nor the labels are decided here either — ``Ruleset.differing_settings`` and
+# ``Ruleset.label_key`` are the engine's, because what counts as a setting and how its values
+# compare are facts about that model. What *is* decided here is the wire shape: a value classified
+# so a client can render it without inspecting types, which is transport, not a rule.
+
+
+class RuleFlagValue(BaseModel):
+    kind: Literal["flag"] = "flag"
+    on: bool
+
+
+class RuleNumberValue(BaseModel):
+    kind: Literal["number"] = "number"
+    value: int
+
+
+class RuleNumberListValue(BaseModel):
+    kind: Literal["numbers"] = "numbers"
+    values: tuple[int, ...]
+
+
+class RuleAbsentValue(BaseModel):
+    """No value at all — ``target_duration_minutes`` under the universal rules.
+
+    Its own case rather than a nullable number, because "no target length" and "a target length of
+    zero" are different sentences and the model allows both.
+    """
+
+    kind: Literal["absent"] = "absent"
+
+
+RuleValueView = Annotated[
+    RuleFlagValue | RuleNumberValue | RuleNumberListValue | RuleAbsentValue, Field(discriminator="kind")
+]
+"""A rule's value, tagged so ``generated.ts`` gets a real discriminated union rather than
+``boolean | number | number[] | null`` for the client to sniff at."""
+
+
+def _rule_value(raw: object) -> RuleValueView:
+    """Classify one setting's value. A shape mapping, not a judgement about the game.
+
+    ``bool`` is tested first because ``isinstance(True, int)`` is true in Python, and a flag
+    classified as the number 1 is a row reading "Auctions: 1".
+    """
+    if isinstance(raw, bool):
+        return RuleFlagValue(on=raw)
+    if isinstance(raw, int):
+        return RuleNumberValue(value=raw)
+    if isinstance(raw, tuple):
+        return RuleNumberListValue(values=tuple(int(entry) for entry in raw))
+    return RuleAbsentValue()
+
+
+class RuleFlagView(BaseModel):
+    """One setting, named, valued, and marked if this rule set changes it."""
+
+    field: str
+    """The wire field name, which is also the row's stable React key."""
+    label_key: str
+    """``Ruleset.label_key(field)``. A key, never prose — ADR-003 §6."""
+    value: RuleValueView
+    universal_value: RuleValueView
+    """What the official rules say — the "was" half of the sentence, so a row can read
+    "Starting cash 2000 (full rules: 1500)" without the client fetching a baseline and comparing."""
+    differs_from_universal: bool
+    """``field in ruleset.differing_settings(universal)``. The engine's comparison, promoted."""
+
+
+class RulesetView(BaseModel):
+    """A rule set as a setup screen needs it: identified, labelled, and explained.
+
+    ``ruleset`` still ships whole, because the *game* screen reads flags off it
+    (``ruleset.jail_fine``, ``ruleset.simplified_trades``) and that is a copy, not a diff.
+    """
+
+    name: RulesetName
+    label_key: str
+    """``setup.<name>`` — the namespace the catalogue already uses for the two choices."""
+    ruleset: Ruleset
+    flags: tuple[RuleFlagView, ...]
+    """Every setting, in the engine's declaration order, whether it differs or not.
+
+    All of them rather than only the differences: the order is what makes a list of changes read
+    the same way twice running, and a client filtering on ``differs_from_universal`` is doing
+    presentation, where deciding *which* rules differ would have been a rule.
+    """
+
+    @classmethod
+    def from_ruleset(cls, ruleset: Ruleset, universal: Ruleset) -> Self:
+        differing = ruleset.differing_settings(universal)
+        return cls(
+            name=ruleset.name,
+            label_key=f"setup.{ruleset.name.value}",
+            ruleset=ruleset,
+            flags=tuple(
+                RuleFlagView(
+                    field=field,
+                    label_key=Ruleset.label_key(field),
+                    value=_rule_value(getattr(ruleset, field)),
+                    universal_value=_rule_value(getattr(universal, field)),
+                    differs_from_universal=field in differing,
+                )
+                for field in Ruleset.setting_fields()
+            ),
+        )

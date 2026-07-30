@@ -50,7 +50,12 @@ export interface paths {
         };
         /**
          * List Rulesets
-         * @description Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes.
+         * @description Both rulesets, expanded and labelled, so the UI can show what Kids Mode actually changes.
+         *
+         *     Returns ``RulesetView`` rather than the raw ``Ruleset`` since MON-417 (G-36): each setting
+         *     arrives with its ``label_key`` and a ``differs_from_universal`` the engine decided, which is
+         *     what deleted the setup screen's client-side diff and its hand-kept label map. The universal
+         *     rules are the baseline every view is measured against, so they are resolved once here.
          */
         get: operations["list_rulesets_rulesets_get"];
         put?: never;
@@ -421,6 +426,8 @@ export interface components {
             tile_count: number;
             /** Ownable Count */
             ownable_count: number;
+            /** Catalogue Ready */
+            catalogue_ready: boolean;
         };
         /**
          * BoardView
@@ -434,6 +441,8 @@ export interface components {
             name_key: string;
             /** Tiles */
             tiles: components["schemas"]["TileView"][];
+            /** Catalogue Ready */
+            catalogue_ready: boolean;
             /** Go To Jail Target */
             go_to_jail_target: number;
         };
@@ -472,6 +481,11 @@ export interface components {
             houses: number;
             /** Delta */
             delta: number;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "house" | "hotel";
         };
         /**
          * BuildingLot
@@ -968,6 +982,11 @@ export interface components {
             houses_remaining: number;
             /** Hotels Remaining */
             hotels_remaining: number;
+            /**
+             * Rent Quotes
+             * @default []
+             */
+            rent_quotes: (components["schemas"]["RentQuote"] | null)[];
         };
         /** GameSummary */
         GameSummary: {
@@ -1006,12 +1025,19 @@ export interface components {
         };
         /**
          * GroupHoldings
-         * @description One colour group as one player holds it (G-31/G-32).
+         * @description One colour group as one player holds it (G-31/G-32) — a verbatim copy since MON-421.
          *
-         *     Every number is a copy or an engine call: ``complete`` is
-         *     ``state.owns_whole_group(...)``, not ``owned == total``, because "may this player
-         *     build" is the engine's answer to give. ``houses`` sums ``PropertyState.houses`` with
-         *     the engine's own semantics, in which 5 means a hotel.
+         *     Every number used to be "a copy or an engine call", and three of the six were the second kind
+         *     only in the sense that they were arithmetic *beside* an engine call: ``owned``, ``houses`` and
+         *     ``mortgaged_count`` were computed here from ``state.properties``, which made this the third
+         *     copy of the ``properties[i].owner == player`` predicate while ``complete`` came from the
+         *     engine. Half a row from the rules and half from a loop next to them is how the two halves end
+         *     up able to disagree.
+         *
+         *     ``kesef_engine.state.GroupHoldings`` now answers all six, and this is the wire twin of it —
+         *     declared rather than re-exported for the reason the module docstring gives: a view is a copy
+         *     with an explicit, greppable shape, and ``test_projection.py`` checks the field-by-field parity
+         *     mechanically.
          */
         GroupHoldings: {
             group: components["schemas"]["ColorGroup"];
@@ -1084,6 +1110,8 @@ export interface components {
              * @enum {string}
              */
             type: "mortgage_changed";
+            /** Player */
+            player: number;
             /** Tile */
             tile: number;
             /** Mortgaged */
@@ -1363,8 +1391,43 @@ export interface components {
          *     Everything needed to *explain* the figure is here, because "every rent figure can be
          *     explained, not merely charged" is a product gate and the explanation must survive in
          *     the log after the board has changed underneath it.
+         *
+         *     The explanation is inherited rather than restated: see :class:`RentQuote`.
          */
         RentCharged: {
+            /** Owner */
+            owner: number;
+            /** Tile */
+            tile: number;
+            /** Amount */
+            amount: number;
+            /**
+             * Base Rent
+             * @default 0
+             */
+            base_rent: number;
+            /**
+             * Houses
+             * @default 0
+             */
+            houses: number;
+            /**
+             * Multiplier
+             * @default 1
+             */
+            multiplier: number;
+            /** Dice Total */
+            dice_total?: number | null;
+            group?: components["schemas"]["ColorGroup"] | null;
+            /**
+             * Note Keys
+             * @default []
+             */
+            note_keys: string[];
+            /** Note Params */
+            note_params?: {
+                [key: string]: number | string;
+            };
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1372,13 +1435,36 @@ export interface components {
             type: "rent_charged";
             /** Payer */
             payer: number;
+        };
+        /**
+         * RentQuote
+         * @description What a square charges, before anybody has landed on it (MON-420).
+         *
+         *     ``RentCharged`` is this shape plus *who paid*, and that is enforced structurally: the event
+         *     inherits from here. Before MON-420 the multipliers lived only inside
+         *     ``rules.rent._property_rent``, so the "explain this rent" affordance on the board and in the
+         *     dossier had nothing to render and the UI's only options were to say nothing or to re-derive
+         *     the tier ladder in TypeScript. One shape means the sentence a player reads *before* deciding
+         *     is assembled from the same ``rent.note.*`` keys as the one they read in the log afterwards.
+         *
+         *     **A utility quote carries no amount.** Its rent is a multiple of a throw that has not
+         *     happened, so ``amount`` and ``dice_total`` are both ``None`` and ``multiplier`` carries the
+         *     figure the throw will be multiplied by — which is what ``rent.note.utility_quote`` says. An
+         *     invented amount (the last roll's, or the average) would be a number the engine cannot stand
+         *     behind, and is exactly the sort of plausible fiction the log's self-containment rule exists
+         *     to prevent.
+         */
+        RentQuote: {
             /** Owner */
             owner: number;
             /** Tile */
             tile: number;
             /** Amount */
-            amount: number;
-            /** Base Rent */
+            amount?: number | null;
+            /**
+             * Base Rent
+             * @default 0
+             */
             base_rent: number;
             /**
              * Houses
@@ -1458,6 +1544,66 @@ export interface components {
              * @enum {string}
              */
             kind: "roll_for_jail";
+        };
+        /**
+         * RuleAbsentValue
+         * @description No value at all — ``target_duration_minutes`` under the universal rules.
+         *
+         *     Its own case rather than a nullable number, because "no target length" and "a target length of
+         *     zero" are different sentences and the model allows both.
+         */
+        RuleAbsentValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "absent";
+        };
+        /** RuleFlagValue */
+        RuleFlagValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "flag";
+            /** On */
+            on: boolean;
+        };
+        /**
+         * RuleFlagView
+         * @description One setting, named, valued, and marked if this rule set changes it.
+         */
+        RuleFlagView: {
+            /** Field */
+            field: string;
+            /** Label Key */
+            label_key: string;
+            /** Value */
+            value: components["schemas"]["RuleFlagValue"] | components["schemas"]["RuleNumberValue"] | components["schemas"]["RuleNumberListValue"] | components["schemas"]["RuleAbsentValue"];
+            /** Universal Value */
+            universal_value: components["schemas"]["RuleFlagValue"] | components["schemas"]["RuleNumberValue"] | components["schemas"]["RuleNumberListValue"] | components["schemas"]["RuleAbsentValue"];
+            /** Differs From Universal */
+            differs_from_universal: boolean;
+        };
+        /** RuleNumberListValue */
+        RuleNumberListValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "numbers";
+            /** Values */
+            values: number[];
+        };
+        /** RuleNumberValue */
+        RuleNumberValue: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "number";
+            /** Value */
+            value: number;
         };
         /**
          * Ruleset
@@ -1562,6 +1708,21 @@ export interface components {
          * @enum {string}
          */
         RulesetName: "universal" | "kids";
+        /**
+         * RulesetView
+         * @description A rule set as a setup screen needs it: identified, labelled, and explained.
+         *
+         *     ``ruleset`` still ships whole, because the *game* screen reads flags off it
+         *     (``ruleset.jail_fine``, ``ruleset.simplified_trades``) and that is a copy, not a diff.
+         */
+        RulesetView: {
+            name: components["schemas"]["RulesetName"];
+            /** Label Key */
+            label_key: string;
+            ruleset: components["schemas"]["Ruleset"];
+            /** Flags */
+            flags: components["schemas"]["RuleFlagView"][];
+        };
         /**
          * SeatConfig
          * @description One seat at the table. A seat is either a person or a bot.
@@ -1918,7 +2079,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Ruleset"][];
+                    "application/json": components["schemas"]["RulesetView"][];
                 };
             };
         };

@@ -270,6 +270,52 @@ def test_every_tile_name_resolves(board_id: str, language: str) -> None:
     assert not missing, f"unnamed squares on board-{board_id}.{language}: {missing}"
 
 
+@pytest.mark.parametrize("language", ("en", "he"))
+def test_every_ruleset_setting_has_a_label(language: str) -> None:
+    """MON-417: every flag ``/rulesets`` explains can be named, in both languages.
+
+    This check used to live in the web package as ``SetupScreenRuleset.test.ts``, over a hand-kept
+    ``Record<keyof Ruleset, "ruleset.${string}">`` map — and it had to, because the label keys were
+    the client's. They are ``Ruleset.label_key``'s now, so the question is cross-boundary and
+    belongs here: the engine enumerates the settings, and the catalogue is asked to keep up (ADR-003
+    §6). A flag added to ``ruleset.py`` fails this until it has a name a parent can read.
+    """
+    from kesef_engine.ruleset import Ruleset
+
+    catalogue = _catalogue("common", language)
+    fields = Ruleset.setting_fields()
+    assert fields, "no settings discovered — the engine's introspection has drifted"
+    missing = sorted(field for field in fields if Ruleset.label_key(field) not in catalogue)
+    assert not missing, f"rule settings with no {language} label: {missing}"
+
+
+@pytest.mark.parametrize("board_id", ("classic", "israel"))
+def test_a_boards_catalogue_ready_flag_tells_the_truth(board_id: str) -> None:
+    """MON-419: the declared flag equals whether the names actually resolve.
+
+    ``Board.catalogue_ready`` is *declared* in the board JSON, because the server cannot read the
+    web package's catalogues (see that field). Declared means it can lie, and a board wrongly
+    marked ready is precisely the G-46 defect the flag exists to prevent — a picker offering a board
+    that paints forty blank squares. This is the only test that can see both sides, so it is where
+    the claim is checked rather than trusted.
+
+    Both directions matter. A board marked ready with a missing name would ship the defect; a board
+    marked *not* ready whose names are all present would be silently unplayable, which is how the
+    Israeli layout would have stayed hidden after MON-503 supplied its catalogue.
+    """
+    from kesef_engine.board.loader import load_board
+
+    board = load_board(board_id)
+    resolves = all(
+        tile.name_key in _catalogue(f"board-{board_id}", language) for language in ("en", "he") for tile in board.tiles
+    )
+    assert board.catalogue_ready is resolves, (
+        f"board {board_id} declares catalogue_ready={board.catalogue_ready} "
+        f"but its names {'all resolve' if resolves else 'do not all resolve'} — "
+        "fix whichever of the two is wrong"
+    )
+
+
 def test_no_catalogue_key_is_camel_case() -> None:
     """``snake_case`` at every level of every namespace (ADR-003 §6).
 

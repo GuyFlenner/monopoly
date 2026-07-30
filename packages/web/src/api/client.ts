@@ -30,7 +30,7 @@ import type {
   GameView,
   LegalityView,
   NewGameRequest,
-  Ruleset,
+  RulesetView,
 } from "./types";
 
 /** Just enough of `fetch` to be substitutable in a test. */
@@ -86,8 +86,8 @@ export class ApiClient {
     return this.request<BoardSummary[]>("GET", "/boards", { signal });
   }
 
-  listRulesets(signal?: AbortSignal): Promise<Ruleset[]> {
-    return this.request<Ruleset[]>("GET", "/rulesets", { signal });
+  listRulesets(signal?: AbortSignal): Promise<RulesetView[]> {
+    return this.request<RulesetView[]>("GET", "/rulesets", { signal });
   }
 
   // --- Games --------------------------------------------------------------

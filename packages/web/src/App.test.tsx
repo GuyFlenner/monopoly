@@ -27,9 +27,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { ApiClient, type FetchLike, type SocketLike } from "./api";
-import type { BoardSummary, Command, GameStateView, GameView, Ruleset } from "./api";
+import type { BoardSummary, Command, GameStateView, GameView, RentQuote, RulesetView } from "./api";
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
+import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
 import { makeView } from "./test/fixtures";
 
 // --- The fake edge ----------------------------------------------------------
@@ -116,11 +117,26 @@ function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Ed
 // --- Fixtures ---------------------------------------------------------------
 
 const BOARDS: readonly BoardSummary[] = [
-  { id: "classic", name_key: "board.classic.name", tile_count: 40, ownable_count: 28 },
+  {
+    id: "classic",
+    name_key: "board.classic.name",
+    tile_count: 40,
+    ownable_count: 28,
+    catalogue_ready: true,
+  },
 ];
 
-/** Two rule sets, because the Kids-mode diff needs a baseline to differ from. */
-const RULESETS = [{ name: "universal" }, { name: "kids" }] as unknown as Ruleset[];
+/** A board the picker must not offer: its forty square names resolve to nothing (MON-419). */
+const UNNAMED_BOARD: BoardSummary = {
+  id: "atlantis",
+  name_key: "board.classic.name",
+  tile_count: 40,
+  ownable_count: 28,
+  catalogue_ready: false,
+};
+
+/** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
+const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 const END_TURN: Command = { kind: "end_turn", player: 0 };
@@ -208,6 +224,34 @@ describe("App — the setup screen", () => {
 
     expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
   });
+
+  it("never offers a board whose squares have no names", async () => {
+    // MON-419 / G-46. `catalogue_ready` is the server's flag, and a board without it would paint
+    // forty blanks. Both boards carry the *same* `name_key` here on purpose: the picker must filter
+    // on the flag rather than on whether it happens to recognise the name.
+    const edge = makeEdge({
+      "GET /api/boards": ok([...BOARDS, UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findAllByLabelText("Name");
+    const offered = screen.getAllByRole("radio", { name: /Classic/ });
+    expect(offered).toHaveLength(1);
+    expect((offered[0] as HTMLInputElement).value).toBe("classic");
+  });
+
+  it("says there are no boards when every board it was offered is unnamed", async () => {
+    // The two causes are one sentence from a parent's side, which is why the filter runs before the
+    // empty check rather than inside `SetupScreen`.
+    const edge = makeEdge({
+      "GET /api/boards": ok([UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
+  });
 });
 
 // --- The game screen --------------------------------------------------------
@@ -221,6 +265,85 @@ describe("App — the game screen", () => {
       "POST /api/games/g1/commands": ok(view),
     });
   }
+
+  describe("the rent a square would charge (MON-420)", () => {
+    /**
+     * Forty quotes, index-aligned with the ring, with one square priced.
+     *
+     * Everything on screen has to come off this: the multipliers live in `rules/rent.py`, so before
+     * `rent_quotes` existed the panel could say what a square *was* and not what it would cost.
+     */
+    function withQuote(tile: number, quote: RentQuote | null): GameView {
+      const quotes = Array.from({ length: 40 }, () => null as RentQuote | null);
+      quotes[tile] = quote;
+      return gameView({ rent_quotes: quotes });
+    }
+
+    async function openSquare(view: GameView, tile: number): Promise<void> {
+      openGameUrl("g1");
+      renderApp(gameEdge(view));
+      await screen.findByTestId("board-grid");
+      act(() => {
+        useUiStore.setState({ selectedTile: tile });
+      });
+    }
+
+    it("shows the figure and the engine's own explanation of it", async () => {
+      await openSquare(
+        withQuote(1, {
+          owner: 1,
+          tile: 1,
+          amount: 4,
+          base_rent: 2,
+          houses: 0,
+          multiplier: 2,
+          dice_total: null,
+          group: "brown",
+          note_keys: ["rent.note.full_group_doubled"],
+          note_params: { group_key: "group.brown", multiplier: 2 },
+        }),
+        1,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      expect(panel.textContent).toContain("4");
+      // The note, with its group key resolved — the same resolver the log uses (MON-415).
+      expect(panel.textContent).toContain("Brown");
+      expect(panel.textContent).not.toContain("group.");
+    });
+
+    it("states a utility's multiplier and no amount, because the throw has not happened", async () => {
+      await openSquare(
+        withQuote(12, {
+          owner: 1,
+          tile: 12,
+          amount: null,
+          base_rent: 0,
+          houses: 0,
+          multiplier: 4,
+          dice_total: null,
+          group: null,
+          note_keys: ["rent.note.utility_quote"],
+          note_params: { multiplier: 4 },
+        }),
+        12,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      // No invented figure: the caveat is the sentence, not a number nothing stands behind.
+      expect(screen.queryByTestId("square-rent-amount")).not.toBeInTheDocument();
+      expect(panel.textContent).toContain("4 × whatever the dice show");
+    });
+
+    it("says nothing at all about rent on a square that charges none", async () => {
+      // The engine quotes `null` for unowned, mortgaged and self-owned squares, so there is no
+      // branch in the UI about what any of those mean — and no "Rent 0" either.
+      await openSquare(withQuote(1, null), 1);
+      // The square's own panel is open — so the absence below is the rent line, not the whole note.
+      expect(await screen.findByText("Selected square")).toBeInTheDocument();
+      expect(screen.queryByTestId("square-rent")).not.toBeInTheDocument();
+    });
+  });
 
   it("renders one action chit per legal command, and nothing it was not offered", async () => {
     openGameUrl("g1");

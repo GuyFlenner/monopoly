@@ -29,7 +29,7 @@ eventually will.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Final, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Any, Final, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -47,6 +47,9 @@ from kesef_engine.primitives import (
     TileIndex,
 )
 from kesef_engine.ruleset import Ruleset
+
+if TYPE_CHECKING:  # pragma: no cover - import-time cycle, see ``GameState.rent_due``
+    from kesef_engine.events import RentQuote
 
 SCHEMA_VERSION: Final = 2
 """The save-file shape. Bumped to 2 by ADR-007; enforced, not merely documented."""
@@ -120,6 +123,30 @@ class PropertyState(BaseModel, frozen=True):
         if self.owner is None and (self.houses or self.mortgaged):
             raise ValueError("an unowned tile cannot be mortgaged or built on")
         return self
+
+
+class GroupHoldings(BaseModel, frozen=True):
+    """One colour group as one player holds it (MON-421).
+
+    Six numbers about a set, answered in one place. Three of them — ``owned``, ``houses`` and
+    ``mortgaged_count`` — used to be computed by the server's projection, which made it the third
+    copy of the ``properties[i].owner == player`` predicate; ``complete`` was already an engine
+    call, and having half the row come from the engine and half from arithmetic beside it is how
+    the two ended up able to disagree.
+
+    ``complete`` is :meth:`GameState.owns_whole_group`, *not* ``owned == total``. They agree today
+    and the distinction is the point: "may this player build here" is a rule, and a set of two
+    where one member is unowned is a different question from a set whose size a caller assumed.
+    """
+
+    group: ColorGroup
+    owned: int = Field(ge=0)
+    total: int = Field(ge=0)
+    complete: bool
+    houses: int = Field(ge=0)
+    """Buildings across the members this player holds, in the engine's own semantics: 5 is a
+    hotel, so this is a sum of levels rather than a count of houses on the table."""
+    mortgaged_count: int = Field(ge=0)
 
 
 class DiceState(BaseModel, frozen=True):
@@ -598,6 +625,44 @@ class GameState(BaseModel, frozen=True):
     def count_of_kind_owned(self, player_id: PlayerId, kind: TileKind) -> int:
         """How many railroads / utilities a player holds — sets their rent tier."""
         return sum(1 for index in self.board.indexes_of_kind(kind) if self.properties[index].owner == player_id)
+
+    def group_holdings(self, player_id: PlayerId, group: ColorGroup) -> GroupHoldings:
+        """How much of ``group`` this player holds, and what stands on it (MON-421).
+
+        The one place the six figures a dossier row shows are worked out. See
+        :class:`GroupHoldings` for why ``complete`` is not ``owned == total``.
+        """
+        members = self.board.group_members(group)
+        held = tuple(self.properties[index] for index in members if self.properties[index].owner == player_id)
+        return GroupHoldings(
+            group=group,
+            owned=len(held),
+            total=len(members),
+            complete=self.owns_whole_group(player_id, group),
+            houses=sum(prop.houses for prop in held),
+            mortgaged_count=sum(1 for prop in held if prop.mortgaged),
+        )
+
+    def rent_due(self, tile: TileIndex, *, payer_id: PlayerId) -> RentQuote | None:
+        """What ``tile`` would charge ``payer_id`` if they landed on it now (MON-420).
+
+        ``None`` means nothing at all is owed — the square is unowned, mortgaged, owned by the
+        payer, or owned by somebody who has left the game. The answer carries the same fields
+        ``RentCharged`` does, so the "explain this rent" affordance renders the same
+        ``rent.note.*`` sentences before the landing as the log does after it.
+
+        Deterministic and roll-free, so it is safe to call for all forty squares on every frame: a
+        utility's quote states its multiplier and leaves ``amount`` as ``None`` rather than rolling
+        or guessing at a throw (:class:`~kesef_engine.events.RentQuote`).
+
+        The import is local because :mod:`kesef_engine.rules.rent` imports this module — the same
+        reason ``rules.rent`` reaches for ``rules.movement`` inside a function. Keeping the rent
+        maths in the rules package and the *accessor* here is deliberate: callers ask the state
+        what a square costs, and none of them has to know which rule module answered.
+        """
+        from kesef_engine.rules import rent
+
+        return rent.quote(self, tile, payer_id=payer_id)
 
     def deck(self, deck: Deck) -> tuple[str, ...]:
         return self.chance_deck if deck is Deck.CHANCE else self.community_chest_deck

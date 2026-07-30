@@ -6,7 +6,7 @@ import pytest
 
 from helpers import make_player, make_state
 from kesef_engine.commands import EndTurn, RollDice
-from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, Event, RentCharged
+from kesef_engine.events import CashChanged, DebtIncurred, DiceRolled, Event, RentCharged, RentQuote
 from kesef_engine.legality import is_legal
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason
@@ -229,6 +229,23 @@ class TestEveryRentIsExplained:
         assert rent.note_keys == ("rent.note.full_group_doubled",)
         assert rent.multiplier == 2
 
+    def test_the_doubling_note_names_the_group_as_a_key_and_carries_its_multiplier(self) -> None:
+        """MON-415: a key, not ``ColorGroup.value``, and the figure the note is about.
+
+        ``note_params={"group": "light_blue"}`` was the one place a raw engine enum reached a
+        sentence: the client had to hold a ``Record<ColorGroup, string>`` and translate at the
+        render boundary, or a Hebrew page said ``light_blue``. The ``_key`` suffix is what makes
+        it resolvable without the client knowing the enum exists. ``multiplier`` travels because
+        this was the only note whose own number it could not state.
+        """
+        group = make_state().board.tile(19).group
+        assert group is not None
+        siblings = {tile.index: PropertyState(owner=1) for tile in make_state().board.tiles if tile.group is group}
+        rent = _rent_event(_land_on(19, siblings)[1])
+        assert rent.note_params == {"group_key": f"group.{group.value}", "multiplier": 2}
+        # The falsifier: the bare enum value must not be anywhere in the params.
+        assert group.value not in rent.note_params.values()
+
     def test_no_rent_the_engine_can_charge_is_ever_unexplained(self) -> None:
         """The invariant, over played games rather than over the four cases above.
 
@@ -264,3 +281,112 @@ class TestEveryRentIsExplained:
 
         # A test that charged no rent would pass while asserting nothing.
         assert charged > 20, f"only {charged} rents charged — the fixture stopped exercising rent"
+
+
+class TestRentDueQuotesWhatASquareWouldCharge:
+    """MON-420 — ``state.rent_due(tile, payer_id=…)``: the charge, before the landing.
+
+    The multipliers lived only inside ``rules.rent``'s private property path, so MON-405/406's
+    "explain this rent" screen had nothing to render and its only options were silence or a second
+    copy of the tier ladder in TypeScript. What makes the accessor worth having rather than merely
+    convenient is that a quote and a charge are *one shape* — asserted below on the field sets, not
+    on a sample, so the two cannot drift the first time either gains a note.
+    """
+
+    def test_a_quote_and_a_charge_are_the_same_shape(self) -> None:
+        assert set(RentQuote.model_fields) | {"type", "payer"} == set(RentCharged.model_fields)
+
+    def test_an_unimproved_street_quotes_its_printed_rent_with_the_same_note(self) -> None:
+        state = make_state(properties={19: PropertyState(owner=1)})
+        quoted = state.rent_due(19, payer_id=0)
+        assert quoted is not None
+        assert quoted.owner == 1
+        assert quoted.amount == state.board.tile(19).rent[0]
+        assert quoted.note_keys == ("rent.note.base",)
+        # And it is the figure the charge actually takes, read off a real landing rather than
+        # recomputed here: a quote agreeing with a second copy of the rule would prove nothing.
+        charged = _rent_event(_land_on(19, {19: PropertyState(owner=1)})[1])
+        assert (quoted.amount, quoted.note_keys) == (charged.amount, charged.note_keys)
+
+    def test_a_hotel_quotes_the_top_tier_and_says_hotel(self) -> None:
+        state = make_state(properties={19: PropertyState(owner=1, houses=HOTEL_LEVEL)})
+        quoted = state.rent_due(19, payer_id=0)
+        assert quoted is not None
+        assert quoted.amount == state.board.tile(19).rent[HOTEL_LEVEL]
+        assert quoted.houses == HOTEL_LEVEL
+        assert quoted.note_keys == ("rent.note.with_hotel",)
+
+    def test_a_full_group_quotes_the_doubling_with_the_group_as_a_key(self) -> None:
+        board = make_state().board
+        group = board.tile(19).group
+        assert group is not None
+        siblings = {tile.index: PropertyState(owner=1) for tile in board.tiles if tile.group is group}
+        quoted = make_state(properties=siblings).rent_due(19, payer_id=0)
+        assert quoted is not None
+        assert quoted.multiplier == 2
+        assert quoted.amount == board.tile(19).rent[0] * 2
+        assert quoted.note_params == {"group_key": f"group.{group.value}", "multiplier": 2}
+
+    def test_a_railroad_quotes_by_how_many_the_owner_holds(self) -> None:
+        board = make_state().board
+        state = make_state(properties={index: PropertyState(owner=1) for index in RAILROADS[:3]})
+        quoted = state.rent_due(RAILROADS[0], payer_id=0)
+        assert quoted is not None
+        assert quoted.amount == board.tile(RAILROADS[0]).rent[2]
+        assert quoted.note_params == {"count": 3}
+
+    def test_a_utility_quotes_its_multiplier_and_no_amount_because_the_throw_has_not_happened(self) -> None:
+        """The documented caveat. An invented amount would be a number the engine cannot stand
+        behind, and quoting must not roll — ``rent_due`` is asked for every square on every frame.
+        """
+        state = make_state(properties={ELECTRIC: PropertyState(owner=1)})
+        quoted = state.rent_due(ELECTRIC, payer_id=0)
+        assert quoted is not None
+        assert quoted.amount is None
+        assert quoted.dice_total is None
+        assert quoted.multiplier == 4
+        assert quoted.note_keys == ("rent.note.utility_quote",)
+        # Both utilities held is the other tier, and still no amount.
+        both = make_state(properties={index: PropertyState(owner=1) for index in (ELECTRIC, WATER)})
+        quoted_both = both.rent_due(ELECTRIC, payer_id=0)
+        assert quoted_both is not None and (quoted_both.multiplier, quoted_both.amount) == (10, None)
+
+    def test_quoting_a_utility_leaves_the_state_and_its_rng_untouched(self) -> None:
+        """Roll-free, measured rather than asserted: a quote that rolled would advance the RNG,
+        and every subsequent dice roll in the game would then be a different one."""
+        state = make_state(properties={ELECTRIC: PropertyState(owner=1)})
+        before = state.model_dump_json()
+        for _ in range(3):
+            state.rent_due(ELECTRIC, payer_id=0)
+        assert state.model_dump_json() == before
+
+    @pytest.mark.parametrize(
+        ("properties", "why"),
+        [
+            ({}, "nobody owns it"),
+            ({19: PropertyState(owner=0)}, "nobody pays themselves"),
+            ({19: PropertyState(owner=1, mortgaged=True)}, "a mortgaged deed is dormant (trap 2)"),
+        ],
+    )
+    def test_a_square_that_charges_nothing_quotes_nothing(self, properties: dict[int, PropertyState], why: str) -> None:
+        """``None`` rather than a zero, and for the same reasons ``charge`` short-circuits on —
+        read from one place, so a quote can never promise a rent the charge would not take."""
+        assert make_state(properties=properties).rent_due(19, payer_id=0) is None, why
+
+    def test_a_bankrupt_owners_square_quotes_nothing(self) -> None:
+        seats = (make_player(0), make_player(1, bankrupt=True))
+        state = make_state(seats=seats, properties={19: PropertyState(owner=1)}, current=0)
+        assert state.rent_due(19, payer_id=0) is None
+
+    def test_every_ownable_square_quotes_an_explanation(self) -> None:
+        """The gate one layer out: the quote path is a second way to produce a rent figure, so
+        "no rent is ever unexplained" has to hold for it too, not only for what ``charge`` emits."""
+        board = make_state().board
+        owned = {tile.index: PropertyState(owner=1) for tile in board.tiles if tile.is_ownable}
+        state = make_state(properties=owned)
+        priced = [
+            quoted for tile in state.board.tiles if (quoted := state.rent_due(tile.index, payer_id=0)) is not None
+        ]
+        assert len(priced) == 28, "every ownable square should quote something"
+        for entry in priced:
+            assert entry.note_keys, f"tile {entry.tile} quotes {entry.amount} with no explanation"

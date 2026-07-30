@@ -78,6 +78,7 @@ export function makeBoard(overrides: Partial<BoardView> = {}): BoardView {
       makeTile(1),
       makeTile(2, { name_key: "tile.classic.t2" }),
     ],
+    catalogue_ready: true,
     go_to_jail_target: 10,
     ...overrides,
   };
@@ -105,6 +106,9 @@ export function makeState(overrides: Partial<GameStateView> = {}): GameStateView
     winner: null,
     houses_remaining: 32,
     hotels_remaining: 12,
+    // Index-aligned with `board.tiles`, and empty by default: nothing is owned in this fixture, so
+    // the engine would quote nothing. A test that wants a rent supplies it (MON-420).
+    rent_quotes: [],
     ...overrides,
   };
 }

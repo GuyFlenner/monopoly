@@ -22,9 +22,10 @@ from conftest import minimal_state
 from pydantic import BaseModel
 
 from kesef_engine.board.loader import load_board
-from kesef_engine.board.models import Board, ColorGroup, Tile
+from kesef_engine.board.models import BOARD_SIZE, Board, ColorGroup, Tile
 from kesef_engine.commands import TradeOffer, TradeSide
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
+from kesef_engine.events import RentQuote
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import AuctionReason, CashReason, Deck, TileLot
 from kesef_engine.state import (
@@ -39,6 +40,7 @@ from kesef_engine.state import (
     PropertyState,
     TradeFrame,
 )
+from kesef_engine.state import GroupHoldings as EngineGroupHoldings
 from kesef_server.schemas import (
     AuctionFrameView,
     BoardView,
@@ -61,10 +63,13 @@ from kesef_server.schemas import (
 STATE_OMITS = {"rng", "chance_deck", "community_chest_deck"}
 """G-35: the RNG seed and the ordered decks are hidden information."""
 
-STATE_PROMOTES = {"deck_counts", "houses_remaining", "hotels_remaining"}
+STATE_PROMOTES = {"deck_counts", "houses_remaining", "hotels_remaining", "rent_quotes"}
 """``deck_counts`` replaces the ordered decks; the two stock counts are engine-derived
 properties the bank display and the MON-605 hints would otherwise re-derive (a hotel is
-not four houses, so counting them client-side is a rule)."""
+not four houses, so counting them client-side is a rule).
+
+``rent_quotes`` is ``state.rent_due`` per square (MON-420) — the multipliers live in
+``rules/rent.py``, so a screen that wanted the current figure had nothing to render."""
 
 PLAYER_PROMOTES = {"net_worth", "group_holdings", "tiles_owned", "is_bot"}
 """G-31: the dossier must not re-implement the valuation rule or group completion."""
@@ -92,6 +97,9 @@ def _fields(model: type[BaseModel]) -> set[str]:
         (DebtFrame, DebtFrameView, set(), DEBT_PROMOTES),
         (TradeFrame, TradeFrameView, set(), set()),
         (CardFrame, CardFrameView, set(), set()),
+        # MON-421: the wire twin of an engine model now, rather than four copied fields beside two
+        # engine calls. Held to the same parity contract as every other re-declared model.
+        (EngineGroupHoldings, GroupHoldings, set(), set()),
     ],
     ids=lambda value: getattr(value, "__name__", ""),
 )
@@ -168,6 +176,50 @@ def test_group_holdings_count_mortgages() -> None:
     holdings = {entry.group: entry for entry in GameStateView.from_state(state).players[0].group_holdings}
     assert holdings[ColorGroup.BROWN].mortgaged_count == 1
     assert holdings[ColorGroup.BROWN].complete is False
+
+
+def test_rent_quotes_are_index_aligned_with_the_board_and_priced_for_the_acting_seat() -> None:
+    """MON-420: forty entries, and each is ``state.rent_due`` for the seat about to act."""
+    properties = list(minimal_state().properties)
+    properties[39] = PropertyState(owner=1, houses=2)
+    state = minimal_state(properties=tuple(properties))
+    quotes = GameStateView.from_state(state).rent_quotes
+
+    assert len(quotes) == len(state.board.tiles)
+    assert quotes[39] == state.rent_due(39, payer_id=state.current_player_id)
+    assert quotes[39] is not None and quotes[39].amount == load_board("classic").tile(39).rent[2]
+    # An unowned square owes nothing, and so does the acting seat's own — the projection must not
+    # soften either into a zero.
+    assert quotes[0] is None
+    assert quotes[1] is None
+
+
+def test_a_rent_quote_is_absent_for_the_seat_that_owns_the_square() -> None:
+    """The payer identity is load-bearing: quoted against ``current_player_id``, nobody pays
+    themselves. Reading the *owner* as payer would have priced every square in the game."""
+    properties = list(minimal_state().properties)
+    properties[39] = PropertyState(owner=0)
+    state = minimal_state(properties=tuple(properties))
+    assert state.current_player_id == 0
+    assert GameStateView.from_state(state).rent_quotes[39] is None
+    # And it appears the moment somebody else is the one to act.
+    assert (
+        GameStateView.from_state(minimal_state(properties=tuple(properties), current_player_id=1)).rent_quotes[39]
+        is not None
+    )
+
+
+def test_a_rent_quote_carries_the_note_keys_that_explain_it() -> None:
+    """The whole point of one shape: the sentence a player reads before deciding is assembled
+    from the same ``rent.note.*`` keys the log uses afterwards."""
+    board = load_board("classic")
+    properties = list(minimal_state().properties)
+    for index in board.group_members(ColorGroup.DARK_BLUE):
+        properties[index] = PropertyState(owner=1)
+    quote = GameStateView.from_state(minimal_state(properties=tuple(properties))).rent_quotes[39]
+    assert quote is not None
+    assert quote.note_keys == ("rent.note.full_group_doubled",)
+    assert quote.note_params["group_key"] == "group.dark_blue"
 
 
 def test_tiles_owned_and_bot_flags_are_copies_of_engine_truth() -> None:
@@ -285,6 +337,19 @@ def test_a_trade_frame_projects_its_offer_verbatim() -> None:
 SENTINEL_INT = 4242
 """A number no state below produces by any other route."""
 
+_SENTINEL_HOLDINGS = EngineGroupHoldings(
+    group=ColorGroup.PINK, owned=7, total=7, complete=True, houses=SENTINEL_INT, mortgaged_count=3
+)
+"""A group roll-up no board can produce: seven pink squares, 4242 houses on them.
+
+Every field is impossible, not just one — a projection that copied ``group`` faithfully and
+recomputed the numbers has to fail on the numbers, and one that trusted the numbers and relabelled
+the group has to fail on the group."""
+
+_SENTINEL_QUOTE = RentQuote(owner=SENTINEL_INT, tile=1, amount=SENTINEL_INT, note_keys=("rent.note.base",))
+"""A rent no tile charges. ``owner`` is a seat that does not exist, so the quote cannot have come
+from pricing the board."""
+
 
 def _stub_method(monkeypatch: pytest.MonkeyPatch, model: type, name: str, value: object) -> None:
     monkeypatch.setattr(model, name, lambda self, *args, **kwargs: value)
@@ -352,6 +417,26 @@ PROMOTIONS = [
             entry.complete for p in GameStateView.from_state(minimal_state()).players for entry in p.group_holdings
         },
         {True},
+    ),
+    _Promotion(
+        # MON-421's falsifier. `complete` above stubs `owns_whole_group`, which `group_holdings`
+        # calls — so it passes either way and cannot tell "the engine answered the row" from "the
+        # engine answered one field of it". This one replaces the whole accessor.
+        "PlayerView.group_holdings",
+        lambda mp: _stub_method(mp, GameState, "group_holdings", _SENTINEL_HOLDINGS),
+        lambda: [
+            entry for player in GameStateView.from_state(minimal_state()).players for entry in player.group_holdings
+        ],
+        # Two seats, eight groups each, and every row is the sentinel.
+        [GroupHoldings(**dict(_SENTINEL_HOLDINGS))] * 16,
+    ),
+    _Promotion(
+        # MON-420's. Honest arithmetic over a board where nothing is owned answers `None` for all
+        # forty squares, so a projection that priced rent itself could not produce this.
+        "GameStateView.rent_quotes",
+        lambda mp: _stub_method(mp, GameState, "rent_due", _SENTINEL_QUOTE),
+        lambda: list(GameStateView.from_state(minimal_state()).rent_quotes),
+        [_SENTINEL_QUOTE] * BOARD_SIZE,
     ),
     _Promotion(
         "PlayerView.net_worth",
@@ -457,9 +542,11 @@ def test_every_promoted_field_in_the_projection_contract_has_a_falsifier() -> No
         | AUCTION_PROMOTES
         | DEBT_PROMOTES
     )
-    # ``deck_counts`` and ``group_holdings`` are containers rather than single engine calls; the
-    # numbers inside them are covered by their own entries (``complete``) and by the tests above.
-    assert promoted - covered == {"deck_counts", "group_holdings"}
+    # ``deck_counts`` is a container of two lengths rather than an engine call, and the lengths are
+    # covered by ``test_deck_counts_replace_the_ordered_decks``. ``group_holdings`` used to be
+    # exempted on the same grounds and no longer is: MON-421 made it one engine call, so it has a
+    # falsifier like everything else, which is what shrank this set from two names to one.
+    assert promoted - covered == {"deck_counts"}
 
 
 def test_building_stock_is_the_engines_remainder() -> None:

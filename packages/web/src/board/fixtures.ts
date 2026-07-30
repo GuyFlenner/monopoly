@@ -79,6 +79,7 @@ export function makeRingBoard(overrides: Partial<BoardView> = {}): BoardView {
     id: "classic",
     name_key: "board.classic.name",
     tiles,
+    catalogue_ready: true,
     go_to_jail_target: 10,
     ...overrides,
   };

@@ -40,7 +40,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from kesef_engine.board.loader import available_boards, load_board
 from kesef_engine.commands import Command, EndTurn
-from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError, InvalidSeatingError
 from kesef_engine.events import Event
 from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal, legal_commands
@@ -63,6 +63,7 @@ from kesef_server.schemas import (
     LegalityView,
     LoggedEvent,
     NewGameRequest,
+    RulesetView,
     is_addressable_game_id,
 )
 from kesef_server.sessions import (
@@ -314,15 +315,26 @@ def list_boards() -> list[BoardSummary]:
                 name_key=board.name_key,
                 tile_count=len(board.tiles),
                 ownable_count=sum(1 for tile in board.tiles if tile.is_ownable),
+                # Copied, not judged: see `Board.catalogue_ready` for why the flag is board data.
+                # Every board is listed and the *picker* filters, so a board held back is visible
+                # to a developer reading this response and absent from a parent's choices (MON-419).
+                catalogue_ready=board.catalogue_ready,
             )
         )
     return summaries
 
 
 @app.get("/rulesets", tags=["meta"])
-def list_rulesets() -> list[Ruleset]:
-    """Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes."""
-    return [Ruleset.by_name(name) for name in RulesetName]
+def list_rulesets() -> list[RulesetView]:
+    """Both rulesets, expanded and labelled, so the UI can show what Kids Mode actually changes.
+
+    Returns ``RulesetView`` rather than the raw ``Ruleset`` since MON-417 (G-36): each setting
+    arrives with its ``label_key`` and a ``differs_from_universal`` the engine decided, which is
+    what deleted the setup screen's client-side diff and its hand-kept label map. The universal
+    rules are the baseline every view is measured against, so they are resolved once here.
+    """
+    universal = Ruleset.universal()
+    return [RulesetView.from_ruleset(Ruleset.by_name(name), universal) for name in RulesetName]
 
 
 # --- Games -----------------------------------------------------------------
@@ -363,6 +375,13 @@ async def create_game(
         # any other reason answered a 422 naming the wrong cause. Anything else now falls
         # through to `_engine_error_handler`, which reports what it actually was.
         raise errors.unknown_board(request.board_id) from None
+    except InvalidSeatingError as refused:
+        # The engine's own key, forwarded whole — the same treatment `IllegalCommandError` gets, and
+        # for the same reason (G-33). "Two to six players" and "no shared names" are rules, so the
+        # server neither restates them nor flattens the three refusals into one coarse key: before
+        # MON-418 a removed seat was answered with `error.malformed_request` and a field path,
+        # because a pydantic `min_length` refused the body before `new_game` ever ran.
+        raise errors.invalid_seating(refused.reason_key, _wire_params(refused.context)) from None
     except ValueError:
         raise errors.invalid_new_game() from None
     session = _create(store, state)

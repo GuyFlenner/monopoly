@@ -47,7 +47,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventNarration } from "@/a11y";
-import type { ApiError, Command, PlayerView } from "@/api";
+import type { ApiError, Command, PlayerView, RentQuote } from "@/api";
 import {
   Board,
   describeTile,
@@ -62,6 +62,7 @@ import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { EventLog } from "@/panels/EventLog";
+import { noteLines } from "@/panels/EventLogLines";
 import { PlayerDossier } from "@/panels/PlayerDossier";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 
@@ -197,6 +198,48 @@ function TurnSummary({
   );
 }
 
+/**
+ * What the selected square would charge, and why (MON-420).
+ *
+ * Every figure is `RentQuote`'s, and the explanation is the engine's own `rent.note.*` keys
+ * rendered through the same resolver the event log uses — so the sentence a player reads *before*
+ * landing is assembled exactly like the one they read in the log afterwards. Two resolvers is how
+ * the board and the log would end up explaining one figure differently.
+ *
+ * `amount` is nullable and the nullability is the point: a utility's rent is a multiple of a throw
+ * that has not happened, so the engine sends no amount and `rent.note.utility_quote` says
+ * "× whatever the dice show". Printing the last roll's total, or an average, would be a number
+ * nothing stands behind.
+ *
+ * Nothing here decides whether rent is owed. A square that charges nothing quotes `null`, which is
+ * why the caller renders no panel at all rather than a zero.
+ */
+function SquareRent({
+  quote,
+  t,
+}: {
+  readonly quote: RentQuote;
+  readonly t: Translate;
+}): React.JSX.Element {
+  return (
+    <span data-testid="square-rent" className="flex flex-wrap items-baseline gap-x-2">
+      <span className="text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
+        {t("label.rent")}
+      </span>
+      {quote.amount !== null && quote.amount !== undefined && (
+        <span data-testid="square-rent-amount" dir="ltr" className="font-bold tabular-nums">
+          {quote.amount}
+        </span>
+      )}
+      {noteLines(quote.note_keys, quote.note_params, { translate: t }).map((note) => (
+        <span key={note.key} className="text-xs opacity-75">
+          {t(note.key, note.params)}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const { state, board, legalCommands, send, validate, events, status } = useGame();
@@ -288,6 +331,15 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     );
   }, [selectedTile, board, state, tileName, translate]);
 
+  /**
+   * The rent the selected square would charge, straight off the projection.
+   *
+   * `state.rent_quotes` is index-aligned with `board.tiles` and priced for the seat about to act,
+   * so this is a lookup and not a decision — no multiplier, no tier, no "is it owned" branch. Those
+   * all live in `rules/rent.py`, which is why this field had to exist before the affordance could.
+   */
+  const squareQuote = selectedTile === null ? null : state?.rent_quotes[selectedTile];
+
   const connectionKey =
     status.connection.state === "reconnecting"
       ? "status.reconnecting"
@@ -342,12 +394,22 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
           </Board>
 
           {squareNote !== null && (
-            <p className="bg-tile text-ink border-hairline rounded-xl border p-3 text-sm">
-              <span className="me-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
-                {t("label.selected_square")}
-              </span>
-              {squareNote}
-            </p>
+            <div className="bg-tile text-ink border-hairline flex flex-col gap-1 rounded-xl border p-3 text-sm">
+              <p>
+                <span className="me-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
+                  {t("label.selected_square")}
+                </span>
+                {squareNote}
+              </p>
+              {/*
+                The "explain this rent" affordance (MON-420). Absent when the square owes this seat
+                nothing — the engine quotes `null` for an unowned, mortgaged or self-owned square,
+                so there is no branch here about what any of those mean.
+              */}
+              {squareQuote !== null && squareQuote !== undefined && (
+                <SquareRent quote={squareQuote} t={translate} />
+              )}
+            </div>
           )}
         </main>
 
