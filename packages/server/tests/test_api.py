@@ -586,6 +586,21 @@ def test_an_empty_table_is_refused_the_same_way(client: TestClient) -> None:
     assert response.json()["reason_key"] == "error.too_few_players"
 
 
+def test_a_refusal_the_factory_does_not_name_stays_one_coarse_key(client: TestClient) -> None:
+    """MON-418 keyed the three refusals a *player* can cause. This is the floor under the rest.
+
+    Two seats sharing a ``token`` is reachable from the wire — ``SeatConfig.token`` is free-form —
+    and it is refused by ``GameState``'s own validator as a bare ``ValueError`` rather than by the
+    factory's keyed checks. That is a client defect, not a mistake a parent made (the setup screen
+    assigns a distinct piece per seat), so it keeps the coarse key: guessing a precise one here
+    would mean the transport holding a copy of a rule, which is what ``errors.py`` forbids.
+    """
+    seats = [seat("Ann"), {**seat("Bob"), "token": seat("Ann")["token"]}]
+    response = client.post("/games", json={"seats": seats})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.invalid_new_game", "params": {}}
+
+
 def test_too_many_seats_is_refused_with_the_ceiling(client: TestClient) -> None:
     response = client.post("/games", json={"seats": [seat(f"P{i}") for i in range(MAX_PLAYERS + 1)]})
     assert response.status_code == UNPROCESSABLE
