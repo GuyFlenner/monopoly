@@ -16,8 +16,14 @@ from __future__ import annotations
 # subscript, which is noise that hides the assertions.
 from typing import Any
 
-from conftest import new_game_payload, seat
+from conftest import minimal_state, new_game_payload, seat
 from fastapi.testclient import TestClient
+
+from kesef_engine.commands import TradeOffer, TradeSide
+from kesef_engine.events import Event, TradeDeclined, TradeProposed, TurnStarted
+from kesef_engine.primitives import BotLevel, PlayerId
+from kesef_engine.state import GameState, PlayerKind, PlayerState, PropertyState
+from kesef_server.bots import drive, seats_that_proposed_this_turn
 
 
 def _refetch(client: TestClient, game_id: str) -> dict[str, Any]:
@@ -214,13 +220,14 @@ class TestItOnlyMovesForBots:
 
 class TestUnknownLevelsDoNotBreakAGame:
     def test_a_level_this_server_has_no_bot_for_leaves_the_seat_waiting(self, client: TestClient) -> None:
-        """`normal` and `hard` are seatable on the wire before MON-602/603 exist.
+        """`hard` is seatable on the wire before MON-603 exists.
 
         `BotLevel` accepts all three, so a client can seat a level this server cannot drive. The
         honest outcome is a seat that waits — not a crash, and not a game silently played by the wrong
-        bot. When MON-602 lands, this test's expectation flips and that is the reminder to update it.
+        bot. This said `normal` until MON-602 landed; when MON-603 lands there is no level left to
+        assert on and the test goes with it, which is the intended end state rather than a gap.
         """
-        response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="normal"), seat("Ruti")]))
+        response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="hard"), seat("Ruti")]))
         assert response.status_code == 201
         view = response.json()
 
@@ -229,3 +236,131 @@ class TestUnknownLevelsDoNotBreakAGame:
         assert _current(view) == 0
         assert view["events"] == []
         assert view["legal_commands"], "the seat should still have legal moves, just nobody to play them"
+
+    def test_a_normal_bot_seat_is_driven(self, client: TestClient) -> None:
+        """The flip side, and the reminder that MON-602 landed.
+
+        `normal` was in `BotLevel` and absent from the driver's table for two milestones, so a seat
+        asking for it waited forever. Same claim as the easy bot's opening-turn test, made against the
+        level that used to be the one nothing spoke for.
+        """
+        response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="normal"), seat("Ruti")]))
+        assert response.status_code == 201
+        view = _refetch(client, response.json()["state"]["game_id"])
+        assert _current(view) == 1, "the normal bot never took its opening turn"
+        assert view["events"], "the normal bot's opening turn produced no events at all"
+
+
+def _split_groups(*, seat_one_level: BotLevel | None = None) -> GameState:
+    """A board where one swap un-splits two colour groups, with a normal bot in seat 0.
+
+    The position ADR-009 exists for: seat 0 holds all of light blue but one and seat 1 holds that one,
+    and the reverse for pink. Neither can build, and the normal bot's answer is to propose the swap.
+    """
+    players = (
+        PlayerState(id=0, name="Brainy", kind=PlayerKind(bot_level=BotLevel.NORMAL), token="token.0", cash=1500),
+        PlayerState(id=1, name="Ruti", kind=PlayerKind(bot_level=seat_one_level), token="token.1", cash=1500),
+    )
+    base = minimal_state(players=players)
+    ours = [tile.index for tile in base.board.tiles if tile.group is base.board.tile(6).group]
+    theirs = [tile.index for tile in base.board.tiles if tile.group is base.board.tile(11).group]
+    owners: dict[int, PlayerId] = dict.fromkeys(ours[:-1], 0) | {ours[-1]: 1}
+    owners |= dict.fromkeys(theirs[:-1], 1) | {theirs[-1]: 0}
+    properties = tuple(
+        PropertyState(owner=owners[index]) if index in owners else prop for index, prop in enumerate(base.properties)
+    )
+    return GameState(**{**dict(base), "properties": properties})
+
+
+def _offer_from(proposer: PlayerId) -> TradeOffer:
+    return TradeOffer(proposer=proposer, recipient=1 - proposer, give=TradeSide(), receive=TradeSide())
+
+
+class TestOneTradeProposalPerSeatPerTurn:
+    """ADR-009's driver guard, which is the loop a bot proposing trades brings with it.
+
+    A bot is a pure function of the position and a declined offer puts the position back to essentially
+    what it was, so an unguarded driver would re-offer the identical swap forever — and against a human
+    seat that is a Decline button that summons the same trade straight back. `tournament.py` enforces
+    the same rule for the contest.
+    """
+
+    async def test_a_bot_seat_opens_the_swap(self) -> None:
+        # The premise for everything below: this position really does provoke an offer.
+        steps = [step async for step in drive(_split_groups(), think_seconds=0, max_steps=1)]
+        assert [step.command.kind for step in steps] == ["propose_trade"]
+
+    async def test_a_seat_that_has_already_proposed_is_not_asked_again(self) -> None:
+        steps = [
+            step async for step in drive(_split_groups(), think_seconds=0, max_steps=1, traded_seats=frozenset({0}))
+        ]
+        assert steps, "the seat should still move, just not with another offer"
+        assert steps[0].command.kind != "propose_trade"
+
+    async def test_only_one_offer_survives_a_multi_step_call(self) -> None:
+        """Two bots, so the offer is answered inside the same `drive` call and control comes back.
+
+        This is the branch that carries the permission forward within one call — `_advance_bots` drives
+        one step at a time, but nothing about the driver may depend on that.
+        """
+        steps = [
+            step async for step in drive(_split_groups(seat_one_level=BotLevel.EASY), think_seconds=0, max_steps=12)
+        ]
+        first_turn = [step for step in steps if step.state.turn_number == steps[0].state.turn_number]
+        proposals = [step for step in first_turn if step.command.kind == "propose_trade"]
+        assert len(proposals) == 1, [step.command.kind for step in first_turn]
+
+    async def test_the_permission_refills_when_the_turn_advances(self) -> None:
+        """A call long enough to cross a turn boundary must not carry the ban across it.
+
+        Seeded with seat 0's permission already spent, so the only way an offer appears at all is the
+        reset — which is also why the step budget is generous: the turn has to actually move.
+        """
+        steps = [
+            step
+            async for step in drive(
+                _split_groups(seat_one_level=BotLevel.EASY),
+                think_seconds=0,
+                max_steps=60,
+                traded_seats=frozenset({0}),
+            )
+        ]
+        assert len({step.state.turn_number for step in steps}) > 1, "the call never reached a second turn"
+        proposals = [(step.state.turn_number, step.player) for step in steps if step.command.kind == "propose_trade"]
+        assert proposals, "no offer was made after the turn advanced, so the reset is unproven"
+        assert len(proposals) == len(set(proposals)), f"a seat proposed twice in one turn: {proposals}"
+
+    def test_the_log_is_what_remembers_across_requests(self) -> None:
+        """Why the fact is read off the log rather than kept in the driver.
+
+        A proposal to a human ends the `drive` call: the next one happens in the *next HTTP request*,
+        after the human has answered, so a driver-local memory would have reset by then and the offer
+        would come straight back. The log has not forgotten, and this is the case that matters — a
+        proposal and a decline with no `TurnStarted` between them.
+        """
+        log: list[Event] = [
+            TurnStarted(player=0, turn_number=4),
+            TradeProposed(offer=_offer_from(0)),
+            TradeDeclined(offer=_offer_from(0)),
+        ]
+        assert seats_that_proposed_this_turn(log) == frozenset({0})
+
+    def test_a_new_turn_refills_the_permission(self) -> None:
+        log: list[Event] = [
+            TradeProposed(offer=_offer_from(0)),
+            TurnStarted(player=1, turn_number=5),
+        ]
+        assert seats_that_proposed_this_turn(log) == frozenset()
+
+    def test_an_empty_log_has_spent_nothing(self) -> None:
+        assert seats_that_proposed_this_turn([]) == frozenset()
+
+    def test_each_seat_has_its_own_permission(self) -> None:
+        # Trading is legal off-turn, so two seats can both have proposed inside one turn. Collapsing
+        # them to a single "somebody proposed" flag would silence the second bot for no reason.
+        log: list[Event] = [
+            TurnStarted(player=0, turn_number=9),
+            TradeProposed(offer=_offer_from(0)),
+            TradeProposed(offer=_offer_from(1)),
+        ]
+        assert seats_that_proposed_this_turn(log) == frozenset({0, 1})

@@ -129,7 +129,20 @@ class EasyBot:
 
     level: BotLevel = BotLevel.EASY
 
-    def choose(self, state: GameState, player: PlayerId, legal: tuple[Command, ...]) -> Command:
+    def choose(
+        self,
+        state: GameState,
+        player: PlayerId,
+        legal: tuple[Command, ...],
+        *,
+        may_trade: bool = True,
+    ) -> Command:
+        # `may_trade` is accepted and ignored: ADR-009 lets a bot construct a `ProposeTrade`, and this
+        # bot never does. Constructing an offer is a search, and "random among legal" is the whole of
+        # this bot's strategy — there is nothing here to permit or forbid. The parameter is on the
+        # signature rather than absent from it because the `Bot` protocol carries it, and a driver that
+        # had to ask which bots accept the keyword would be the beginnings of a bot registry.
+        del may_trade
         if not legal:
             # The caller's bug, not a position: the reducer always offers at least `end_turn` to the
             # seat it is waiting on. Raising beats returning something invented.
