@@ -150,7 +150,9 @@ describe("Kids mode shows what it changes", () => {
     // And *not* the two flags the fixture ships unmarked. A screen rendering every flag it was
     // handed would pass the loop above and fail here — which is the whole of MON-417 on this side:
     // the client filters on the server's answer instead of computing its own.
-    expect(screen.queryByText(i18next.t("ruleset.target_duration_minutes"))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(i18next.t("ruleset.target_duration_minutes")),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText(i18next.t("ruleset.double_salary_on_exact_go")),
     ).not.toBeInTheDocument();

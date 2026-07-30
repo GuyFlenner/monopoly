@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { ApiClient, type FetchLike, type SocketLike } from "./api";
-import type { BoardSummary, Command, GameStateView, GameView, RulesetView } from "./api";
+import type { BoardSummary, Command, GameStateView, GameView, RentQuote, RulesetView } from "./api";
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
 import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
@@ -265,6 +265,85 @@ describe("App — the game screen", () => {
       "POST /api/games/g1/commands": ok(view),
     });
   }
+
+  describe("the rent a square would charge (MON-420)", () => {
+    /**
+     * Forty quotes, index-aligned with the ring, with one square priced.
+     *
+     * Everything on screen has to come off this: the multipliers live in `rules/rent.py`, so before
+     * `rent_quotes` existed the panel could say what a square *was* and not what it would cost.
+     */
+    function withQuote(tile: number, quote: RentQuote | null): GameView {
+      const quotes = Array.from({ length: 40 }, () => null as RentQuote | null);
+      quotes[tile] = quote;
+      return gameView({ rent_quotes: quotes });
+    }
+
+    async function openSquare(view: GameView, tile: number): Promise<void> {
+      openGameUrl("g1");
+      renderApp(gameEdge(view));
+      await screen.findByTestId("board-grid");
+      act(() => {
+        useUiStore.setState({ selectedTile: tile });
+      });
+    }
+
+    it("shows the figure and the engine's own explanation of it", async () => {
+      await openSquare(
+        withQuote(1, {
+          owner: 1,
+          tile: 1,
+          amount: 4,
+          base_rent: 2,
+          houses: 0,
+          multiplier: 2,
+          dice_total: null,
+          group: "brown",
+          note_keys: ["rent.note.full_group_doubled"],
+          note_params: { group_key: "group.brown", multiplier: 2 },
+        }),
+        1,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      expect(panel.textContent).toContain("4");
+      // The note, with its group key resolved — the same resolver the log uses (MON-415).
+      expect(panel.textContent).toContain("Brown");
+      expect(panel.textContent).not.toContain("group.");
+    });
+
+    it("states a utility's multiplier and no amount, because the throw has not happened", async () => {
+      await openSquare(
+        withQuote(12, {
+          owner: 1,
+          tile: 12,
+          amount: null,
+          base_rent: 0,
+          houses: 0,
+          multiplier: 4,
+          dice_total: null,
+          group: null,
+          note_keys: ["rent.note.utility_quote"],
+          note_params: { multiplier: 4 },
+        }),
+        12,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      // No invented figure: the caveat is the sentence, not a number nothing stands behind.
+      expect(screen.queryByTestId("square-rent-amount")).not.toBeInTheDocument();
+      expect(panel.textContent).toContain("4 × whatever the dice show");
+    });
+
+    it("says nothing at all about rent on a square that charges none", async () => {
+      // The engine quotes `null` for unowned, mortgaged and self-owned squares, so there is no
+      // branch in the UI about what any of those mean — and no "Rent 0" either.
+      await openSquare(withQuote(1, null), 1);
+      // The square's own panel is open — so the absence below is the rent line, not the whole note.
+      expect(await screen.findByText("Selected square")).toBeInTheDocument();
+      expect(screen.queryByTestId("square-rent")).not.toBeInTheDocument();
+    });
+  });
 
   it("renders one action chit per legal command, and nothing it was not offered", async () => {
     openGameUrl("g1");
