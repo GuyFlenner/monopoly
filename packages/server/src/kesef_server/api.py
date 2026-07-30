@@ -38,26 +38,20 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from kesef_engine.board.loader import available_boards, load_board
-from kesef_engine.commands import Command, EndTurn
 from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
-from kesef_engine.events import Event
 from kesef_engine.factory import new_game
-from kesef_engine.legality import is_legal, legal_commands
+from kesef_engine.legality import is_legal
 from kesef_engine.reducer import apply
-from kesef_engine.ruleset import Ruleset, RulesetName
+from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import GameState
-from kesef_server import errors
-from kesef_server.bots import drive, seats_that_proposed_this_turn
+from kesef_server import errors, transport
 from kesef_server.config import Settings, settings
 from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
 from kesef_server.log import configure_logging, get_logger
 from kesef_server.schemas import (
     BoardSummary,
-    BoardView,
     CommandRequest,
     ErrorResponse,
-    GameStateView,
     GameSummary,
     GameView,
     LegalityView,
@@ -66,9 +60,7 @@ from kesef_server.schemas import (
     is_addressable_game_id,
 )
 from kesef_server.sessions import (
-    DuplicateGameError,
     Session,
-    SessionLimitReachedError,
     SessionStore,
     Subscriber,
     SubscriberLimitReachedError,
@@ -174,7 +166,7 @@ def _route_of(request: Request) -> str:
 def _illegal_command_handler(request: Request, exc: Exception) -> Response:
     """The engine's rejection, forwarded whole: key *and* context params (G-33)."""
     assert isinstance(exc, IllegalCommandError)
-    body = ErrorResponse(reason_key=exc.reason_key, params=_wire_params(exc.context))
+    body = ErrorResponse(reason_key=exc.reason_key, params=transport.wire_params(exc.context))
     return JSONResponse(status_code=UNPROCESSABLE, content=body.model_dump(mode="json"))
 
 
@@ -259,16 +251,6 @@ app.add_exception_handler(RequestValidationError, _validation_error_handler)
 app.add_exception_handler(WebSocketRequestValidationError, _ws_validation_error_handler)
 
 
-def _wire_params(context: dict[str, object]) -> dict[str, int | str]:
-    """Coerce an error's context to what the catalogue can interpolate.
-
-    ``IllegalCommandError`` is typed ``**context: object``; every rule in the engine passes
-    ints and strings, and anything else would be a bug in the *engine* rather than something
-    to hide here — so it is stringified rather than dropped.
-    """
-    return {key: value if isinstance(value, int | str) else str(value) for key, value in context.items()}
-
-
 async def _read_bounded(request: Request, limit: int) -> bytes:
     """Read the request body, refusing the moment it crosses ``limit`` bytes.
 
@@ -305,24 +287,13 @@ def health() -> dict[str, str]:
 @app.get("/boards", tags=["meta"])
 def list_boards() -> list[BoardSummary]:
     """The boards available on the new-game screen."""
-    summaries = []
-    for board_id in available_boards():
-        board = load_board(board_id)
-        summaries.append(
-            BoardSummary(
-                id=board.id,
-                name_key=board.name_key,
-                tile_count=len(board.tiles),
-                ownable_count=sum(1 for tile in board.tiles if tile.is_ownable),
-            )
-        )
-    return summaries
+    return transport.board_summaries()
 
 
 @app.get("/rulesets", tags=["meta"])
 def list_rulesets() -> list[Ruleset]:
     """Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes."""
-    return [Ruleset.by_name(name) for name in RulesetName]
+    return transport.rulesets()
 
 
 # --- Games -----------------------------------------------------------------
@@ -375,16 +346,7 @@ async def create_game(
 
 @app.get("/games", tags=["game"])
 def list_games(store: StoreDep) -> list[GameSummary]:
-    return [
-        GameSummary(
-            game_id=session.state.game_id,
-            board_id=session.state.board_id,
-            ruleset=session.state.ruleset.name,
-            turn_number=session.state.turn_number,
-            player_names=tuple(player.name for player in session.state.players),
-        )
-        for session in store.all()
-    ]
+    return transport.game_summaries(store)
 
 
 @app.post(
@@ -489,16 +451,7 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
     reset before the human had answered, and the same offer would come straight back.
     """
     for _ in range(config.bot_max_steps_per_call):
-        session = store.get(game_id)
-        async for step in drive(
-            session.state,
-            think_seconds=config.bot_think_seconds,
-            max_steps=1,
-            traded_seats=seats_that_proposed_this_turn(entry.event for entry in session.log),
-        ):
-            store.update(game_id, step.state, step.events)
-            break
-        else:
+        if await transport.advance_bots_once(store, game_id, think_seconds=config.bot_think_seconds) is None:
             return
 
 
@@ -663,51 +616,15 @@ async def stream_events(
 # --- Helpers ---------------------------------------------------------------
 
 
-def _session(store: SessionStore, game_id: str) -> Session:
-    try:
-        return store.get(game_id)
-    except UnknownGameError:
-        raise errors.game_not_found(game_id) from None
-
-
-def _create(store: SessionStore, state: GameState) -> Session:
-    try:
-        return store.create(state)
-    except DuplicateGameError:
-        raise errors.game_already_exists(state.game_id) from None
-    except SessionLimitReachedError:
-        raise errors.server_at_capacity(len(store)) from None
-
-
-def _view(session: Session, events: tuple[LoggedEvent, ...] = ()) -> GameView:
-    """The projection. Every field is a copy or an engine call (ADR-008)."""
-    return GameView(
-        board=BoardView.from_board(session.state.board),
-        state=GameStateView.from_state(session.state),
-        legal_commands=legal_commands(session.state),
-        events=events,
-        event_cursor=session.cursor,
-    )
-
-
-def _logged(session: Session, events: tuple[Event, ...]) -> tuple[LoggedEvent, ...]:
-    """The just-applied events, with the ``seq`` the store assigned them."""
-    return tuple(session.log[-len(events) :]) if events else ()
-
-
-def _stamped(store: SessionStore, session: Session, command: Command) -> Command:
-    """Overwrite ``EndTurn.elapsed_seconds`` with the server's own reading.
-
-    The engine owns no clock, but Kids Mode ends a game after
-    ``Ruleset.target_duration_minutes``, so the time has to arrive on a command (GAP G-6).
-    It arrives from *here*, never from the request: a client that chose its own number could
-    force the ending on the turn it happens to be winning, or postpone it forever. This is
-    the only clock read in the server, and ``SessionStore`` is the only thing that holds a
-    clock (see its module docstring).
-    """
-    if isinstance(command, EndTurn):
-        return command.model_copy(update={"elapsed_seconds": store.elapsed_seconds(session)})
-    return command
+# The five helpers a game route needs beyond its own framework wiring live in
+# `kesef_server.transport`, because `kesef_server.browser` needs the identical five and two copies
+# of the projection is the drift MON-805 was not willing to buy. Aliased rather than re-spelled so
+# every call site below still reads as it did.
+_session = transport.session
+_create = transport.create
+_view = transport.view
+_logged = transport.logged
+_stamped = transport.stamped
 
 
 def _retype_validation_errors(document: dict[str, Any]) -> None:
