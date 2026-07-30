@@ -6,14 +6,10 @@
 # can even look. Both templates are short and both have a "not sure" escape hatch, so nothing here
 # forces a reporter to diagnose their own bug before filing it.
 blank_issues_enabled: false
-
-contact_links:
-  - name: Read the design first
-    url: https://github.com/GuyFlenner/monopoly/blob/main/docs/superpowers/specs/2026-07-25-kesef-street-design.md
-    about: How the engine, the server and the UI divide the work, and why. Most "is this a bug or intended" questions are answered here.
-  - name: Check the backlog
-    url: https://github.com/GuyFlenner/monopoly/blob/main/docs/BACKLOG.md
-    about: Every planned work item with its acceptance criteria, plus what is deliberately deferred past v1 and why.
-  - name: Contributing guide
-    url: https://github.com/GuyFlenner/monopoly/blob/main/CONTRIBUTING.md
-    about: Setup, the verify gate, what a rule owes in tests, and the PR flow.
+# No `contact_links`. GitHub requires absolute URLs there, which would mean hardcoding this
+# repository's slug into a committed file — and the slug is the trademarked word this project
+# deliberately keeps out of its own contents. It would also rot the moment the repository is
+# renamed or moved. The pointers a reporter actually needs are relative links in README.md and
+# CONTRIBUTING.md, which travel with the repository wherever it goes: `docs/BACKLOG.md` for what
+# is already planned, `docs/superpowers/specs/` for how the layers divide the work, and
+# `CONTRIBUTING.md` for the gate and the PR flow.

@@ -24,7 +24,7 @@ assignees: ""
 
 ## Have you checked the backlog?
 
-- [ ] I looked at [`docs/BACKLOG.md`](../../docs/BACKLOG.md) and this is not already filed
+- [ ] I looked at `docs/BACKLOG.md` in this repository and this is not already filed
 
 Much of what people ask for is already scheduled — the hard bot, the animation queue, the
 side-by-side compare tray, save/load, the replay viewer, hints and sound cues all have items. If
