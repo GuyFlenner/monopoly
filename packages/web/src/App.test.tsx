@@ -271,6 +271,57 @@ describe("App — the setup screen", () => {
 
     expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
   });
+
+  it("loads a saved game and moves to that game's board (MON-704)", async () => {
+    // The whole of "a loaded game is just a game": the load route answers a `GameView` exactly as
+    // `POST /games` does, so the response is cached under the game's key and the screen switches
+    // through the same two lines. Nothing downstream of the shell has a branch for it.
+    const restored = gameView({}, [ROLL]);
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "POST /api/games/load": ok(restored),
+      "GET /api/games/g1": ok(restored),
+    });
+    renderApp(edge);
+
+    const picker = await screen.findByLabelText("Choose a saved game file");
+    await userEvent.upload(
+      picker,
+      new File([JSON.stringify({ schema_version: 1, game_id: "g1" })], "save.json", {
+        type: "application/json",
+      }),
+    );
+
+    expect(await screen.findByTestId("board-grid")).toBeInTheDocument();
+    const posted = edge.calls.find((call) => call.path === "/api/games/load");
+    expect(posted?.body).toEqual({ schema_version: 1, game_id: "g1" });
+    expect(new URLSearchParams(globalThis.location.search).get("game")).toBe("g1");
+  });
+
+  it("keeps the load affordance reachable when the two lists failed", async () => {
+    // A save carries its own board and rule set, so a server that cannot list its boards is still a
+    // server that can resume yesterday's game. Hiding the one working affordance behind an unrelated
+    // failure is the "no spinners forever" defect wearing an error message.
+    // A 404 rather than a 5xx: `SetupFlow` retries a server-side failure twice before settling, so a
+    // 500 here would be a test waiting on a backoff to assert something unrelated to it.
+    const edge = makeEdge({
+      "GET /api/boards": refusal(404, "error.not_found"),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-error");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
+
+  it("keeps the load affordance reachable when the server has no boards", async () => {
+    const edge = makeEdge({ "GET /api/boards": ok([]), "GET /api/rulesets": ok(RULESETS) });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-empty");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
 });
 
 // --- The game screen --------------------------------------------------------
@@ -529,6 +580,32 @@ describe("App — the game screen", () => {
     expect(await screen.findByText("That game no longer exists.")).toBeInTheDocument();
     // And a way out of a game id that no longer resolves.
     expect(screen.getByRole("button", { name: "New game" })).toBeInTheDocument();
+  });
+
+  it("offers a retry on a failed first fetch, and asks the server again (MON-708)", async () => {
+    // Until MON-708 the only way out of this screen was "New game", which *abandons* the game the
+    // URL is pointing at — a dead end that looks like a decision. The game is on the server and this
+    // client simply has not got it yet, so asking again is exactly the right thing to try.
+    openGameUrl("g1");
+    // A 404, for the reason above: `useGame` retries a 5xx twice, and this test is about the button
+    // rather than about the backoff.
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "GET /api/games/g1": refusal(404, "error.game_not_found"),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("game-error");
+    const before = edge.calls.filter((call) => call.path === "/api/games/g1").length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => {
+      expect(
+        edge.calls.filter((call) => call.path === "/api/games/g1").length,
+      ).toBeGreaterThan(before);
+    });
   });
 
   it("keeps the board on screen when the event socket drops", async () => {

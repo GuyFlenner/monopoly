@@ -314,10 +314,14 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
           <LoadingState testId="game-loading" />
         ) : (
           /*
-            With a retry, since MON-708. A first view that failed is the one failure on this screen
-            where asking again is exactly the right thing to try — the game is on the server and this
-            client simply has not got it yet — and until now the only way out was "New game", which
-            *abandons* the game the URL is pointing at. A dead end that looks like a decision.
+            With a retry, since MON-708. Until now the only way out of a failed first fetch was
+            "New game", which *abandons* the game the URL is pointing at — a dead end that looks like
+            a decision.
+
+            Offered whatever the status was, deliberately. Branching on it would mean this file
+            deciding which failures are worth another attempt, and it is wrong about that more often
+            than a player is: a 404 can be a fetch that raced a session being created, and the server
+            is a great deal better placed to answer twice than this screen is to guess once.
           */
           <ErrorState error={status.error} onRetry={refetch} testId="game-error" />
         )}
