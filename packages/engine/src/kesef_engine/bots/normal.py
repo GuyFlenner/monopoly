@@ -19,16 +19,46 @@ The backlog names them, and each is a claim about *this* game rather than a gene
 3. **Build to three houses.** The rent ladder's steepest step per pound is the third house; the fourth
    and the hotel cost more for less marginal rent. So building is scored highly up to three per square
    and barely at all beyond it — which also keeps cash back, feeding opinion 1.
-4. **Sane trade evaluation.** It accepts an offer that improves its group position without gutting its
-   cash, and declines otherwise. It never *proposes* — `ProposeTrade` is not enumerated in
-   `legal_commands` (ADR-005's documented exception), so a bot cannot offer a trade without inventing
-   one, and inventing one is a search this bot does not do.
+4. **Sane trade evaluation, in both directions.** It accepts an offer that improves its group position
+   without gutting its cash, and declines otherwise — *and* it opens one when the board has stalled.
+
+## Why it proposes trades, which is not something a bot could originally do
+
+The first version of this bot only *answered* offers, because `Bot.choose` promised to return a member
+of the `legal` tuple and `ProposeTrade` is never enumerated in `legal_commands` — ADR-005's documented
+exception, the offer space being unbounded. That made trades structurally unreachable to every bot, and
+it is what stopped this bot passing its own gate: 69/100 wins against easy (needed 60) but **12 games
+capped** at 500 turns against a limit of 5. Dumping a capped position showed why, and it was not a
+scoring problem:
+
+    seed 9, turn 501:  houses = 0 for BOTH seats
+    brown [0,1]  light_blue [1,0,1]  pink [1,0,1]  red [1,0,0]  yellow [0,0,1]  ...
+
+**Every colour group split, so neither side could ever build.** Rents stay at their printed value, both
+seats bank GO salaries faster than they lose them, and the game is undecidable. The only mechanism in
+the rules that un-splits a group is a trade.
+
+ADR-009 amends the protocol: a bot may return a constructed `ProposeTrade`, validated by `is_legal`
+like anybody else's draft. The trade this bot looks for is the reciprocal one — *I hold all of red but
+one and you hold that one; you hold all of light blue but one and I hold that one* — and it is worth
+noticing that such a swap helps the **opponent** as much as it helps the bot. That is the point rather
+than a flaw: a board where both sides can build is a board where somebody eventually loses, and a bot
+that cannot finish a game is a failure whatever its win rate.
+
+Note what is *not* here: no check that a swap is allowed. The bot builds an offer, asks
+:func:`~kesef_engine.legality.is_legal`, and drops it if the answer is no. Group-carrying-buildings,
+ownership, cash, the ruleset's `simplified_trades` — every one of those is a rule and lives in the
+engine.
 
 ## What it deliberately does not do
 
 No lookahead, no rollouts, no opponent model. That is MON-603, and the point of keeping it out is that
 this bot is the *floor* MON-603 must clear by the same margin it has to clear over easy — a normal bot
 that already searched would leave nothing between the two.
+
+It also holds **no randomness at all**, so easy.py's fingerprint-fork apparatus is absent: there is
+nothing random here to keep honest. `choose` stays a pure function of `(state, player, legal)` plus the
+driver's `may_trade` permission, which is a fact about the call rather than a memory.
 """
 
 from __future__ import annotations
@@ -46,15 +76,19 @@ from kesef_engine.commands import (
     MortgageProperty,
     PayJailFine,
     PlaceBid,
+    ProposeTrade,
     RespondToTrade,
     RollDice,
     RollForJail,
     SellHouse,
+    TradeOffer,
+    TradeSide,
     UnmortgageProperty,
     UseJailCard,
     WithdrawFromAuction,
 )
-from kesef_engine.phases import Phase
+from kesef_engine.legality import is_legal
+from kesef_engine.phases import PORTFOLIO_PHASES, Phase
 from kesef_engine.primitives import BotLevel, PlayerId
 from kesef_engine.state import GameState
 
@@ -117,9 +151,157 @@ def _completion_value(mine: int, theirs: int, total: int) -> float:
     return 60.0 if mine + 1 == total else 30.0 * (mine + 1) / total
 
 
+PROPOSE_SCORE: Final = 80.0
+"""Where opening a trade sits in the same ranking every other command is scored on.
+
+Below ``build_house``'s 90 and above ``roll_dice``'s 60, which reads as: finish improving what is
+already yours, *then* go looking for a swap, and only then roll. Nothing else in a portfolio phase
+scores between the two, so this is an ordering rather than a tuned number.
+"""
+
+
 def _price_of(state: GameState, tile_index: int) -> int:
     price = state.board.tile(tile_index).price
     return 0 if price is None else price
+
+
+# --- Proposing a trade (ADR-009) ---------------------------------------------------------------
+
+
+def _completing_tiles(state: GameState, taker: PlayerId, giver: PlayerId) -> tuple[int, ...]:
+    """Tiles ``giver`` holds that would hand ``taker`` a whole colour group.
+
+    One tile, never a package, and that falls out of the arithmetic rather than being a simplification:
+    the only groups a single square can complete are those where ``taker`` already holds every member
+    but one — ``mine + 1 == total`` — and ``giver`` holds that one. A group needing two squares is not
+    reachable in one hop and is left alone.
+
+    Ordered by price, dearest first, then by index: the dear groups are the ones whose rent ladder is
+    worth owning, and the index breaks ties so the choice is a pure function of the position.
+    """
+    found: list[int] = []
+    for tile in state.board.tiles:
+        if tile.group is None or state.properties[tile.index].owner != giver:
+            continue
+        mine, _theirs, total = _group_progress(state, taker, tile.index)
+        if total and mine + 1 == total:
+            found.append(tile.index)
+    return tuple(sorted(found, key=lambda index: (-_price_of(state, index), index)))
+
+
+def _spare_tiles(state: GameState, player: PlayerId, opponent: PlayerId) -> tuple[int, ...]:
+    """The bot's squares that are worth more on the table than in its hand, best first.
+
+    A square in a group somebody else has broken into can never be built on — that is
+    :func:`_completion_value`'s whole point — so its only remaining value is as a blocker, and a blocker
+    is exactly the kind of thing to trade away. Squares in a group the bot could still complete are
+    excluded, however broken the group looks: ``mine + 1 == total`` is a group one swap away from being
+    whole, and giving that share up would be the bot bidding against itself.
+
+    Ordered by what the square does for ``opponent``, because an offer the other side has no reason to
+    accept is a wasted turn. ``opp_theirs - 1`` is not an off-by-one: the bot itself is currently counted
+    among the opponent's obstacles in that group, and it is offering to stop being one.
+    """
+    scored: list[tuple[float, int, int]] = []
+    for tile in state.board.tiles:
+        if tile.group is None or state.properties[tile.index].owner != player:
+            continue
+        mine, theirs, total = _group_progress(state, player, tile.index)
+        if not theirs or mine + 1 == total:
+            continue
+        opp_mine, opp_theirs, _ = _group_progress(state, opponent, tile.index)
+        scored.append((-_completion_value(opp_mine, opp_theirs - 1, total), _price_of(state, tile.index), tile.index))
+    return tuple(index for _value, _price, index in sorted(scored))
+
+
+def _sweetener(state: GameState, player: PlayerId, want: int, give: tuple[int, ...]) -> int:
+    """Cash to even up an offer the bot is getting the better of, and never more than it can spare.
+
+    Printed prices, not a valuation: the bot is guessing at what the *other* side will find fair, and
+    the price on the deed is the only figure both parties can see. Capped by the cash buffer, which is
+    opinion 1 outranking opinion 4 — the same order :meth:`NormalBot._score_trade` applies to an
+    incoming offer.
+    """
+    gap = _price_of(state, want) - sum(_price_of(state, index) for index in give)
+    spare = state.player(player).cash - CASH_BUFFER
+    return max(0, min(gap, spare))
+
+
+def _same_group(state: GameState, one: int, other: int) -> bool:
+    return state.board.tile(one).group is state.board.tile(other).group
+
+
+def _drafts(state: GameState, player: PlayerId, opponent: PlayerId) -> list[TradeOffer]:
+    """Offers to put to ``opponent``, best first. Legality is somebody else's job — see :func:`_offer`.
+
+    Three shapes, in the order they are preferred:
+
+    1. **The reciprocal swap.** Each side hands over the one square blocking the other's group, and no
+       money changes hands. This is the offer that un-splits two groups at once, and the only one a
+       rational opponent should take without being paid.
+    2. **A spare square, plus cash to even it up.** The bot has something the opponent wants but nothing
+       the opponent *needs*, so it pays the difference in printed prices.
+    3. **Cash alone.** Nothing spare to give. Twice the printed price is a lot for one square and the
+       right price for the square that completes a group, because a whole group is what makes building
+       legal at all.
+
+    **A give and a want in the same group are never paired**, and the case is not hypothetical: brown
+    and dark blue have two members each, so when the two seats hold one apiece, *each* tile completes
+    the group for whoever does not have it. Both therefore qualify — the bot's as a give, the
+    opponent's as a want — and the resulting offer swaps one half of a split group for the other half,
+    leaving it exactly as split as before. Perfectly legal, and a wasted turn every turn.
+    """
+    wants = _completing_tiles(state, player, opponent)
+    if not wants:
+        return []
+    reciprocal = _completing_tiles(state, opponent, player)
+    spare = _spare_tiles(state, player, opponent)
+    drafts: list[TradeOffer] = []
+    for want in wants:
+        for give in reciprocal:
+            if not _same_group(state, give, want):
+                drafts.append(_offer(player, opponent, give=(give,), want=want, cash=0))
+    for want in wants:
+        for give in spare:
+            if not _same_group(state, give, want):
+                cash = _sweetener(state, player, want, (give,))
+                drafts.append(_offer(player, opponent, give=(give,), want=want, cash=cash))
+    for want in wants:
+        cash = max(0, min(_price_of(state, want) * 2, state.player(player).cash - CASH_BUFFER))
+        if cash:
+            drafts.append(_offer(player, opponent, give=(), want=want, cash=cash))
+    return drafts
+
+
+def _offer(proposer: PlayerId, recipient: PlayerId, *, give: tuple[int, ...], want: int, cash: int) -> TradeOffer:
+    return TradeOffer(
+        proposer=proposer,
+        recipient=recipient,
+        give=TradeSide(cash=cash, tiles=give),
+        receive=TradeSide(tiles=(want,)),
+    )
+
+
+def _find_trade(state: GameState, player: PlayerId) -> ProposeTrade | None:
+    """The best offer this seat can legally make right now, or ``None``.
+
+    Restricted to the portfolio phases even though ``is_legal`` would also allow a debtor to trade
+    during ``DEBT_SETTLEMENT``: the offers built here swap squares rather than raise cash, so proposing
+    one while money is owed would spend a turn not solving the problem in front of it.
+
+    Every draft is put to :func:`~kesef_engine.legality.is_legal` and the first accepted one is
+    returned. Building an offer the engine would reject and letting ``apply`` raise would be a bot
+    guessing at rules, which is the one thing a bot in this codebase may never do.
+    """
+    if state.phase not in PORTFOLIO_PHASES:
+        return None
+    opponents = sorted(other.id for other in state.solvent_players if other.id != player)
+    for opponent in opponents:
+        for draft in _drafts(state, player, opponent):
+            command = ProposeTrade(player=player, offer=draft)
+            if is_legal(state, command):
+                return command
+    return None
 
 
 class NormalBot:
@@ -127,12 +309,25 @@ class NormalBot:
 
     level: BotLevel = BotLevel.NORMAL
 
-    def choose(self, state: GameState, player: PlayerId, legal: tuple[Command, ...]) -> Command:
+    def choose(
+        self,
+        state: GameState,
+        player: PlayerId,
+        legal: tuple[Command, ...],
+        *,
+        may_trade: bool = True,
+    ) -> Command:
         if not legal:
             raise ValueError("no legal commands to choose from")
         # `max` with a stable key over the tuple's own order: equal scores resolve to the earliest
         # command, so the choice is a pure function of the position and cannot drift.
-        return max(legal, key=lambda command: self._score(state, player, command))
+        best = max(legal, key=lambda command: self._score(state, player, command))
+        if not may_trade or self._score(state, player, best) >= PROPOSE_SCORE:
+            # Nothing to search for, or something better already on offer — and checking the score
+            # first is what keeps the search off the hot path: it runs at most twice a turn, when the
+            # only things left to do are roll and end.
+            return best
+        return _find_trade(state, player) or best
 
     def _score(self, state: GameState, player: PlayerId, command: Command) -> float:
         me = state.player(player)

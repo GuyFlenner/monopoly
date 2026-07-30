@@ -127,6 +127,15 @@ def play(
     the seat asked is `state.seat_to_act` — the seat the game is *blocked on*, not merely one with a
     legal move. Getting that wrong is what made a bot mortgage its own property for two hundred moves
     while its opponent never played; see the property's docstring.
+
+    **One trade proposal per seat per turn.** ADR-009 lets a bot return a constructed `ProposeTrade`,
+    and the loop that has to be broken is not in the engine but here: a bot is a pure function of the
+    position, and declining an offer puts the position back to essentially what it was, so a bot asked
+    again would offer the identical swap forever. Bot state is not the answer — a bot with memory is a
+    second place the game's history lives, and it would break replay-from-seed. So the *driver* spends
+    the permission, and a new turn is what refills it. `kesef_server.bots.drive` does the same thing
+    for the same reason, differently expressed: it is re-entered once per move and reads the fact off
+    the event log, where this loop can simply remember it.
     """
     bots: dict[PlayerId, Bot] = {
         challenger_seat: challenger,
@@ -137,7 +146,13 @@ def play(
         seats, seed=seed, game_id=f"t{seed}", board_id="classic", ruleset=Ruleset.by_name(RulesetName.UNIVERSAL)
     )
 
+    proposed_this_turn: set[PlayerId] = set()
+    turn = state.turn_number
+
     for _ in range(STEP_CAP_PER_GAME):
+        if state.turn_number != turn:
+            turn = state.turn_number
+            proposed_this_turn.clear()
         if state.phase is Phase.GAME_OVER:
             return Outcome(
                 seed=seed,
@@ -157,7 +172,10 @@ def play(
         mine = tuple(command for command in legal_commands(state) if command.player == seat)
         if not mine:
             raise AssertionError(f"seed {seed}: seat {seat} is being waited on with nothing legal")
-        state, _ = apply(state, bots[seat].choose(state, seat, mine))
+        command = bots[seat].choose(state, seat, mine, may_trade=seat not in proposed_this_turn)
+        if command.kind == "propose_trade":
+            proposed_this_turn.add(seat)
+        state, _ = apply(state, command)
     else:
         raise AssertionError(f"seed {seed}: {STEP_CAP_PER_GAME} commands without finishing")
 
