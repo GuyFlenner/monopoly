@@ -6,8 +6,10 @@
  * typed against `generated.ts`, so a contract change breaks the fixtures — which is the point.
  *
  * `ruleset` is the one narrow cast. It is a fully expanded engine model with a few dozen
- * flags, none of which any test in this package reads; restating it would add noise and a
- * second place to update when a flag is added.
+ * flags; {@link makeRuleset} spells out only the ones this package genuinely reads and casts over
+ * the rest, because restating all of them would add noise and a second place to update when a flag
+ * is added. The spelled-out ones are load-bearing: `presentationFor` (MON-604) reads four, and a
+ * fixture that left them `undefined` would give every test a half-configured screen.
  */
 
 import type {
@@ -21,7 +23,34 @@ import type {
   TileView,
 } from "@/api";
 
-const RULESET = { name: "universal" } as unknown as Ruleset;
+/**
+ * A ruleset carrying every flag the web package reads, and a cast over the rest.
+ *
+ * The five spelled out here are the ones a component branches on: four for `presentationFor`
+ * (MON-604) and `jail_fine` for the bail label. Everything else is the engine's business.
+ */
+export function makeRuleset(overrides: Partial<Ruleset> = {}): Ruleset {
+  return {
+    name: "universal",
+    jail_fine: 50,
+    auctions_enabled: true,
+    mortgages_enabled: true,
+    hints_enabled: false,
+    simplified_trades: false,
+    ...overrides,
+  } as unknown as Ruleset;
+}
+
+/** Kids Mode as `Ruleset.kids()` configures it, for the MON-604/MON-605 tests. */
+export const KIDS_RULESET: Ruleset = makeRuleset({
+  name: "kids",
+  auctions_enabled: false,
+  mortgages_enabled: false,
+  hints_enabled: true,
+  simplified_trades: true,
+});
+
+const RULESET = makeRuleset();
 
 export function makeTile(index: number, overrides: Partial<TileView> = {}): TileView {
   return {
