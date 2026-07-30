@@ -106,14 +106,19 @@ jobs:
       - name: Sync (runtime + dev)
         run: uv sync --frozen
 
-      # No `slow`-marked tests exist yet. Exit code 5 ("no tests collected") is pytest's
-      # signal for that and must not fail the job; any other non-zero exit code is a
-      # real failure and must.
+      # `-m slow` on the command line lands after the `-m "not slow"` in pyproject's addopts
+      # and wins, so this is the inverse of the PR gate's selection rather than an addition
+      # to it. MON-603's bot contests are what live here: two hundred full games with a rollout
+      # search in half the seats — tens of minutes, and a wall-clock nobody asserts on (G-F30).
+      #
+      # Exit code 5 ("no tests collected") used to be tolerated here, because for two
+      # milestones there were no slow-marked tests to collect. It is a **failure** now: an
+      # empty slow lane means the marker or this selection has broken, and a silent pass is
+      # exactly how a strength gate stops being run without anybody noticing.
+      #
+      # `-s` because the contests *report* numbers as well as asserting them — the win/draw/capped
+      # split, the turn distribution, and the wall-clock. Those are metrics a human reads in this log;
+      # pytest only shows captured stdout for tests that fail, and a passing contest whose runtime has
+      # quietly tripled is exactly the thing worth seeing.
       - name: Pytest -m slow
-        run: |
-          uv run pytest -m slow; status=$?
-          if [ "$status" -eq 5 ]; then
-            echo "No slow-marked tests collected yet — treating as a pass."
-            exit 0
-          fi
-          exit "$status"
+        run: uv run pytest -m slow -s

@@ -59,10 +59,27 @@ that already searched would leave nothing between the two.
 It also holds **no randomness at all**, so easy.py's fingerprint-fork apparatus is absent: there is
 nothing random here to keep honest. `choose` stays a pure function of `(state, player, legal)` plus the
 driver's `may_trade` permission, which is a fact about the call rather than a memory.
+
+## Three seams the hard bot reaches through (MON-603)
+
+`hard.py` subclasses this bot rather than copying it, which is only honest if the parts it wants to
+change are named. Three are, and each is a *preference* rather than a rule:
+
+* :meth:`NormalBot._buffer` — how much cash the bot keeps back. Constant here (``CASH_BUFFER``); the
+  hard bot scales it with what a single landing could cost.
+* :meth:`NormalBot._score` — the ranking. Overridable because a subclass wants to *add* an opinion,
+  not replace the four.
+* :meth:`NormalBot._propose` — which of :func:`_legal_drafts`' offers to open. First-legal here; the
+  hard bot vetoes some of them.
+
+The buffer is threaded through the module-level trade helpers as an argument rather than read from the
+constant, so those functions say which bot's reserve they are respecting. `_score`'s branches read
+``self._buffer(...)`` once, at the top, for the same reason.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Final
 
 from kesef_engine.board.models import TileKind
@@ -214,16 +231,16 @@ def _spare_tiles(state: GameState, player: PlayerId, opponent: PlayerId) -> tupl
     return tuple(index for _value, _price, index in sorted(scored))
 
 
-def _sweetener(state: GameState, player: PlayerId, want: int, give: tuple[int, ...]) -> int:
+def _sweetener(state: GameState, player: PlayerId, want: int, give: tuple[int, ...], *, buffer: int) -> int:
     """Cash to even up an offer the bot is getting the better of, and never more than it can spare.
 
     Printed prices, not a valuation: the bot is guessing at what the *other* side will find fair, and
-    the price on the deed is the only figure both parties can see. Capped by the cash buffer, which is
-    opinion 1 outranking opinion 4 — the same order :meth:`NormalBot._score_trade` applies to an
-    incoming offer.
+    the price on the deed is the only figure both parties can see. Capped by ``buffer``, the reserve
+    whichever bot is asking keeps back, which is opinion 1 outranking opinion 4 — the same order
+    :meth:`NormalBot._score_trade` applies to an incoming offer.
     """
     gap = _price_of(state, want) - sum(_price_of(state, index) for index in give)
-    spare = state.player(player).cash - CASH_BUFFER
+    spare = state.player(player).cash - buffer
     return max(0, min(gap, spare))
 
 
@@ -231,7 +248,7 @@ def _same_group(state: GameState, one: int, other: int) -> bool:
     return state.board.tile(one).group is state.board.tile(other).group
 
 
-def _drafts(state: GameState, player: PlayerId, opponent: PlayerId) -> list[TradeOffer]:
+def _drafts(state: GameState, player: PlayerId, opponent: PlayerId, *, buffer: int) -> list[TradeOffer]:
     """Offers to put to ``opponent``, best first. Legality is somebody else's job — see :func:`_offer`.
 
     Three shapes, in the order they are preferred:
@@ -264,10 +281,10 @@ def _drafts(state: GameState, player: PlayerId, opponent: PlayerId) -> list[Trad
     for want in wants:
         for give in spare:
             if not _same_group(state, give, want):
-                cash = _sweetener(state, player, want, (give,))
+                cash = _sweetener(state, player, want, (give,), buffer=buffer)
                 drafts.append(_offer(player, opponent, give=(give,), want=want, cash=cash))
     for want in wants:
-        cash = max(0, min(_price_of(state, want) * 2, state.player(player).cash - CASH_BUFFER))
+        cash = max(0, min(_price_of(state, want) * 2, state.player(player).cash - buffer))
         if cash:
             drafts.append(_offer(player, opponent, give=(), want=want, cash=cash))
     return drafts
@@ -282,26 +299,34 @@ def _offer(proposer: PlayerId, recipient: PlayerId, *, give: tuple[int, ...], wa
     )
 
 
-def _find_trade(state: GameState, player: PlayerId) -> ProposeTrade | None:
-    """The best offer this seat can legally make right now, or ``None``.
+def _legal_drafts(state: GameState, player: PlayerId, *, buffer: int) -> Iterator[ProposeTrade]:
+    """Every offer this seat could legally open right now, best first. Lazy on purpose.
 
     Restricted to the portfolio phases even though ``is_legal`` would also allow a debtor to trade
     during ``DEBT_SETTLEMENT``: the offers built here swap squares rather than raise cash, so proposing
     one while money is owed would spend a turn not solving the problem in front of it.
 
-    Every draft is put to :func:`~kesef_engine.legality.is_legal` and the first accepted one is
-    returned. Building an offer the engine would reject and letting ``apply`` raise would be a bot
-    guessing at rules, which is the one thing a bot in this codebase may never do.
+    Every draft is put to :func:`~kesef_engine.legality.is_legal` and only accepted ones are yielded.
+    Building an offer the engine would reject and letting ``apply`` raise would be a bot guessing at
+    rules, which is the one thing a bot in this codebase may never do.
+
+    A generator rather than a list because this bot wants only the first one (:func:`_find_trade`) and
+    stopping there is what keeps the search cheap; the hard bot walks further down the list because it
+    vetoes some offers, and it pays for exactly as many as it looks at.
     """
     if state.phase not in PORTFOLIO_PHASES:
-        return None
+        return
     opponents = sorted(other.id for other in state.solvent_players if other.id != player)
     for opponent in opponents:
-        for draft in _drafts(state, player, opponent):
+        for draft in _drafts(state, player, opponent, buffer=buffer):
             command = ProposeTrade(player=player, offer=draft)
             if is_legal(state, command):
-                return command
-    return None
+                yield command
+
+
+def _find_trade(state: GameState, player: PlayerId, *, buffer: int) -> ProposeTrade | None:
+    """The best offer this seat can legally make right now, or ``None``."""
+    return next(_legal_drafts(state, player, buffer=buffer), None)
 
 
 class NormalBot:
@@ -327,11 +352,25 @@ class NormalBot:
             # first is what keeps the search off the hot path: it runs at most twice a turn, when the
             # only things left to do are roll and end.
             return best
-        return _find_trade(state, player) or best
+        return self._propose(state, player) or best
+
+    def _buffer(self, state: GameState, player: PlayerId) -> int:
+        """Cash this bot keeps back. Constant here — see the module docstring's third seam.
+
+        Takes the position it does not use so that a subclass can: "how much cash is enough" depends on
+        what a single landing could cost, and that is a fact about the board rather than about the bot.
+        """
+        del state, player
+        return CASH_BUFFER
+
+    def _propose(self, state: GameState, player: PlayerId) -> ProposeTrade | None:
+        """The offer to open, or ``None``. First legal draft here; the hard bot is choosier."""
+        return _find_trade(state, player, buffer=self._buffer(state, player))
 
     def _score(self, state: GameState, player: PlayerId, command: Command) -> float:
         me = state.player(player)
         in_debt = state.phase is Phase.DEBT_SETTLEMENT
+        buffer = self._buffer(state, player)
 
         match command:
             case BuyProperty():
@@ -355,7 +394,7 @@ class NormalBot:
                 after = me.cash - price
                 if after < 0:
                     return -100.0
-                thinness = 0.0 if after >= CASH_BUFFER else -30.0 * (CASH_BUFFER - after) / CASH_BUFFER
+                thinness = 0.0 if after >= buffer else -30.0 * (buffer - after) / buffer
                 return 50.0 + completion + thinness
 
             case DeclinePurchase():
@@ -365,7 +404,7 @@ class NormalBot:
             case BuildHouse(tile=build_tile):
                 houses = state.properties[build_tile].houses
                 cost = state.board.tile(build_tile).house_cost or 0
-                if me.cash - cost < CASH_BUFFER:
+                if me.cash - cost < buffer:
                     # Opinion 1 again: houses are the best investment in the game and still not worth
                     # the last of the cash.
                     return 5.0
@@ -379,7 +418,7 @@ class NormalBot:
                 # anybody, so it out-played the easy bot for five hundred turns and never finished.
                 #
                 # "Builds to three houses" is a statement about what it does *first*, not a ceiling.
-                return 40.0 if me.cash - cost >= CASH_BUFFER * 2 else 5.0
+                return 40.0 if me.cash - cost >= buffer * 2 else 5.0
 
             case RollDice():
                 # Has to happen, but after any building worth doing — hence below `build_house` and
@@ -391,7 +430,7 @@ class NormalBot:
 
             case PayJailFine():
                 # Out early while there is a board to play; sit it out when the reserve is thin.
-                return 55.0 if me.cash - 50 >= CASH_BUFFER else 15.0
+                return 55.0 if me.cash - 50 >= buffer else 15.0
 
             case UseJailCard():
                 # Free, so better than paying.
@@ -405,10 +444,10 @@ class NormalBot:
                 bid_tile = lot.tile if lot is not None and lot.kind == "tile" else None
                 if bid_tile is None:
                     # A building lot in a shortage auction: no group to reason about.
-                    return 25.0 if me.cash - amount >= CASH_BUFFER else -50.0
+                    return 25.0 if me.cash - amount >= buffer else -50.0
                 mine, theirs, total = _group_progress(state, player, bid_tile)
                 worth = _price_of(state, bid_tile) + _completion_value(mine, theirs, total) * 2.0
-                if me.cash - amount < CASH_BUFFER or amount > worth:
+                if me.cash - amount < buffer or amount > worth:
                     # `legal_commands` offers the minimum legal bid only (ADR-005), so declining to
                     # value it means withdrawing rather than bidding lower.
                     return -50.0
