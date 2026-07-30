@@ -676,6 +676,19 @@ class TestTheBudgetIsDeterministic:
         assert budget.apply_calls > 0
 
 
+def _timed_contest(defender: Bot) -> tuple[tournament.Result, float]:
+    """A hundred games and how long they took. The seconds are printed and never asserted (G-F30).
+
+    Worth measuring anyway: a bot whose per-move budget was accidentally widened would still pass the
+    win threshold and would show up here as a nightly job that suddenly takes an hour. That is a metric
+    doing its job — a human reads it and decides — rather than a threshold failing a build on somebody
+    else's busy runner.
+    """
+    started = time.perf_counter()
+    result = tournament.contest(HardBot(), defender)
+    return result, time.perf_counter() - started
+
+
 @pytest.mark.slow
 class TestTheStrengthGate:
     """MON-603's headline criterion: ≥ 60 of 100 against *both* weaker bots, on the fixed seeds.
@@ -689,7 +702,8 @@ class TestTheStrengthGate:
     """
 
     def test_beats_the_normal_bot_and_finishes_its_games(self) -> None:
-        result = tournament.contest(HardBot(), NormalBot())
+        result, seconds = _timed_contest(NormalBot())
+        print(f"\nhard vs normal: {result.summary()}  wall-clock {seconds:.0f}s")
         assert result.wins >= tournament.WINS_REQUIRED, result.summary()
         assert result.capped <= tournament.MAX_CAPPED, result.summary()
 
@@ -702,7 +716,8 @@ class TestTheStrengthGate:
         normal bot likes to offer, and it races the normal bot for the house supply. None of that is
         aimed at an opponent that moves at random, so it has to be measured against one.
         """
-        result = tournament.contest(HardBot(), EasyBot())
+        result, seconds = _timed_contest(EasyBot())
+        print(f"\nhard vs easy: {result.summary()}  wall-clock {seconds:.0f}s")
         assert result.wins >= tournament.WINS_REQUIRED, result.summary()
         assert result.capped <= tournament.MAX_CAPPED, result.summary()
 

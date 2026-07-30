@@ -115,5 +115,10 @@ jobs:
       # milestones there were no slow-marked tests to collect. It is a **failure** now: an
       # empty slow lane means the marker or this selection has broken, and a silent pass is
       # exactly how a strength gate stops being run without anybody noticing.
+      #
+      # `-s` because the contests *report* numbers as well as asserting them — the win/draw/capped
+      # split, the turn distribution, and the wall-clock. Those are metrics a human reads in this log;
+      # pytest only shows captured stdout for tests that fail, and a passing contest whose runtime has
+      # quietly tripled is exactly the thing worth seeing.
       - name: Pytest -m slow
-        run: uv run pytest -m slow
+        run: uv run pytest -m slow -s
