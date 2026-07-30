@@ -12,6 +12,7 @@ documents them as house rules rather than leaving them to be re-litigated.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
@@ -23,6 +24,16 @@ class RulesetName(StrEnum):
 
 class Ruleset(BaseModel, frozen=True):
     """A complete, serialized rule configuration. Part of the saved game."""
+
+    IDENTITY_FIELDS: ClassVar[frozenset[str]] = frozenset({"name"})
+    """Fields that say *which* rule set this is rather than what it does.
+
+    ``name`` differs between every pair of rule sets by definition, so a list of what Kids mode
+    changes that included it would open with "Rule set: kids (full rules: universal)" above the
+    actual changes — and it is the one field whose value is an enum, which a diff row has no
+    honest way to print. Named here rather than in the setup screen so the classification travels
+    with the model (MON-417).
+    """
 
     name: RulesetName
 
@@ -93,3 +104,38 @@ class Ruleset(BaseModel, frozen=True):
     @classmethod
     def by_name(cls, name: RulesetName) -> Ruleset:
         return cls.universal() if name is RulesetName.UNIVERSAL else cls.kids()
+
+    # --- What a setup screen needs in order to explain a variant (MON-417) ---
+
+    @classmethod
+    def setting_fields(cls) -> tuple[str, ...]:
+        """Every field that is a *setting*, in declaration order.
+
+        Declaration order rather than alphabetical, so a list of changes reads the same way twice
+        running — a diff that reshuffles itself is one a parent cannot check against last week's
+        game. Read off ``model_fields`` rather than hand-listed, which is what stops a flag added
+        to this file from being silently unexplainable (the failure the setup screen's hand-kept
+        ``Record<keyof Ruleset, …>`` map existed to catch, one layer too high).
+        """
+        return tuple(name for name in cls.model_fields if name not in cls.IDENTITY_FIELDS)
+
+    @staticmethod
+    def label_key(field: str) -> str:
+        """The i18n key naming ``field`` to a player. Keys, never prose — ADR-003 §6.
+
+        Mechanical from the wire field name on purpose, the same reasoning GAP G-40 applies to
+        ``action.<command_kind>``: a hand-written bridge between the engine's vocabulary and the
+        catalogue's is a bridge that can drift.
+        """
+        return f"ruleset.{field}"
+
+    def differing_settings(self, baseline: Ruleset) -> frozenset[str]:
+        """Which settings this rule set changes against ``baseline``.
+
+        A comparison of two rule sets, not a judgement about a game — but it belongs here anyway,
+        because what counts as a setting and how its values compare are facts about this model.
+        The setup screen used to answer it in TypeScript over the raw flags (MON-408's stand-in for
+        an unclosed G-36); a client that computes which rules are in force is one rename away from
+        explaining the wrong ones.
+        """
+        return frozenset(field for field in self.setting_fields() if getattr(self, field) != getattr(baseline, field))

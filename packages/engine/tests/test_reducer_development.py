@@ -13,7 +13,7 @@ import pytest
 from helpers import make_player, make_state
 from kesef_engine.commands import BuildHouse, SellHouse
 from kesef_engine.errors import IllegalCommandError
-from kesef_engine.events import BuildingChanged, CashChanged
+from kesef_engine.events import BuildingChanged, CashChanged, Event
 from kesef_engine.legality import legal_commands
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import CashReason
@@ -232,3 +232,41 @@ def test_a_build_is_refused_when_the_bank_holds_no_houses() -> None:
     with pytest.raises(IllegalCommandError) as excinfo:
         apply(state, BuildHouse(player=0, tile=1))
     assert excinfo.value.reason_key == "error.no_houses_left"
+
+
+# --- What went up or came down (MON-413) --------------------------------------
+
+
+def _building_events(events: tuple[Event, ...]) -> list[BuildingChanged]:
+    return [event for event in events if isinstance(event, BuildingChanged)]
+
+
+def test_a_build_names_a_house_until_the_fifth_one_names_a_hotel() -> None:
+    """MON-413: the event says *what* went up, so the log never has to say "a building".
+
+    "The fifth house is a hotel" is a rule. Before ``level`` the only way for a client to say
+    "hotel" was ``houses === 5`` in TypeScript, which is that rule living in the UI — so the log
+    said "a building went up" for both, which is the one thing a child watching a hotel appear does
+    not want to be told.
+    """
+    state = make_state(properties=_owned(BROWN, (0, 0)))
+    levels: list[str] = []
+    for _ in range(10):
+        build = next(command for command in legal_commands(state) if isinstance(command, BuildHouse))
+        state, events = apply(state, build)
+        levels.append(_building_events(events)[0].level)
+    # Two brown squares climbing together, so the two hotels are the last two builds.
+    assert levels == ["house"] * 8 + ["hotel", "hotel"]
+
+
+def test_selling_a_house_names_a_house_and_demolishing_a_hotel_names_the_hotel() -> None:
+    """``level`` is what came *off*, so a demolished hotel is a hotel even though the tile is bare."""
+    state = make_state(properties=_owned(BROWN, (1, 1)))
+    _, sold = apply(state, SellHouse(player=0, tile=1))
+    assert [event.level for event in _building_events(sold)] == ["house"]
+
+    hotels = make_state(properties=_owned(BROWN, (HOTEL_LEVEL, HOTEL_LEVEL)))
+    _, demolished = apply(hotels, SellHouse(player=0, tile=1, demolish_hotel=True))
+    events = _building_events(demolished)
+    assert [event.level for event in events] == ["hotel", "hotel"]
+    assert all(event.houses == 0 and event.delta == -HOTEL_LEVEL for event in events)

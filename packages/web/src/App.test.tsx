@@ -27,9 +27,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { ApiClient, type FetchLike, type SocketLike } from "./api";
-import type { BoardSummary, Command, GameStateView, GameView, Ruleset } from "./api";
+import type { BoardSummary, Command, GameStateView, GameView, RulesetView } from "./api";
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
+import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
 import { makeView } from "./test/fixtures";
 
 // --- The fake edge ----------------------------------------------------------
@@ -116,11 +117,26 @@ function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Ed
 // --- Fixtures ---------------------------------------------------------------
 
 const BOARDS: readonly BoardSummary[] = [
-  { id: "classic", name_key: "board.classic.name", tile_count: 40, ownable_count: 28 },
+  {
+    id: "classic",
+    name_key: "board.classic.name",
+    tile_count: 40,
+    ownable_count: 28,
+    catalogue_ready: true,
+  },
 ];
 
-/** Two rule sets, because the Kids-mode diff needs a baseline to differ from. */
-const RULESETS = [{ name: "universal" }, { name: "kids" }] as unknown as Ruleset[];
+/** A board the picker must not offer: its forty square names resolve to nothing (MON-419). */
+const UNNAMED_BOARD: BoardSummary = {
+  id: "atlantis",
+  name_key: "board.classic.name",
+  tile_count: 40,
+  ownable_count: 28,
+  catalogue_ready: false,
+};
+
+/** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
+const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 const END_TURN: Command = { kind: "end_turn", player: 0 };
@@ -204,6 +220,34 @@ describe("App — the setup screen", () => {
 
   it("says so rather than offering an empty picker when the server has no boards", async () => {
     const edge = makeEdge({ "GET /api/boards": ok([]), "GET /api/rulesets": ok(RULESETS) });
+    renderApp(edge);
+
+    expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
+  });
+
+  it("never offers a board whose squares have no names", async () => {
+    // MON-419 / G-46. `catalogue_ready` is the server's flag, and a board without it would paint
+    // forty blanks. Both boards carry the *same* `name_key` here on purpose: the picker must filter
+    // on the flag rather than on whether it happens to recognise the name.
+    const edge = makeEdge({
+      "GET /api/boards": ok([...BOARDS, UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findAllByLabelText("Name");
+    const offered = screen.getAllByRole("radio", { name: /Classic/ });
+    expect(offered).toHaveLength(1);
+    expect((offered[0] as HTMLInputElement).value).toBe("classic");
+  });
+
+  it("says there are no boards when every board it was offered is unnamed", async () => {
+    // The two causes are one sentence from a parent's side, which is why the filter runs before the
+    // empty check rather than inside `SetupScreen`.
+    const edge = makeEdge({
+      "GET /api/boards": ok([UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
     renderApp(edge);
 
     expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();

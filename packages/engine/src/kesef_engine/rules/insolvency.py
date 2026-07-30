@@ -59,7 +59,7 @@ from kesef_engine.events import (
 )
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import AuctionReason, CashReason, Deck, Lot, PlayerId, TileIndex, TileLot
-from kesef_engine.rules import auction, endgame, mortgage, turns
+from kesef_engine.rules import auction, development, endgame, mortgage, turns
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import update_player, update_property
 from kesef_engine.state import (
@@ -433,7 +433,16 @@ def _liquidate_buildings(state: GameState, debtor: PlayerId) -> tuple[GameState,
         tile = state.board.tile(tile_index)
         refund = prop.houses * (tile.house_cost or 0) // 2
         state = update_property(state, tile_index, houses=0)
-        events.append(BuildingChanged(tile=tile_index, houses=0, delta=-prop.houses))
+        events.append(
+            BuildingChanged(
+                tile=tile_index,
+                houses=0,
+                delta=-prop.houses,
+                # What stood there before the estate was stripped, so a liquidated hotel is
+                # narrated as a hotel rather than as five houses (MON-413).
+                level=development.level_reached(prop.houses),
+            )
+        )
         state, paid = move_cash(state, source="bank", dest=debtor, amount=refund, reason=CashReason.SELL_BUILDING)
         events.extend(paid)
     return state, tuple(events)

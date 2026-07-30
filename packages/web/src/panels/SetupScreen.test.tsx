@@ -2,11 +2,16 @@
  * What these tests are for.
  *
  * 1. **The Kids-mode explanation comes from the fetched rule sets, not from a literal.** The
- *    falsifier is the one that matters: change a flag in the fixture and the rendered diff
- *    changes with it. A test that only asserted "the words auctions appears" would pass against
- *    the hardcoded `setup.kids_explainer` this item exists to remove.
+ *    falsifier is the one that matters: change what the fixture marks and the rendered list changes
+ *    with it. A test that only asserted "the word auctions appears" would pass against the
+ *    hardcoded `setup.kids_explainer` this item exists to remove.
+ *
+ *    Since MON-417 the *marking* is the server's (`differs_from_universal`), so what is asserted
+ *    here is that the screen renders exactly the marked flags and no others. Whether the server
+ *    marks the right ones is `test_api.py`'s question — see `SetupScreenFixtures.ts`.
  * 2. **The server owns validation.** One seat, or two seats with the same name, both reach the
- *    network — and the rejection renders from its `reason_key`.
+ *    network — and the rejection renders from its `reason_key`, which since MON-418 names the
+ *    actual mistake rather than one coarse key for three of them.
  * 3. **Keyboard and target size.** Every control is reachable and ≥ 44 px, including at 320 px,
  *    where the arithmetic is tightest.
  */
@@ -17,26 +22,37 @@ import i18next from "i18next";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api";
-import type { BoardSummary, NewGameRequest } from "@/api";
+import type { BoardSummary, NewGameRequest, RulesetView } from "@/api";
 
-import { KIDS_RULES, UNIVERSAL_RULES } from "./SetupScreenFixtures";
+import {
+  KIDS_VIEW,
+  KIDS_VIEW_ONE_CHANGE,
+  KIDS_VIEW_UNCHANGED,
+  UNIVERSAL_VIEW,
+} from "./SetupScreenFixtures";
 import { SetupScreen } from "./SetupScreen";
 
 const BOARDS: readonly BoardSummary[] = [
-  { id: "classic", name_key: "board.classic.name", tile_count: 40, ownable_count: 28 },
+  {
+    id: "classic",
+    name_key: "board.classic.name",
+    tile_count: 40,
+    ownable_count: 28,
+    catalogue_ready: true,
+  },
 ];
 
 function setup(
   overrides: {
     readonly onStart?: (request: NewGameRequest) => Promise<unknown>;
-    readonly rulesets?: readonly (typeof UNIVERSAL_RULES)[];
+    readonly rulesets?: readonly RulesetView[];
   } = {},
 ): { readonly onStart: ReturnType<typeof vi.fn> } {
   const onStart = vi.fn(overrides.onStart ?? (() => Promise.resolve()));
   render(
     <SetupScreen
       boards={BOARDS}
-      rulesets={overrides.rulesets ?? [UNIVERSAL_RULES, KIDS_RULES]}
+      rulesets={overrides.rulesets ?? [UNIVERSAL_VIEW, KIDS_VIEW]}
       locale="en"
       onLocaleChange={vi.fn()}
       onStart={onStart}
@@ -117,7 +133,7 @@ describe("the seats", () => {
 });
 
 describe("Kids mode shows what it changes", () => {
-  it("lists the flags that differ between the two rule sets the endpoint returned", async () => {
+  it("lists exactly the flags the endpoint marked, by their own label keys", async () => {
     const user = userEvent.setup();
     setup();
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
@@ -127,22 +143,25 @@ describe("Kids mode shows what it changes", () => {
       "ruleset.auctions_enabled",
       "ruleset.mortgages_enabled",
       "ruleset.hints_enabled",
+      "ruleset.starting_cash",
     ]) {
       expect(screen.getByText(i18next.t(label))).toBeInTheDocument();
     }
+    // And *not* the two flags the fixture ships unmarked. A screen rendering every flag it was
+    // handed would pass the loop above and fail here — which is the whole of MON-417 on this side:
+    // the client filters on the server's answer instead of computing its own.
+    expect(screen.queryByText(i18next.t("ruleset.target_duration_minutes"))).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(i18next.t("ruleset.double_salary_on_exact_go")),
+    ).not.toBeInTheDocument();
   });
 
-  it("reads the flags rather than a sentence — flip one and the list follows", async () => {
+  it("reads the marks rather than a sentence — change which one is marked and the list follows", async () => {
     const user = userEvent.setup();
     // The falsifier. If the explanation were `setup.kids_explainer`, or any other literal, this
-    // Kids ruleset — identical to the universal rules apart from one flag — would still print
-    // "no auctions or mortgages, simpler trades, hints on".
-    setup({
-      rulesets: [
-        UNIVERSAL_RULES,
-        { ...UNIVERSAL_RULES, name: "kids", double_salary_on_exact_go: true },
-      ],
-    });
+    // Kids rule set — whose only marked flag is a house rule — would still print "no auctions or
+    // mortgages, simpler trades, hints on".
+    setup({ rulesets: [UNIVERSAL_VIEW, KIDS_VIEW_ONE_CHANGE] });
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
 
     expect(screen.getByText(i18next.t("ruleset.double_salary_on_exact_go"))).toBeInTheDocument();
@@ -150,11 +169,18 @@ describe("Kids mode shows what it changes", () => {
     expect(screen.queryByText(i18next.t("setup.kids_explainer", { minutes: 45 }))).toBeNull();
   });
 
-  it("says so plainly when the two rule sets agree", async () => {
+  it("says so plainly when the endpoint marks nothing", async () => {
     const user = userEvent.setup();
-    setup({ rulesets: [UNIVERSAL_RULES, { ...UNIVERSAL_RULES, name: "kids" }] });
+    setup({ rulesets: [UNIVERSAL_VIEW, KIDS_VIEW_UNCHANGED] });
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
     expect(screen.getByText(i18next.t("setup.kids_no_changes"))).toBeInTheDocument();
+  });
+
+  it("names each choice from the endpoint's own label key", () => {
+    setup();
+    // `t(ruleset.label_key)`, not `` t(`setup.${name}`) `` — the server names the choice.
+    expect(screen.getByRole("radio", { name: i18next.t("setup.universal") })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: i18next.t("setup.kids") })).toBeInTheDocument();
   });
 
   it("shows both halves of a change, without a direction glyph that cannot mirror", async () => {
@@ -163,6 +189,7 @@ describe("Kids mode shows what it changes", () => {
     await user.click(screen.getByRole("radio", { name: i18next.t("setup.kids") }));
     const row = screen.getByText(i18next.t("ruleset.starting_cash")).parentElement;
     expect(row?.textContent).toContain("1000");
+    // `universal_value` off the wire, not a baseline the client looked up and compared.
     expect(row?.textContent).toContain(i18next.t("ruleset.previous", { value: "1500" }));
     expect(row?.textContent).not.toContain("→");
   });
@@ -217,6 +244,24 @@ describe("validation is the server's", () => {
       ).toBeInTheDocument();
     });
     expect(screen.getByText(i18next.t("setup.cannot_start"))).toBeInTheDocument();
+  });
+
+  it.each([
+    ["error.too_few_players", { minimum: 2, seats: 1 }],
+    ["error.too_many_players", { maximum: 6, seats: 7 }],
+    ["error.duplicate_names", { name: "Ruti" }],
+  ])("shows the specific refusal %s rather than one coarse key", async (key, params) => {
+    // MON-418. All three of these used to arrive as something the screen could not act on:
+    // "at least two players" as `error.malformed_request` with a field path, because the constraint
+    // was a pydantic `min_length`; duplicate names as `error.invalid_new_game`, which recites every
+    // seating rule and leaves the parent to spot theirs.
+    setup({ onStart: () => Promise.reject(new ApiError(422, key, params)) });
+    await nameBothSeats(["Ruti", "Dan"]);
+    await userEvent.setup().click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(screen.getByText(i18next.t(key, params))).toBeInTheDocument();
+    });
   });
 
   it("falls back rather than throwing on a key the catalogue has not got yet", async () => {

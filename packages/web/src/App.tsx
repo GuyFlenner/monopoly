@@ -37,7 +37,7 @@ import {
   type ApiError,
   type BoardSummary,
   type NewGameRequest,
-  type Ruleset,
+  type RulesetView,
 } from "./api";
 import { FailureNote, GameScreen, useReasonText } from "./game/GameScreen";
 import { GameProvider, queryKeys } from "./game";
@@ -168,7 +168,7 @@ function SetupFlow({
     queryFn: ({ signal }) => client.listBoards(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
-  const rulesets = useQuery<Ruleset[], ApiError>({
+  const rulesets = useQuery<RulesetView[], ApiError>({
     queryKey: queryKeys.rulesets(),
     queryFn: ({ signal }) => client.listRulesets(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
@@ -216,9 +216,21 @@ function SetupFlow({
     );
   }
 
-  if (boards.data.length === 0) {
-    // A server with no boards is not a broken client, and saying so beats an empty picker with a
-    // submit button under it that can only ever be refused.
+  /*
+    Only boards whose squares have names (MON-419, G-46).
+
+    `catalogue_ready` is the server's flag, copied from the board data — the one place that can know,
+    since the names live in this package's catalogues and the server cannot read them. A board
+    without it would paint forty blank squares, which is the failure the `i18n.exists` guards in the
+    log, the action bar and the dossier exist to *survive* rather than to make acceptable.
+
+    Filtered here rather than inside `SetupScreen` so that the "no boards" state below covers both
+    causes with one sentence: a server with no boards and a server whose boards are all unnamed are
+    the same thing from a parent's side, and both beat an empty picker with a submit button under it.
+  */
+  const playable = boards.data.filter((board) => board.catalogue_ready);
+
+  if (playable.length === 0) {
     return (
       <Frame>
         <p className="text-sm opacity-80">{t("setup.no_boards")}</p>
@@ -228,7 +240,7 @@ function SetupFlow({
 
   return (
     <SetupScreen
-      boards={boards.data}
+      boards={playable}
       rulesets={rulesets.data}
       locale={locale}
       onLocaleChange={onLocaleChange}

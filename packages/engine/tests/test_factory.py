@@ -5,11 +5,13 @@ from __future__ import annotations
 import pytest
 
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
+from kesef_engine.errors import InvalidSeatingError
 from kesef_engine.factory import STREAM_CHANCE, STREAM_COMMUNITY_CHEST, STREAM_DICE, Seat, new_game
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import BotLevel
 from kesef_engine.rng import Rng
 from kesef_engine.ruleset import Ruleset
+from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS
 
 SEATS = (Seat(name="Ada"), Seat(name="Boaz"))
 
@@ -87,15 +89,35 @@ def test_different_seeds_shuffle_differently() -> None:
 
 
 def test_rejects_too_few_and_too_many_seats() -> None:
-    with pytest.raises(ValueError, match="2"):
+    """MON-418: each refusal is a *key*, so a setup screen can say which mistake was made.
+
+    Asserted on ``reason_key`` and on the params a sentence interpolates, not on the message —
+    the message is the key, and a test matching the digits in developer prose passed just as
+    happily against the bare ``ValueError`` this replaced.
+    """
+    with pytest.raises(InvalidSeatingError) as too_few:
         new_game((Seat(name="Solo"),), seed=1)
-    with pytest.raises(ValueError, match="6"):
+    assert too_few.value.reason_key == "error.too_few_players"
+    assert too_few.value.context == {"minimum": MIN_PLAYERS, "seats": 1}
+
+    with pytest.raises(InvalidSeatingError) as too_many:
         new_game(tuple(Seat(name=f"P{n}") for n in range(7)), seed=1)
+    assert too_many.value.reason_key == "error.too_many_players"
+    assert too_many.value.context == {"maximum": MAX_PLAYERS, "seats": 7}
 
 
 def test_rejects_duplicate_names_case_insensitively() -> None:
-    with pytest.raises(ValueError, match="duplicate"):
+    with pytest.raises(InvalidSeatingError) as refused:
         new_game((Seat(name="Ada"), Seat(name="ada")), seed=1)
+    assert refused.value.reason_key == "error.duplicate_names"
+    # The name as *typed*, and the second one — the repeat is what the player has to change.
+    assert refused.value.context == {"name": "ada"}
+
+
+def test_a_keyed_seating_refusal_is_still_a_value_error() -> None:
+    """Callers that predate ``InvalidSeatingError`` keep working — see the class docstring."""
+    with pytest.raises(ValueError):
+        new_game((Seat(name="Solo"),), seed=1)
 
 
 def test_ruleset_and_board_are_honoured() -> None:

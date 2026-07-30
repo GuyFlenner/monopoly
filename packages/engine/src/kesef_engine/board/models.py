@@ -117,6 +117,21 @@ class Board(BaseModel, frozen=True):
     id: str
     name_key: str
     tiles: tuple[Tile, ...]
+    catalogue_ready: bool = False
+    """Whether a verified name catalogue exists for every square on this board (MON-419).
+
+    **Why this is board data and not a server computation.** The names live in
+    ``packages/web/src/i18n/locales/board-<id>.<lang>.json``, which the server cannot read — it is
+    a Python service that may be deployed without the web bundle anywhere near it. So the flag has
+    to be declared where the board's own lifecycle is, and this is that place: a board ships as
+    data, and "somebody has verified the forty names in both languages" is a fact about that data's
+    completeness, of exactly the kind MON-503 tracked for the Israeli layout.
+
+    Declared rather than derived means it can lie, so it is cross-checked:
+    ``tests/test_key_contract.py`` reads both boards and both catalogues and asserts the flag
+    equals the truth. Defaulting to ``False`` makes the failure mode "a new board is not offered
+    yet" rather than "a new board paints blank squares" — the picker filters on it (G-46).
+    """
 
     @model_validator(mode="after")
     def _check_layout(self) -> Self:

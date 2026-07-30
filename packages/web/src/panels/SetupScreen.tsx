@@ -10,9 +10,13 @@
  *    (ADR-005). The button *is* disabled while a name box is empty, which is form state: a
  *    request with an empty string in it is not a rejected game, it is an unfinished form.
  *
- * 2. **Kids mode shows what it changes, computed from `/rulesets`.** Not from
- *    `setup.kids_explainer`, which is prose that goes stale the first time a flag moves. See
- *    `SetupScreenRuleset.ts` for the diff and for the server-side seam that would delete it.
+ * 2. **Kids mode shows what it changes, and the server is what says what changed.** Not
+ *    `setup.kids_explainer`, which is prose that goes stale the first time a flag moves — and, as
+ *    of MON-417, not a client-side diff either. `/rulesets` returns a `RulesetView` whose every
+ *    flag carries a `label_key` and a `differs_from_universal`, so this file filters and renders.
+ *    `SetupScreenRuleset.ts` — a `Record<keyof Ruleset, …>` label map plus a `diffRulesets` over
+ *    the raw flags — is deleted: a client that works out which rules are in force is one rename
+ *    away from explaining the wrong ones, and G-36 is what closed the seam it documented.
  *
  * 3. **A seat's identity is shape + colour + icon + name**, four channels, because a
  *    six-year-old picks their seat before they can read it and a colourblind adult cannot use
@@ -32,18 +36,13 @@ import {
   type ApiError,
   type BoardSummary,
   type NewGameRequest,
-  type Ruleset,
+  type RuleFlagView,
+  type RulesetView,
+  type RuleValue,
   type SeatConfig,
 } from "@/api";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import { Icon } from "@/theme";
-
-import {
-  diffRulesets,
-  findRuleset,
-  type RuleDifference,
-  type RuleValue,
-} from "./SetupScreenRuleset";
 
 // --- Seat identities --------------------------------------------------------
 
@@ -126,17 +125,33 @@ function seatDraft(id: number): SeatDraft {
 }
 
 export interface SetupScreenProps {
-  /** From `GET /boards`. Rendered as offered; `name_key` is translated, never the id. */
+  /**
+   * From `GET /boards`, already filtered to the boards that can be named (MON-419).
+   *
+   * The filter is the shell's, in `App.tsx`, because it also owns the "no boards at all" state —
+   * see there. Rendered as offered; `name_key` is translated, never the id.
+   */
   readonly boards: readonly BoardSummary[];
-  /** From `GET /rulesets`. Both entries are needed for the Kids-mode diff to say anything. */
-  readonly rulesets: readonly Ruleset[];
+  /**
+   * From `GET /rulesets`. Each flag arrives with its label key and whether it differs from the
+   * universal rules, so this screen filters and renders and computes nothing (MON-417).
+   */
+  readonly rulesets: readonly RulesetView[];
   readonly locale: Locale;
   readonly onLocaleChange: (locale: Locale) => void;
   /** Post the game. Rejects with an `ApiError` whose key this screen renders. */
   readonly onStart: (request: NewGameRequest) => Promise<unknown>;
 }
 
-const UNIVERSAL: Ruleset["name"] = "universal";
+const UNIVERSAL: RulesetView["name"] = "universal";
+
+/** Find a rule set by name in whatever order `/rulesets` returned them. */
+function findRuleset(
+  rulesets: readonly RulesetView[],
+  name: RulesetView["name"],
+): RulesetView | undefined {
+  return rulesets.find((ruleset) => ruleset.name === name);
+}
 
 export function SetupScreen({
   boards,
@@ -151,7 +166,7 @@ export function SetupScreen({
   const [seats, setSeats] = useState<readonly SeatDraft[]>(() => [seatDraft(0), seatDraft(1)]);
   const [nextSeatId, setNextSeatId] = useState(2);
   const [boardId, setBoardId] = useState<string | null>(null);
-  const [rulesetName, setRulesetName] = useState<Ruleset["name"]>(UNIVERSAL);
+  const [rulesetName, setRulesetName] = useState<RulesetView["name"]>(UNIVERSAL);
   const [seed, setSeed] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
   const [rejection, setRejection] = useState<ApiError | null>(null);
@@ -160,14 +175,13 @@ export function SetupScreen({
   // hardcoded "classic": the list of boards is the server's to decide.
   const chosenBoardId = boardId ?? boards[0]?.id ?? null;
 
+  // A filter over what the server marked, not a diff. `differs_from_universal` is
+  // `Ruleset.differing_settings`'s answer, and the order is the contract's field order — so the
+  // list reads the same way twice running without this file sorting anything (MON-417).
   const chosen = findRuleset(rulesets, rulesetName);
-  const baseline = findRuleset(rulesets, UNIVERSAL);
   const differences = useMemo(
-    () =>
-      chosen === undefined || baseline === undefined || chosen === baseline
-        ? []
-        : diffRulesets(chosen, baseline),
-    [chosen, baseline],
+    () => (chosen === undefined ? [] : chosen.flags.filter((flag) => flag.differs_from_universal)),
+    [chosen],
   );
 
   // Form state, not a rule: a seat with a blank name is an unfinished form. Everything the
@@ -263,13 +277,15 @@ export function SetupScreen({
         <Choice
           name={`${formId}-ruleset`}
           label={t("setup.ruleset")}
+          // `label_key` off the wire, rather than `` t(`setup.${ruleset.name}`) `` — the same
+          // reasoning as the flags: the server names the choice, the client renders the name.
           options={rulesets.map((ruleset) => ({
             value: ruleset.name,
-            label: t(`setup.${ruleset.name}`),
+            label: t(ruleset.label_key),
           }))}
           value={rulesetName}
           onChange={(value) => {
-            setRulesetName(value as Ruleset["name"]);
+            setRulesetName(value as RulesetView["name"]);
           }}
         />
 
@@ -572,11 +588,11 @@ function Picker({
   );
 }
 
-/** What the chosen rule set changes, one row per differing flag. */
+/** What the chosen rule set changes, one row per flag the server marked. */
 function RuleDiff({
   differences,
 }: {
-  readonly differences: readonly RuleDifference[];
+  readonly differences: readonly RuleFlagView[];
 }): React.JSX.Element {
   const { t } = useTranslation();
   if (differences.length === 0) {
@@ -588,16 +604,16 @@ function RuleDiff({
         {t("setup.kids_changes")}
       </h3>
       <ul className="flex flex-col gap-1.5">
-        {differences.map((difference) => (
-          <li key={difference.field} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-            <span className="font-medium">{t(difference.labelKey)}</span>
-            <span className="font-semibold">{renderValue(difference.value, t)}</span>
+        {differences.map((flag) => (
+          <li key={flag.field} className="flex flex-wrap items-baseline gap-x-2 text-sm">
+            <span className="font-medium">{t(flag.label_key)}</span>
+            <span className="font-semibold">{renderValue(flag.value, t)}</span>
             {/*
               "Full rules: N" rather than "was N → now M": an arrow is a direction, and a
               direction is the one thing that does not survive `dir="rtl"`.
             */}
             <span className="text-xs opacity-60">
-              {t("ruleset.previous", { value: renderValue(difference.baseline, t) })}
+              {t("ruleset.previous", { value: renderValue(flag.universal_value, t) })}
             </span>
           </li>
         ))}
@@ -608,6 +624,12 @@ function RuleDiff({
 
 type Translate = ReturnType<typeof useTranslation>["t"];
 
+/**
+ * One value as text. Presentation only — the classification is the server's `kind` tag.
+ *
+ * The `switch` is exhaustive over a discriminated union read off `generated.ts`, so a fifth kind
+ * added to the contract is a compile error here rather than a blank cell.
+ */
 function renderValue(value: RuleValue, t: Translate): string {
   switch (value.kind) {
     case "flag":
@@ -668,7 +690,7 @@ function Rejection({
 function buildRequest(
   seats: readonly SeatDraft[],
   boardId: string,
-  ruleset: Ruleset["name"],
+  ruleset: RulesetView["name"],
   locale: Locale,
   seed: string,
 ): NewGameRequest {
