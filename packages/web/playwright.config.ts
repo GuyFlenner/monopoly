@@ -22,13 +22,40 @@
  * in scope; neither is visible to a fake.
  *
  * `reuseExistingServer` is on outside CI so a developer with both already running pays nothing.
+ *
+ * ## The ports are overridable, and that is a correctness matter rather than a convenience
+ *
+ * `reuseExistingServer` plus a hardcoded port is a quiet way to test the wrong code. A second
+ * checkout of this repo — a worktree, a colleague's branch, an agent working in parallel — with a dev
+ * server already on 5173 will be **silently reused**, so the suite reports on that tree's build while
+ * appearing to report on this one. It is not a hypothetical: it happened during MON-708, and the pass
+ * it would have produced was worthless.
+ *
+ * So `KESEF_E2E_WEB_PORT` and `KESEF_E2E_API_PORT` exist, alongside the `KESEF_API_URL` that
+ * `vite.config.ts` already honours for the same reason. Running a second tree's e2e is:
+ *
+ * ```
+ * KESEF_E2E_WEB_PORT=5199 KESEF_E2E_API_PORT=8099 \
+ *   KESEF_API_URL=http://127.0.0.1:8099 npx playwright test
+ * ```
+ *
+ * `KESEF_API_URL` has to be set too, because the *proxy target* is Vite's to know, not this file's.
+ * CI leaves all three unset and keeps the defaults, where `reuseExistingServer` is off anyway.
  */
 
 import { defineConfig, devices } from "@playwright/test";
 
 const HOST = "127.0.0.1";
-const WEB_PORT = 5173;
-const API_PORT = 8000;
+
+/** A port from the environment, or the default. A non-numeric value is a typo, not a port. */
+function port(variable: string, fallback: number): number {
+  const raw = process.env[variable];
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : fallback;
+}
+
+const WEB_PORT = port("KESEF_E2E_WEB_PORT", 5173);
+const API_PORT = port("KESEF_E2E_API_PORT", 8000);
 const isCI = Boolean(process.env["CI"]);
 
 export default defineConfig({

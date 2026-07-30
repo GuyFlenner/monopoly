@@ -205,7 +205,26 @@ describe("App — the setup screen", () => {
 
   it("shows the loading state from the catalogue while the two lists are in flight", () => {
     renderApp(makeEdge({}, { hang: true }));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // Scoped to the placeholder, because since MON-708 the sentence is in *two* places and both are
+    // deliberate: the visible `<LoadingState>` and the polite live region it announced itself
+    // through. An unscoped `getByText` finds both and fails, which is the assertion below.
+    expect(screen.getByTestId("setup-loading")).toHaveTextContent("Loading…");
+  });
+
+  it("announces a wait politely through the one Announcer rather than a region of its own", async () => {
+    // MON-708: "loading states announced politely via the existing Announcer (no new live regions)".
+    // A wait nobody is told about is a blank screen to a screen-reader user, and a wait announced
+    // from a region the loading component rendered itself is the GAP D1/G-54 double-speak defect.
+    renderApp(makeEdge({}, { hang: true }));
+
+    const polite = await waitFor(() => {
+      const region = document.querySelector('[data-announcer="polite"]');
+      expect(region).toHaveTextContent("Loading…");
+      return region;
+    });
+    // The sentence is in the *shared* region, and no second one appeared to carry it.
+    expect(polite).toHaveAttribute("aria-live", "polite");
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(2);
   });
 
   it("renders the server's own reason key when a list cannot be fetched", async () => {
@@ -252,6 +271,57 @@ describe("App — the setup screen", () => {
     renderApp(edge);
 
     expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
+  });
+
+  it("loads a saved game and moves to that game's board (MON-704)", async () => {
+    // The whole of "a loaded game is just a game": the load route answers a `GameView` exactly as
+    // `POST /games` does, so the response is cached under the game's key and the screen switches
+    // through the same two lines. Nothing downstream of the shell has a branch for it.
+    const restored = gameView({}, [ROLL]);
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "POST /api/games/load": ok(restored),
+      "GET /api/games/g1": ok(restored),
+    });
+    renderApp(edge);
+
+    const picker = await screen.findByLabelText("Choose a saved game file");
+    await userEvent.upload(
+      picker,
+      new File([JSON.stringify({ schema_version: 1, game_id: "g1" })], "save.json", {
+        type: "application/json",
+      }),
+    );
+
+    expect(await screen.findByTestId("board-grid")).toBeInTheDocument();
+    const posted = edge.calls.find((call) => call.path === "/api/games/load");
+    expect(posted?.body).toEqual({ schema_version: 1, game_id: "g1" });
+    expect(new URLSearchParams(globalThis.location.search).get("game")).toBe("g1");
+  });
+
+  it("keeps the load affordance reachable when the two lists failed", async () => {
+    // A save carries its own board and rule set, so a server that cannot list its boards is still a
+    // server that can resume yesterday's game. Hiding the one working affordance behind an unrelated
+    // failure is the "no spinners forever" defect wearing an error message.
+    // A 404 rather than a 5xx: `SetupFlow` retries a server-side failure twice before settling, so a
+    // 500 here would be a test waiting on a backoff to assert something unrelated to it.
+    const edge = makeEdge({
+      "GET /api/boards": refusal(404, "error.not_found"),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-error");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
+
+  it("keeps the load affordance reachable when the server has no boards", async () => {
+    const edge = makeEdge({ "GET /api/boards": ok([]), "GET /api/rulesets": ok(RULESETS) });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-empty");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
   });
 });
 
@@ -390,6 +460,47 @@ describe("App — the game screen", () => {
     ).toHaveLength(0);
   });
 
+  it("carries the mute switch and the save button in the chrome (MON-704, MON-706)", async () => {
+    // A wiring test, in the mounted app rather than per component. Both controls are tested on their
+    // own; what this catches is the way they actually break — a hook or a component that exists, is
+    // green in isolation, and was never placed on a screen.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(screen.getByTestId("mute-sound")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("save-game")).toBeEnabled();
+  });
+
+  it("plays a cue for an event that arrives over the socket (MON-706)", async () => {
+    // The one thing `useSoundCues.test.tsx` cannot show: that `GameScreen` actually calls it. The
+    // hook is exercised through the real composition here, with the browser's audio API absent — so
+    // what is asserted is that a cue reaching a jsdom with no `AudioContext` is silent rather than a
+    // crash, which is the environment the whole test suite runs in and half of CI too.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(() => {
+      act(() => {
+        sockets[0]?.onmessage?.({
+          data: JSON.stringify({
+            seq: 1,
+            event: {
+              type: "dice_rolled",
+              player: 0,
+              first: 2,
+              second: 1,
+              total: 3,
+              doubles_streak: 0,
+              purpose: "move",
+            },
+          }),
+        });
+      });
+    }).not.toThrow();
+  });
+
   it("shows the auction panel when the live interrupt frame is an auction", async () => {
     openGameUrl("g1");
     const auction = {
@@ -511,6 +622,32 @@ describe("App — the game screen", () => {
     expect(await screen.findByText("That game no longer exists.")).toBeInTheDocument();
     // And a way out of a game id that no longer resolves.
     expect(screen.getByRole("button", { name: "New game" })).toBeInTheDocument();
+  });
+
+  it("offers a retry on a failed first fetch, and asks the server again (MON-708)", async () => {
+    // Until MON-708 the only way out of this screen was "New game", which *abandons* the game the
+    // URL is pointing at — a dead end that looks like a decision. The game is on the server and this
+    // client simply has not got it yet, so asking again is exactly the right thing to try.
+    openGameUrl("g1");
+    // A 404, for the reason above: `useGame` retries a 5xx twice, and this test is about the button
+    // rather than about the backoff.
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "GET /api/games/g1": refusal(404, "error.game_not_found"),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("game-error");
+    const before = edge.calls.filter((call) => call.path === "/api/games/g1").length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => {
+      expect(edge.calls.filter((call) => call.path === "/api/games/g1").length).toBeGreaterThan(
+        before,
+      );
+    });
   });
 
   it("keeps the board on screen when the event socket drops", async () => {

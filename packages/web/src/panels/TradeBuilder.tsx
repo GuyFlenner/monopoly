@@ -65,6 +65,7 @@ import { seatOf, Token, TOKEN_PX } from "@/board";
 import { Icon } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
+import { EmptyState, LoadingState } from "./States";
 
 /** The offer and its two halves, taken off the command union rather than restated. */
 export type TradeOffer = CommandOfKind<"propose_trade">["offer"];
@@ -525,7 +526,7 @@ function OfferSide({
 
       {/* An empty side is a real offer — a gift, or a demand for nothing in return — so it says so
           rather than rendering three blank sections. */}
-      {empty && <p className="mt-3 text-sm font-medium opacity-80">{t("trade.side_empty")}</p>}
+      {empty && <EmptyState messageKey="trade.side_empty" className="mt-3 font-medium" />}
 
       {side.cash > 0 && (
         <p className="mt-3 text-sm font-semibold">
@@ -639,7 +640,7 @@ function Tray({
       <fieldset className="mt-3 border-0 p-0">
         <legend className="text-sm font-semibold">{t("trade.properties")}</legend>
         {owner.tiles_owned.length === 0 ? (
-          <p className="mt-1 text-sm opacity-80">{t("trade.no_properties")}</p>
+          <EmptyState messageKey="trade.no_properties" className="mt-1" />
         ) : (
           <ul className="mt-1">
             {owner.tiles_owned.map((index) => (
@@ -663,7 +664,7 @@ function Tray({
       <fieldset className="mt-3 border-0 p-0">
         <legend className="text-sm font-semibold">{t("trade.jail_cards")}</legend>
         {decks.length === 0 ? (
-          <p className="mt-1 text-sm opacity-80">{t("trade.no_jail_cards")}</p>
+          <EmptyState messageKey="trade.no_jail_cards" className="mt-1" />
         ) : (
           <ul className="mt-1">
             {decks.map((deck) => (
@@ -706,10 +707,14 @@ function Seal({
 }): React.JSX.Element {
   const { t } = useTranslation();
   if (empty) {
-    return <p className="grow text-sm font-medium">{t("trade.empty")}</p>;
+    return <EmptyState messageKey="trade.empty" className="grow font-medium opacity-100" />;
   }
   if (checking || verdict === null) {
-    return <p className="grow text-sm font-medium opacity-80">{t("trade.checking")}</p>;
+    // `announce={false}`: the draft is re-validated on every change to it, so this state mounts
+    // once per keystroke. See `LoadingState` for why a wait that repeats is not narrated.
+    return (
+      <LoadingState messageKey="trade.checking" announce={false} className="grow font-medium" />
+    );
   }
   if (verdict.legal) {
     return (

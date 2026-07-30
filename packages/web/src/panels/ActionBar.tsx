@@ -57,6 +57,7 @@ import {
 } from "@/theme";
 
 import { consequenceKeyFor, labelKeyFor, labelParamsFor, tileOf } from "./actionCommand";
+import { EmptyState } from "./States";
 
 import "./panels.css";
 
@@ -580,7 +581,10 @@ export function ActionBar({
       </h2>
 
       {groups.length === 0 ? (
-        <p className="py-2 text-sm opacity-70">{copy("actionbar.none")}</p>
+        // `resolve={copy}` rather than letting the shared state translate for itself: `useCopy` prefers
+        // the simpler `kids.*` wording where the catalogue has a twin (MON-604), and a bar whose
+        // labels are simplified above an empty state that is not would speak in two registers at once.
+        <EmptyState messageKey="actionbar.none" className="py-2" resolve={copy} />
       ) : (
         <ul className="flex flex-col gap-2">
           {groups.map((group) =>

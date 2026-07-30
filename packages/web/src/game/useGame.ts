@@ -65,6 +65,15 @@ export interface UseGameResult {
   /** The de-duplicated event log, oldest first — the narration and animation script. */
   readonly events: readonly LoggedEvent[];
   readonly status: GameStatus;
+  /**
+   * Ask for the view again — the retry behind a failed first fetch (MON-708).
+   *
+   * Exposed rather than left to a caller's own `queryClient.invalidateQueries`, because the query
+   * key and the `since` cursor are this hook's business and a screen reproducing either of them is
+   * a screen that can get them wrong. Returns `void`: TanStack's promise resolves with the view,
+   * and a caller awaiting it would be re-implementing the loading state it already renders.
+   */
+  readonly refetch: () => void;
 }
 
 const NO_COMMANDS: readonly Command[] = [];
@@ -122,6 +131,9 @@ export function useGame(): UseGameResult {
     (command: Command) => client.validateCommand(gameId, command),
     [client, gameId],
   );
+  const refetch = useCallback(() => {
+    void view.refetch();
+  }, [view]);
 
   return {
     state: view.data?.state,
@@ -130,6 +142,7 @@ export function useGame(): UseGameResult {
     send,
     validate,
     events,
+    refetch,
     status: {
       isPending: view.isPending,
       isError: view.isError,

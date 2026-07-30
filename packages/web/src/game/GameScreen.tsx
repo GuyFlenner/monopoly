@@ -47,7 +47,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventNarration } from "@/a11y";
-import type { ApiError, Command, PlayerView, RentQuote } from "@/api";
+import type { Command, PlayerView, RentQuote } from "@/api";
 import {
   Board,
   describeTile,
@@ -67,11 +67,14 @@ import { noteLines } from "@/panels/EventLogLines";
 import { HintPanel, RentExplanation } from "@/panels/HintPanel";
 import { suggest } from "@/panels/hints";
 import { PlayerDossier } from "@/panels/PlayerDossier";
+import { ErrorState, LoadingState } from "@/panels/States";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
+import { MuteToggle, useSoundCues } from "@/sound";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "@/theme";
 
 import { presentationFor, type Presentation } from "./presentation";
+import { SaveGameButton } from "./SaveGameButton";
 import { useUiStore } from "./uiStore";
 import { useGame } from "./useGame";
 
@@ -80,69 +83,22 @@ export interface GameScreenProps {
   readonly onLeave: () => void;
 }
 
-/**
- * Turn an {@link ApiError} into a sentence.
- *
- * The server answers `{reason_key, params}` and never prose (ADR-008 §4), so rendering a failure
- * is a catalogue lookup. The `exists` guard is not defensive noise: `missingKeyHandler` throws
- * under dev and test by design, so an unguarded `t()` on a key a newer server invented would
- * replace the error message with a blank screen. The fallback is chosen by HTTP class — a 4xx is
- * a refusal, anything else did not reach the rules at all — which is transport, not a rule.
+/*
+ * `useReasonText` and `FailureNote` used to live here, and moved to `panels/States.tsx` in MON-708.
+ * They were two of the four spellings of "render a failure" in this package, and the shared
+ * `<ErrorState>` is the one that replaced all four — same catalogue lookup, same `i18n.exists`
+ * guard, same focus move instead of a second live region. See that file.
  */
-export function useReasonText(): (error: ApiError) => string {
-  const { t, i18n } = useTranslation();
-  return useCallback(
-    (error: ApiError) => {
-      if (i18n.exists(error.reasonKey)) {
-        return t(error.reasonKey, error.params);
-      }
-      const fallback =
-        error.status >= 400 && error.status < 500 ? "error.illegal_move" : "error.network";
-      return t(fallback, error.params);
-    },
-    [t, i18n],
-  );
-}
-
-/**
- * A failure, as a focus target rather than an announcement.
- *
- * `tabIndex={-1}` plus focus on mount: the same shape `SetupScreen` uses, for the same reason —
- * the one live region belongs to `<Announcer>`, and a second one here would say the reason twice.
- */
-export function FailureNote({
-  heading,
-  body,
-  action,
-}: {
-  readonly heading: string;
-  readonly body: string;
-  readonly action?: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <div
-      tabIndex={-1}
-      ref={(node) => {
-        node?.focus();
-      }}
-      className="flex flex-col items-start gap-2 rounded-xl border-s-4 border-[oklch(58%_0.19_25)] bg-[oklch(58%_0.19_25)]/10 p-3 text-start"
-    >
-      <strong className="text-sm">{heading}</strong>
-      <p className="text-sm">{body}</p>
-      {action}
-    </div>
-  );
-}
 
 /**
  * The header both the loading gate and the game itself carry, so leaving is always possible.
  *
  * It is also where the comfort scale is switched (MON-604). `data-comfort="kids"` on this one box
  * raises `--kesef-target` for the whole subtree, so every `.target` control below — chits, seat
- * picker, dice toggle, the confirm dialog's two buttons, the trade panel's cash steppers — grows
- * together. One attribute rather than a `kids ? …` in each component, because the per-component
- * version is a list, and a list grows a hole the first time somebody adds a button. Modals are
- * inside this subtree even when they paint over it, so they inherit it too.
+ * picker, dice toggle, the mute switch, the save button, the confirm dialog's two buttons, the trade
+ * panel's cash steppers — grows together. One attribute rather than a `kids ? …` in each component,
+ * because the per-component version is a list, and a list grows a hole the first time somebody adds
+ * a button. Modals are inside this subtree even when they paint over it, so they inherit it too.
  */
 function Chrome({
   onLeave,
@@ -167,11 +123,18 @@ function Chrome({
               reachable without hunting for the board's interior. The store behind it is
               module-level, so the two cannot disagree. */}
           <SkipAnimationsToggle />
+          {/* The mute switch sits beside the animation switch because they are the same kind of
+              decision — "less of the flourish, please" — and a player looking for one will look
+              here for the other. The store behind it is module-level (MON-706). */}
+          <MuteToggle />
           {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
               structurally rather than by care: this control writes to i18next and the document
               element, and the game reaches this package as a projection cached by TanStack Query
               that nothing here invalidates. */}
           <LocaleSwitch />
+          {/* Saving is available at any point in a game, including while the first view is still in
+              flight — the file comes from the server's state, not from this screen's copy of it. */}
+          <SaveGameButton />
           <button
             type="button"
             onClick={onLeave}
@@ -277,12 +240,14 @@ function SquareRent({
 
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
-  const { state, board, legalCommands, send, validate, events, status } = useGame();
+  const { state, board, legalCommands, send, validate, events, status, refetch } = useGame();
   // The wire from the event stream to the one `<Announcer>`. Called here because this is the
   // component that renders a live game, and calling it twice would say every roll twice.
   useEventNarration();
+  // The same wire, to the speaker (MON-706). Called here for the same reason and from the same feed,
+  // so a cue and a sentence describe the same event exactly once each.
+  useSoundCues();
 
-  const reasonText = useReasonText();
   const playersHeadingId = useId();
 
   const selectedPlayer = useUiStore((ui) => ui.selectedPlayer);
@@ -416,9 +381,19 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     return (
       <Chrome onLeave={onLeave}>
         {status.error === undefined ? (
-          <p className="text-sm opacity-80">{t("label.loading")}</p>
+          <LoadingState testId="game-loading" />
         ) : (
-          <FailureNote heading={t("error.title")} body={reasonText(status.error)} />
+          /*
+            With a retry, since MON-708. Until now the only way out of a failed first fetch was
+            "New game", which *abandons* the game the URL is pointing at — a dead end that looks like
+            a decision.
+
+            Offered whatever the status was, deliberately. Branching on it would mean this file
+            deciding which failures are worth another attempt, and it is wrong about that more often
+            than a player is: a 404 can be a fetch that raced a session being created, and the server
+            is a great deal better placed to answer twice than this screen is to guess once.
+          */
+          <ErrorState error={status.error} onRetry={refetch} testId="game-error" />
         )}
       </Chrome>
     );
@@ -432,9 +407,12 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
         </p>
       )}
 
-      {status.error !== undefined && (
-        <FailureNote heading={t("error.title")} body={reasonText(status.error)} />
-      )}
+      {/*
+        A failure with the board already on screen gets **no retry**, deliberately. What failed here
+        is a command — a rejected move — and the retry for a rejected move is making a different one,
+        which is the action bar. A "Try again" that re-posts a 422 would say the same thing twice.
+      */}
+      {status.error !== undefined && <ErrorState error={status.error} />}
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <main className="flex min-w-0 flex-col gap-3">
