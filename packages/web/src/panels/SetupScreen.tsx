@@ -44,6 +44,9 @@ import {
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import { Icon } from "@/theme";
 
+import { LoadSavedGame } from "./LoadSavedGame";
+import { ErrorState } from "./States";
+
 // --- Seat identities --------------------------------------------------------
 
 /**
@@ -141,6 +144,14 @@ export interface SetupScreenProps {
   readonly onLocaleChange: (locale: Locale) => void;
   /** Post the game. Rejects with an `ApiError` whose key this screen renders. */
   readonly onStart: (request: NewGameRequest) => Promise<unknown>;
+  /**
+   * Restore a saved game instead of starting a new one (MON-704).
+   *
+   * Optional so that a test of the seating form need not supply one, and so the affordance is absent
+   * rather than broken in a context that cannot load — `App` passes it, and `App` is what owns the
+   * client. Rejects with an `ApiError` whose key `<LoadSavedGame>` renders.
+   */
+  readonly onLoad?: (save: unknown) => Promise<unknown>;
 }
 
 const UNIVERSAL: RulesetView["name"] = "universal";
@@ -159,8 +170,9 @@ export function SetupScreen({
   locale,
   onLocaleChange,
   onStart,
+  onLoad,
 }: SetupScreenProps): React.JSX.Element {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const formId = useId();
 
   const [seats, setSeats] = useState<readonly SeatDraft[]>(() => [seatDraft(0), seatDraft(1)]);
@@ -348,15 +360,7 @@ export function SetupScreen({
         </details>
       </fieldset>
 
-      {rejection !== null && (
-        <Rejection
-          error={rejection}
-          heading={t("setup.cannot_start")}
-          resolve={(key, params) =>
-            i18n.exists(key) ? t(key, params) : t("error.illegal_move", params)
-          }
-        />
-      )}
+      {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
 
       <button
         type="submit"
@@ -365,6 +369,14 @@ export function SetupScreen({
       >
         {isSubmitting ? t("setup.starting") : t("setup.start")}
       </button>
+
+      {/*
+        Last on the page, and inside the form only for layout: the input is `type="file"`, so it
+        submits nothing and cannot be reached by Enter in a text box. Below the start button because
+        setting up a new game is what most people are here for and a save is the exception — but on
+        the same screen, because "where is my game from yesterday" must not require finding a menu.
+      */}
+      {onLoad !== undefined && <LoadSavedGame onLoad={onLoad} />}
     </form>
   );
 }
@@ -643,38 +655,15 @@ function renderValue(value: RuleValue, t: Translate): string {
   }
 }
 
-/**
- * The server's refusal, rendered from its key.
- *
- * Focus moves here rather than an `aria-live` region announcing it: this package has exactly
- * one live region and it belongs to the `<Announcer>` (spec §5.5, G-54). Moving focus to the
- * message is also the standard WCAG 3.3.1 answer for a rejected form, and it says the reason
- * once rather than twice.
+/*
+ * `Rejection` used to live here — a focus-target box that rendered `{reason_key, params}`, with a
+ * `resolve` prop threading an `i18n.exists` guard in from the caller. MON-708 replaced it with
+ * `<ErrorState>`, which is the same box with the guard built in: the fourth copy of "render a
+ * failure" was the one that would have got it wrong, and the guard is not optional — under dev and
+ * test an unguarded `t()` on a key a newer server invented *throws*, replacing the rejection with a
+ * blank screen. No behaviour changed, including the focus move and the WCAG 3.3.1 reasoning behind
+ * it; see `States.tsx`.
  */
-function Rejection({
-  error,
-  heading,
-  resolve,
-}: {
-  readonly error: ApiError;
-  readonly heading: string;
-  readonly resolve: (key: string, params: Readonly<Record<string, string | number>>) => string;
-}): React.JSX.Element {
-  return (
-    <div
-      // -1 rather than 0: the message is a focus *target*, not a tab stop. Nobody should have
-      // to tab past a past failure to reach the button that retries it.
-      tabIndex={-1}
-      ref={(node) => {
-        node?.focus();
-      }}
-      className="flex flex-col gap-1 rounded-xl border-s-4 border-[oklch(58%_0.19_25)] bg-[oklch(58%_0.19_25)]/10 p-3"
-    >
-      <strong className="text-sm">{heading}</strong>
-      <p className="text-sm">{resolve(error.reasonKey, error.params)}</p>
-    </div>
-  );
-}
 
 /**
  * The draft, as the wire wants it.

@@ -24,6 +24,7 @@ import { useTranslation } from "react-i18next";
 import type { BoardView, LoggedEvent, PlayerView } from "@/api";
 
 import { linesFor, type LineContext, type LogLine } from "./EventLogLines";
+import { EmptyState } from "./States";
 
 export interface EventLogProps {
   /** The de-duplicated log from `useGame`, oldest first. Reversed for display, not mutated. */
@@ -101,7 +102,7 @@ export function EventLog({
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
       <div tabIndex={0} className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-2">
         {rows.length === 0 ? (
-          <p className="py-6 text-sm opacity-70">{t("log.empty")}</p>
+          <EmptyState messageKey="log.empty" className="py-6" />
         ) : (
           <ol className="flex flex-col">
             {rows.map(({ seq, line }) =>

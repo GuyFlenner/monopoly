@@ -70,6 +70,8 @@ import {
 } from "@/board";
 import { bandFill, GROUP_ORDER, Icon, patternDomId, TILE_THEME, type TileThemeKey } from "@/theme";
 
+import { EmptyState } from "./States";
+
 import "./panels.css";
 
 export interface PlayerDossierProps {
@@ -462,9 +464,7 @@ export function PlayerDossier({
         />
       </div>
 
-      {player.tiles_owned.length === 0 && (
-        <p className="text-sm opacity-70">{t("dossier.empty")}</p>
-      )}
+      {player.tiles_owned.length === 0 && <EmptyState messageKey="dossier.empty" />}
 
       {/*
         The deed list folds away, and starts folded (owner feedback on the first playable build: the

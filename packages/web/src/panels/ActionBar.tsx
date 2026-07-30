@@ -56,6 +56,7 @@ import {
 } from "@/theme";
 
 import { consequenceKeyFor, labelKeyFor, labelParamsFor, tileOf } from "./actionCommand";
+import { EmptyState } from "./States";
 
 import "./panels.css";
 
@@ -480,7 +481,7 @@ export function ActionBar({
       </h2>
 
       {groups.length === 0 ? (
-        <p className="py-2 text-sm opacity-70">{t("actionbar.none")}</p>
+        <EmptyState messageKey="actionbar.none" className="py-2" />
       ) : (
         <ul className="flex flex-col gap-2">
           {groups.map((group) =>

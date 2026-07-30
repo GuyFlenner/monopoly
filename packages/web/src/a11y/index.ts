@@ -7,7 +7,13 @@
 
 export { Announcer, DEFAULT_STEP_MS } from "./Announcer";
 export type { AnnouncerProps } from "./Announcer";
-export { AnnouncerContext, AnnouncerProvider, useAnnounce, useAnnouncer } from "./AnnouncerContext";
+export {
+  AnnouncerContext,
+  AnnouncerProvider,
+  useAnnounce,
+  useAnnouncer,
+  useOptionalAnnounce,
+} from "./AnnouncerContext";
 export type { AnnouncerContextValue } from "./AnnouncerContext";
 export { AnnouncementBus } from "./announcements";
 export type {

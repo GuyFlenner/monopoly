@@ -18,7 +18,9 @@
     "tile_mortgaged": ", mortgaged",
     "tile_occupants": ". Standing here: {{names}}.",
     "animations_on": "Animations on.",
-    "animations_off": "Animations off."
+    "animations_off": "Animations off.",
+    "sound_on": "Sound on.",
+    "sound_off": "Sound off."
   },
   "action": {
     "roll_dice": "Roll the dice",
@@ -60,6 +62,7 @@
     "bidding_now": "Bidding now",
     "still_bidding": "Still in",
     "dropped_out": "Dropped out",
+    "no_bidders": "Nobody at the table can bid on this one.",
     "no_bids_yet": "No bids yet. Bidding opens at {{amount}}.",
     "standing_bid": "{{name}} holds the bid at {{amount}}.",
     "your_turn_to_bid": "{{name}}, it's your turn to bid",
@@ -90,7 +93,8 @@
     "skip_to_actions": "Skip to actions",
     "keyboard_hint": "Arrow keys move around the board, Home goes to GO, End goes to jail, and Enter opens a square.",
     "open_tile": "Open {{name}}",
-    "more_tokens": "+{{hidden}}"
+    "more_tokens": "+{{hidden}}",
+    "empty": "This board has no squares to show."
   },
   "bot_level": {
     "easy": "Easy",
@@ -201,6 +205,7 @@
     "recipient_bankrupt": "That player is out of the game, so they can't trade.",
     "save_schema_mismatch": "This saved game was made by a different version of Kesef Street.",
     "save_too_large": "That saved game is too big to load.",
+    "save_unreadable": "That file isn't a Kesef Street saved game.",
     "server_at_capacity": "The table is full — {{limit}} games are already running.",
     "tile_already_owned": "Somebody already owns this square.",
     "tile_not_ownable": "This square can't be owned by anyone.",
@@ -355,6 +360,15 @@
     },
     "previous": "Full rules: {{value}}"
   },
+  "save": {
+    "download": "Save this game to a file",
+    "saving": "Saving…",
+    "load_heading": "Continue a saved game",
+    "load_button": "Choose a saved game file",
+    "load_hint": "Pick the .json file you saved earlier. The board and the rules come from the file.",
+    "load_failed": "Couldn't open that saved game",
+    "loading": "Opening the saved game…"
+  },
   "setup": {
     "add_player": "Add a player",
     "advanced": "More settings",
@@ -385,6 +399,9 @@
     "title": "New game",
     "token": "Piece",
     "universal": "Full rules"
+  },
+  "sound": {
+    "mute": "Mute sound"
   },
   "status": {
     "reconnecting": "Reconnecting to the table. The game is still playable.",
