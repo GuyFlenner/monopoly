@@ -44,7 +44,6 @@ from kesef_engine.bots.hard import (
     MAX_RESERVE,
     MIN_RESERVE,
     ROLLOUT_CANDIDATES,
-    ROLLOUT_DEPTH,
     ROLLOUTS_PER_CANDIDATE,
     ROLLOUTS_PER_MOVE,
     Budget,
@@ -72,11 +71,19 @@ from kesef_engine.events import RentCharged
 from kesef_engine.factory import Seat, new_game
 from kesef_engine.legality import is_legal, legal_commands
 from kesef_engine.phases import Phase
-from kesef_engine.primitives import AuctionReason, BotLevel, PlayerId, TileLot
+from kesef_engine.primitives import AuctionReason, BotLevel, CashReason, PlayerId, TileLot
 from kesef_engine.reducer import apply
 from kesef_engine.rules.rent import charge
 from kesef_engine.ruleset import Ruleset, RulesetName
-from kesef_engine.state import HOTEL_LEVEL, AuctionFrame, GameState, PropertyState, TradeFrame
+from kesef_engine.state import (
+    HOTEL_LEVEL,
+    AuctionFrame,
+    DebtFrame,
+    GameState,
+    Obligation,
+    PropertyState,
+    TradeFrame,
+)
 
 END = EndTurn(player=0, elapsed_seconds=None)
 ROLL = RollDice(player=0)
@@ -133,6 +140,24 @@ def _group_of(state: GameState, tile_index: int) -> list[int]:
     group = state.board.tile(tile_index).group
     assert group is not None
     return [tile.index for tile in state.board.tiles if tile.group is group]
+
+
+def _settling_a_debt(*, owned: tuple[int, ...], cash: int = 0, owed: int = 900) -> GameState:
+    """Seat 0 owes more than it holds, with several deeds it could raise the money against.
+
+    Every one of those deeds is a way to pay, and the parent scores them all identically — which is what
+    makes this the widest tie a real game produces, and the reason the budget is asserted here rather than
+    only on a two-way purchase decision.
+    """
+    state = _state(cash=cash, properties={index: PropertyState(owner=0) for index in owned})
+    frame = DebtFrame(
+        debtor=0,
+        reason=CashReason.RENT,
+        total=owed,
+        obligations=(Obligation(creditor=1, amount=owed),),
+        resume=Phase.AWAITING_END_TURN,
+    )
+    return GameState(**{**dict(state), "phase": Phase.DEBT_SETTLEMENT, "interrupts": (frame,)})
 
 
 class TestTheProtocol:
@@ -552,11 +577,26 @@ class TestTheBudgetIsDeterministic:
         """A purchase the ranking cannot separate from declining, so the rollouts run."""
         return _deciding_a_purchase(cash=CASH_BUFFER + 160, position=BOARDWALK)
 
-    def test_the_constants_are_the_product_of_their_factors(self) -> None:
-        # The two published caps are derived, so this is the assertion that they cannot drift apart from
-        # the numbers the loops actually use.
-        assert ROLLOUTS_PER_MOVE == ROLLOUT_CANDIDATES * ROLLOUTS_PER_CANDIDATE
-        assert MAX_APPLY_CALLS_PER_MOVE == ROLLOUTS_PER_MOVE * (ROLLOUT_DEPTH + 1)
+    def test_the_worst_decision_on_the_board_still_stops_at_the_cap(self) -> None:
+        """A position with more close options than the budget allows, which is where a cap earns its pay.
+
+        Settling a debt offers a way to raise cash for every deed the seat owns, and the parent scores
+        every one of them 70 — a dead heat as wide as the portfolio. An unbounded search would roll out
+        all of them; this one takes the first :data:`ROLLOUT_CANDIDATES` and stops, so the count is the
+        published cap exactly rather than merely under it.
+
+        Asserting the equality rather than the inequality is deliberate. `ROLLOUTS_PER_MOVE` is *derived*
+        from its two factors, so an assertion that it equals their product could never fail; what can fail
+        is the claim that the loop actually honours it.
+        """
+        state = _settling_a_debt(owned=(6, 8, 9, 11, 13))
+        legal = tuple(command for command in legal_commands(state) if command.player == 0)
+        mortgages = [command for command in legal if command.kind == "mortgage_property"]
+        assert len(mortgages) > ROLLOUT_CANDIDATES, f"the fixture stopped over-supplying options: {legal}"
+
+        _chosen, budget = search(state, 0, legal)
+        assert budget.rollouts == ROLLOUTS_PER_MOVE
+        assert budget.apply_calls <= MAX_APPLY_CALLS_PER_MOVE
 
     def test_a_decision_that_needs_a_rollout_stays_inside_the_budget(self) -> None:
         state, legal = self._marginal()
