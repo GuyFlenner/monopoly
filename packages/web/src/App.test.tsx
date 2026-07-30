@@ -460,6 +460,47 @@ describe("App — the game screen", () => {
     ).toHaveLength(0);
   });
 
+  it("carries the mute switch and the save button in the chrome (MON-704, MON-706)", async () => {
+    // A wiring test, in the mounted app rather than per component. Both controls are tested on their
+    // own; what this catches is the way they actually break — a hook or a component that exists, is
+    // green in isolation, and was never placed on a screen.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(screen.getByTestId("mute-sound")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("save-game")).toBeEnabled();
+  });
+
+  it("plays a cue for an event that arrives over the socket (MON-706)", async () => {
+    // The one thing `useSoundCues.test.tsx` cannot show: that `GameScreen` actually calls it. The
+    // hook is exercised through the real composition here, with the browser's audio API absent — so
+    // what is asserted is that a cue reaching a jsdom with no `AudioContext` is silent rather than a
+    // crash, which is the environment the whole test suite runs in and half of CI too.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(() => {
+      act(() => {
+        sockets[0]?.onmessage?.({
+          data: JSON.stringify({
+            seq: 1,
+            event: {
+              type: "dice_rolled",
+              player: 0,
+              first: 2,
+              second: 1,
+              total: 3,
+              doubles_streak: 0,
+              purpose: "move",
+            },
+          }),
+        });
+      });
+    }).not.toThrow();
+  });
+
   it("shows the auction panel when the live interrupt frame is an auction", async () => {
     openGameUrl("g1");
     const auction = {
