@@ -46,8 +46,10 @@ from kesef_engine.bots.hard import (
     ROLLOUT_CANDIDATES,
     ROLLOUTS_PER_CANDIDATE,
     ROLLOUTS_PER_MOVE,
+    WIN_VALUE,
     Budget,
     _estimated_rent,
+    _evaluate,
     _reserve,
     _swap_gain,
     search,
@@ -720,6 +722,47 @@ class TestTheStrengthGate:
         print(f"\nhard vs easy: {result.summary()}  wall-clock {seconds:.0f}s")
         assert result.wins >= tournament.WINS_REQUIRED, result.summary()
         assert result.capped <= tournament.MAX_CAPPED, result.summary()
+
+
+class TestWhatARolloutIsJudgingAtTheEnd:
+    """The leaf evaluation, tested directly — it is the half of the search a contest cannot diagnose.
+
+    A rollout is only as good as the position it hands back, and every rollout in the file above is
+    judged by this one function. If it valued the wrong thing, the contests would simply be a bit worse
+    and no assertion would say why.
+    """
+
+    def test_a_won_game_outranks_every_ordinary_position(self) -> None:
+        rich = _state(cash=100_000)
+        over = GameState(**{**dict(_state()), "phase": Phase.GAME_OVER, "winner": 0})
+        assert _evaluate(over, 0) == WIN_VALUE
+        assert _evaluate(over, 1) == -WIN_VALUE
+        assert _evaluate(over, 0) > _evaluate(rich, 0)
+
+    def test_being_bankrupt_is_the_worst_thing_there_is(self) -> None:
+        state = make_state(seats=(make_player(0, cash=0, bankrupt=True), make_player(1)))
+        assert _evaluate(state, 0) == -WIN_VALUE
+
+    def test_a_developed_group_beats_the_same_money_in_cash(self) -> None:
+        """The opinion `RENT_WEIGHT` exists to express, and the reason net worth alone is not enough.
+
+        Net worth counts a house at what it cost, so a seat holding a built-up group and a seat holding
+        the identical sum in cash are level on the engine's own figure — and they are not level in the
+        game, because only one of them charges rent. Both sides are given the same money here, so the
+        *only* thing that can separate them is the standing rent.
+        """
+        group = _group_of(make_state(), 1)
+        cost = sum((make_state().board.tile(index).price or 0) for index in group)
+        cost += sum(2 * (make_state().board.tile(index).house_cost or 0) for index in group)
+
+        built = _state(
+            cash=1500 - cost,
+            other_cash=1500,
+            properties={index: PropertyState(owner=0, houses=2) for index in group},
+        )
+        assert built.net_worth(0) == built.net_worth(1), "the fixture stopped holding net worth level"
+        assert _evaluate(built, 0) > 0
+        assert _evaluate(built, 1) < 0
 
 
 class TestItStillPlaysALegalGame:
