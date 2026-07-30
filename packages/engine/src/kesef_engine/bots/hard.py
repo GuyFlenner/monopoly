@@ -94,7 +94,7 @@ from kesef_engine.commands import (
     RespondToTrade,
     TradeOffer,
 )
-from kesef_engine.legality import legal_commands
+from kesef_engine.legality import is_legal, legal_commands
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import BotLevel, PlayerId
 from kesef_engine.reducer import apply
@@ -513,42 +513,78 @@ class HardBot(NormalBot):
     # --- Amendment 2: denial, wherever a deed can be taken off the table ----------------------------
 
     def _score(self, state: GameState, player: PlayerId, command: Command) -> float:
-        base = super()._score(state, player, command)
-        if base < 0:
-            # The parent has already refused this — an unaffordable purchase, a bid above its
-            # valuation. Denial is a reason to want a square, never a reason to go broke for one.
-            return base
+        """The parent's ranking, with three commands answered here instead.
+
+        The split is on whether the amendment *adds* to the parent's verdict or *replaces* it, and
+        getting that wrong is the bug this shape exists to prevent. A purchase is an addition: the parent
+        prices the square and denial is one more reason to want it, so a refusal on affordability grounds
+        stands. A bid and a house are replacements, because in both cases the parent's refusal is the
+        very thing being amended — an early "the parent said no, so no" would make those two amendments
+        unreachable in exactly the positions they are for.
+        """
         match command:
-            case BuyProperty():
-                # `BuyProperty` carries no tile; the square is the one the seat is standing on, which is
-                # the same reading the parent and the rest of the product make.
-                return base + _denial_value(state, player, state.player(player).position)
-            case PlaceBid():
-                lot = state.auction.lot if state.auction is not None else None
-                tile = lot.tile if lot is not None and lot.kind == "tile" else None
-                return base if tile is None else base + _denial_value(state, player, tile)
             case BuildHouse(tile=tile_index):
-                # Amendment 5, replacing the parent's verdict rather than adjusting it. The parent
-                # ranks the third house highest and the hotel barely at all, which is the right
-                # *ordering* and the wrong *ceiling*: it left both bots sitting on cash under a house
-                # shortage that only a hotel can clear, in a game that then ran to the turn cap.
+                # Amendment 5, replacing the parent's verdict. The parent ranks the third house highest
+                # and the hotel barely at all, which is the right *ordering* and the wrong *ceiling*: it
+                # left both bots sitting on cash under a house shortage only a hotel can clear, in a game
+                # that then ran to the turn cap.
                 #
-                # So: building is the best thing this bot can do whenever it can afford it above
-                # `BUILD_RESERVE`, and the small step per house keeps the parent's preference for
-                # spreading the first houses across a group before topping any square up.
+                # So: building is the best thing this bot can do whenever it can afford it above the
+                # development reserve, and the small step per house keeps the parent's preference for
+                # spreading the first houses across a group before topping any one square up.
                 cost = state.board.tile(tile_index).house_cost or 0
                 if state.player(player).cash - cost < min(_reserve(state, player), BUILD_RESERVE):
                     return 5.0
                 return 92.0 - state.properties[tile_index].houses * 4.0
 
+            case PlaceBid(amount=amount):
+                return self._score_bid(state, player, command, amount)
+
             case ProposeTrade():
-                # The parent never scores this: it decides whether to open a trade *outside* its
-                # ranking, because for it there is nothing to weigh a proposal against. Here a proposal
-                # is one option among the rest and gets the same slot in the ladder the parent gives it
-                # implicitly — below building, above rolling — so that a rollout can compare the two.
+                # The parent never scores this: it decides whether to open a trade *outside* its ranking,
+                # because for it there is nothing to weigh a proposal against. Here a proposal is one
+                # option among the rest and takes the slot the parent gives it implicitly — below
+                # building, above rolling — so that a rollout can compare the two.
                 return PROPOSE_SCORE
+
+            case BuyProperty():
+                base = super()._score(state, player, command)
+                if base < 0:
+                    # The parent has refused it outright: the purchase is unaffordable. Denial is a
+                    # reason to want a square, never a reason to go broke for one.
+                    return base
+                # `BuyProperty` carries no tile; the square is the one the seat is standing on, which is
+                # the reading the parent and the rest of the product make.
+                return base + _denial_value(state, player, state.player(player).position)
+
             case _:
-                return base
+                return super()._score(state, player, command)
+
+    def _score_bid(self, state: GameState, player: PlayerId, command: PlaceBid, amount: int) -> float:
+        """A bid, where denial has to enter the bot's *willingness to pay* and not only its ranking.
+
+        The parent refuses any bid above what the square is worth to it, and a square in somebody else's
+        colour group is worth almost nothing on that reading — `_completion_value` gives a group that
+        cannot be completed four points. So a bonus added after the parent's refusal would never be
+        reached, and amendment 2 would be a rule that fires everywhere except an auction.
+
+        A square that blocks a group outright is worth its printed price **over again**, and that is the
+        ceiling: twice the deed for a deed the bot does not want on its own account, and not a shekel
+        more. Below it the reserve still governs, so denial cannot bid the bot broke.
+        """
+        base = super()._score(state, player, command)
+        lot = state.auction.lot if state.auction is not None else None
+        tile = lot.tile if lot is not None and lot.kind == "tile" else None
+        if tile is None:
+            return base
+        denial = _denial_value(state, player, tile)
+        if not denial:
+            return base
+        if state.player(player).cash - amount < self._buffer(state, player):
+            # Opinion 1 outranks amendment 2, the same way it outranks every other opinion here.
+            return -50.0
+        worth = _price_of(state, tile) * (1.0 + denial / DENIAL_COMPLETING)
+        return (55.0 + denial) if amount <= worth else base
 
     # --- Amendment 4: which offer to open ----------------------------------------------------------
 
@@ -684,7 +720,13 @@ def search(
     best_score = scored[0][0]
 
     margin = float("inf") if state.phase in ALWAYS_ROLL_OUT else CLOSE_ENOUGH
-    candidates = [entry for entry in scored if best_score - entry[0] <= margin][:ROLLOUT_CANDIDATES]
+    close = [entry for entry in scored if best_score - entry[0] <= margin]
+    # Only a line the engine agrees is playable can be rolled out, because a rollout *applies* it. The
+    # protocol already promises `legal` is legal and `legal_commands`/`apply` are property-tested to
+    # agree, so in a real game this filter never removes anything — it is here because the consequence
+    # of being wrong is an `IllegalCommandError` raised from inside a bot's imagination, in the middle
+    # of somebody's turn, and the honest fallback is to think less rather than to crash.
+    candidates = [entry for entry in close if is_legal(state, entry[2])][:ROLLOUT_CANDIDATES]
 
     meter = _Meter()
     if len(candidates) < 2:
