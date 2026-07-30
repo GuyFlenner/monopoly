@@ -23,7 +23,7 @@ from kesef_engine.commands import TradeOffer, TradeSide
 from kesef_engine.events import Event, TradeDeclined, TradeProposed, TurnStarted
 from kesef_engine.primitives import BotLevel, PlayerId
 from kesef_engine.state import GameState, PlayerKind, PlayerState, PropertyState
-from kesef_server.bots import drive, seats_that_proposed_this_turn
+from kesef_server.bots import bot_for, drive, seats_that_proposed_this_turn
 
 
 def _refetch(client: TestClient, game_id: str) -> dict[str, Any]:
@@ -218,24 +218,48 @@ class TestItOnlyMovesForBots:
             assert event["delta"] > 0, f"seat 0 spent money during the bot's turn: {event}"
 
 
-class TestUnknownLevelsDoNotBreakAGame:
-    def test_a_level_this_server_has_no_bot_for_leaves_the_seat_waiting(self, client: TestClient) -> None:
-        """`hard` is seatable on the wire before MON-603 exists.
+class TestEveryLevelIsDriven:
+    """The end state MON-601..603 were working towards, asserted rather than assumed.
 
-        `BotLevel` accepts all three, so a client can seat a level this server cannot drive. The
-        honest outcome is a seat that waits — not a crash, and not a game silently played by the wrong
-        bot. This said `normal` until MON-602 landed; when MON-603 lands there is no level left to
-        assert on and the test goes with it, which is the intended end state rather than a gap.
+    This class used to hold the opposite claim: `hard` was seatable on the wire with nothing behind it,
+    and the honest outcome was a seat that waited — not a crash, and not a game played by the wrong bot.
+    That test named the last undriven level and said in as many words that MON-603 would retire it.
+    MON-603 landed, so it is retired, and the stronger claim replaces it: **no level a client can seat
+    is left with nobody to play it.**
+
+    `bot_for` still answers `None` for a level with no entry, deliberately — a future level added to the
+    enum before its bot exists should leave a seat waiting rather than crash a game. What changed is
+    that no such level ships today, and the exhaustiveness test is what would notice one appearing.
+    """
+
+    def test_every_bot_level_has_a_bot(self) -> None:
+        """Exhaustive over the enum, so adding a fourth level fails here rather than in somebody's game.
+
+        Written over `BotLevel` itself rather than a hand-written list of three, because a hand-written
+        list is exactly what goes stale: it was a hand-written table that left `normal` undriven for two
+        milestones while the enum happily accepted it.
+        """
+        undriven = [level.value for level in BotLevel if bot_for(level) is None]
+        assert not undriven, f"these levels are seatable on the wire and nothing drives them: {undriven}"
+
+    def test_no_bot_level_is_not_a_bot(self) -> None:
+        # The other half: a human seat carries `bot_level=None`, and asking for its bot must answer
+        # `None` rather than picking one. `_next_bot_move` leans on this to leave humans alone.
+        assert bot_for(None) is None
+
+    def test_a_hard_bot_seat_is_driven(self, client: TestClient) -> None:
+        """MON-603's level, taking its opening turn.
+
+        The same claim the easy and normal tests make, against the level that was the last one nothing
+        spoke for. It is also the only place the rollout search runs through the *server*, which is why
+        it is worth having as well as the engine's contest: a per-move budget that failed to terminate,
+        or a bot that returned something `apply` rejects, fails here.
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="hard"), seat("Ruti")]))
         assert response.status_code == 201
-        view = response.json()
-
-        # Nothing was driven, so the game is still waiting on seat 0 — and it is still a valid game.
-        view = _refetch(client, view["state"]["game_id"])
-        assert _current(view) == 0
-        assert view["events"] == []
-        assert view["legal_commands"], "the seat should still have legal moves, just nobody to play them"
+        view = _refetch(client, response.json()["state"]["game_id"])
+        assert _current(view) == 1, "the hard bot never took its opening turn"
+        assert view["events"], "the hard bot's opening turn produced no events at all"
 
     def test_a_normal_bot_seat_is_driven(self, client: TestClient) -> None:
         """The flip side, and the reminder that MON-602 landed.
