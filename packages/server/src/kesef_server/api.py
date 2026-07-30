@@ -487,19 +487,39 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
     (ADR-009). It is derived from the session log on every step because this loop hands the driver one
     step at a time and a proposal to a human ends the call altogether — a driver-local memory would
     reset before the human had answered, and the same offer would come straight back.
+
+    One game gets one driver at a time (MON-806). Every command queues one of these tasks, so two
+    quick commands give the same game two of them, and the read-one-step-write loop below races
+    against its twin: both read the same position between the other's read and write, compute the
+    same move, and append the same events twice. `Session.advance_lock` serializes them — the
+    latecomer waits, re-reads a position the first driver has already finished, finds nothing to do
+    and leaves. A skip-if-running flag would be cheaper but wrong: the running driver may already
+    have decided "no bot can act" from the position *before* the command that queued the second
+    task, and skipping would strand the bot until the next request.
+
+    A game deleted between the response and this task running is a quiet no-op, not an error —
+    there is nobody left to advance.
     """
-    for _ in range(config.bot_max_steps_per_call):
+    try:
         session = store.get(game_id)
-        async for step in drive(
-            session.state,
-            think_seconds=config.bot_think_seconds,
-            max_steps=1,
-            traded_seats=seats_that_proposed_this_turn(entry.event for entry in session.log),
-        ):
-            store.update(game_id, step.state, step.events)
-            break
-        else:
-            return
+    except UnknownGameError:
+        return
+    async with session.advance_lock:
+        for _ in range(config.bot_max_steps_per_call):
+            try:
+                session = store.get(game_id)
+            except UnknownGameError:
+                return
+            async for step in drive(
+                session.state,
+                think_seconds=config.bot_think_seconds,
+                max_steps=1,
+                traded_seats=seats_that_proposed_this_turn(entry.event for entry in session.log),
+            ):
+                store.update(game_id, step.state, step.events)
+                break
+            else:
+                return
 
 
 @app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)
