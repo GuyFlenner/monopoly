@@ -101,6 +101,16 @@ class Session:
     _subscribers: list[Subscriber] = field(default_factory=list)
     """Live WebSocket listeners (MON-303). Capped, and a dropped client removes its own
     mailbox. See :meth:`subscribe`."""
+    advance_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    """Serializes bot drivers for this game (MON-806).
+
+    Every request that changes a game queues an ``_advance_bots`` background task, so two quick
+    requests give one game two drivers, and each driver's read-one-step-write loop races the
+    other's: both read the same position, compute the same move, and append the same events
+    twice. The lock lives here rather than in the API module because its lifetime *is* the
+    session's — a per-``game_id`` dict at module scope would leak entries for deleted games or,
+    cleaned carelessly, hand two drivers different locks for one game.
+    """
 
     @property
     def cursor(self) -> int:
