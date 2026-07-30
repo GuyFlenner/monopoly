@@ -1,20 +1,22 @@
 """The normal bot's opinions (MON-602).
 
-The bot is a ranking, so every test here is of the form "given this position, does it prefer the right
-thing". That is testable directly and cheaply, which matters: the *contest* against the easy bot takes
-about 145 seconds and is not run in the PR gate (see the module docstring in `tournament.py` and the
-backlog entry for where that number stands).
+The bot is a ranking, so most tests here are of the form "given this position, does it prefer the right
+thing". That is testable directly and cheaply, which is why the shape is worth keeping even now that
+the *contest* against the easy bot is fast enough to assert directly — see `TestTheStrengthGate` at the
+bottom, and the module docstring in `tournament.py` for the rules of that contest.
 
-What is deliberately **not** here is an assertion that the bot wins 60 of 100. It currently wins 69 and
-fails the harness's separate capped-game gate for a structural reason — no bot can propose a trade, so
-split colour groups are permanent — and asserting only the half that passes would be choosing the
-flattering number. The figure lives in the backlog with the decision it is waiting on.
+The contest assertion was deliberately absent until ADR-009 landed. The bot won 69/100 (needed 60) and
+failed the harness's separate capped-game gate — 12 games unfinishable at 500 turns against a limit of
+5, because no bot could propose a trade and so split colour groups were permanent. Asserting only the
+half that passed would have been choosing the flattering number. Both halves pass now.
 """
 
 from __future__ import annotations
 
+import tournament
+
 from helpers import make_player, make_state
-from kesef_engine.bots import NormalBot
+from kesef_engine.bots import EasyBot, NormalBot
 from kesef_engine.bots.base import Bot
 from kesef_engine.bots.normal import BUILD_TARGET, CASH_BUFFER, _completion_value
 from kesef_engine.commands import (
@@ -27,6 +29,7 @@ from kesef_engine.commands import (
     MortgageProperty,
     PayJailFine,
     PlaceBid,
+    ProposeTrade,
     RespondToTrade,
     RollDice,
     RollForJail,
@@ -37,8 +40,11 @@ from kesef_engine.commands import (
     UseJailCard,
     WithdrawFromAuction,
 )
-from kesef_engine.phases import Phase
-from kesef_engine.primitives import AuctionReason, BotLevel, CashReason, TileLot
+from kesef_engine.events import TradeProposed
+from kesef_engine.legality import is_legal
+from kesef_engine.phases import PORTFOLIO_PHASES, Phase
+from kesef_engine.primitives import AuctionReason, BotLevel, CashReason, PlayerId, TileLot
+from kesef_engine.reducer import apply
 from kesef_engine.state import AuctionFrame, DebtFrame, GameState, Obligation, PropertyState, TradeFrame
 
 END = EndTurn(player=0, elapsed_seconds=None)
@@ -224,9 +230,8 @@ def _in_debt(*, cash: int) -> GameState:
 class TestOpinionFourTradeEvaluation:
     """Responding to an offer (MON-602's fourth criterion).
 
-    Only *responding*: `Bot.choose` returns a command from the `legal` tuple and `ProposeTrade` is never
-    enumerated (ADR-005's exception for an unbounded offer space), so no bot can open a trade. That is
-    the limitation behind the harness's capped-game gate — see the backlog entry.
+    `respond_to_trade` *is* enumerated, so this half needed no protocol change and predates ADR-009.
+    Opening a trade is the other half, in `TestOpinionFourProposingATrade` below.
     """
 
     def _reviewing(
@@ -356,3 +361,256 @@ class TestAuctionsAndJail:
         state = _state(cash=CASH_BUFFER)
         legal: tuple[Command, ...] = (PayJailFine(player=0), RollForJail(player=0))
         assert NormalBot().choose(state, 0, legal).kind == "roll_for_jail"
+
+
+def _owned(state: GameState, owners: dict[int, int]) -> GameState:
+    """`state` with `owners` applied as `{tile_index: player_id}`."""
+    return GameState(
+        **{
+            **dict(state),
+            "properties": tuple(
+                PropertyState(owner=owners[tile.index]) if tile.index in owners else prop
+                for tile, prop in zip(state.board.tiles, state.properties, strict=True)
+            ),
+        }
+    )
+
+
+class TestOpinionFourProposingATrade:
+    """Opening a trade — ADR-009, and the reason MON-602 could not pass its own gate before it.
+
+    `ProposeTrade` is never enumerated in `legal_commands` (ADR-005's exception, the offer space being
+    unbounded), so these tests are about a command the bot *constructs*. The one that matters most is
+    `test_the_offer_it_builds_is_one_the_engine_accepts`: a constructed command earns no privilege, and
+    if the bot could hand `apply` something illegal the whole arrangement would be a hole in ADR-005
+    rather than a documented exception to it.
+    """
+
+    def _split(self, *, cash: int = 1500) -> tuple[GameState, list[int], list[int]]:
+        """The stalemate this whole feature exists for, in its smallest form.
+
+        Seat 0 holds all of light blue but one; seat 1 holds that one. Seat 1 holds all of pink but one;
+        seat 0 holds that one. Neither can build, and one swap fixes it for both — which is the point
+        rather than a concession: a board where both sides can build is a board somebody loses.
+        """
+        base = _state(cash=cash)
+        ours = _group_of(base, 6)
+        theirs = _group_of(base, 11)
+        owners = dict.fromkeys(ours[:-1], 0) | {ours[-1]: 1}
+        owners |= dict.fromkeys(theirs[:-1], 1) | {theirs[-1]: 0}
+        return _owned(base, owners), ours, theirs
+
+    def _rolling(self) -> tuple[Command, ...]:
+        """What a portfolio phase offers when there is nothing worth building: roll, or end."""
+        return (ROLL, END)
+
+    def test_proposes_the_swap_that_un_splits_both_groups(self) -> None:
+        state, ours, theirs = self._split()
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert isinstance(chosen, ProposeTrade), f"expected an offer, got {chosen.kind}"
+        assert chosen.offer.receive.tiles == (ours[-1],), "it did not ask for the square completing its group"
+        assert chosen.offer.give.tiles == (theirs[-1],), "it did not hand over the square blocking theirs"
+        assert chosen.offer.give.cash == 0, "a reciprocal swap needs no sweetener"
+
+    def test_the_offer_it_builds_is_one_the_engine_accepts(self) -> None:
+        # The load-bearing claim of ADR-009. `is_legal` first, because that is what the bot itself
+        # checked; then `apply`, because agreement between the two is what makes the exception safe.
+        state, _ours, _theirs = self._split()
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert is_legal(state, chosen), "the bot proposed something the engine rejects"
+        _after, events = apply(state, chosen)
+        assert any(isinstance(event, TradeProposed) for event in events)
+
+    def test_may_trade_false_holds_it_to_the_enumerated_commands(self) -> None:
+        # The driver's permission, and the only thing standing between a stateless bot and an identical
+        # offer every time it is asked. See ADR-009.
+        state, _ours, _theirs = self._split()
+        legal = self._rolling()
+        assert NormalBot().choose(state, 0, legal, may_trade=False) in legal
+
+    def test_two_instances_build_the_same_offer(self) -> None:
+        # Still no RNG. The tournament harness builds a bot per game and the server shares one across
+        # every game, so the two must not be able to disagree.
+        state, _ours, _theirs = self._split()
+        first = NormalBot().choose(state, 0, self._rolling())
+        assert all(NormalBot().choose(state, 0, self._rolling()) == first for _ in range(5))
+
+    def test_builds_what_it_owns_before_going_looking_for_a_swap(self) -> None:
+        # `PROPOSE_SCORE` sits below `build_house`, so a bot with a house worth building does that
+        # first. It also keeps the offer search off the hot path — it runs only when rolling and ending
+        # are all that is left.
+        state, _ours, theirs = self._split(cash=3000)
+        legal: tuple[Command, ...] = (ROLL, BuildHouse(player=0, tile=theirs[-1]))
+        assert NormalBot().choose(state, 0, legal).kind == "build_house"
+
+    def test_does_not_propose_when_no_swap_completes_a_group(self) -> None:
+        legal = self._rolling()
+        assert NormalBot().choose(_state(), 0, legal) in legal
+
+    def test_does_not_propose_while_settling_a_debt(self) -> None:
+        # `is_legal` would allow a debtor to trade, but these offers swap squares rather than raise
+        # cash, so proposing one would spend a turn not solving the problem in front of it.
+        state, _ours, _theirs = self._split()
+        frame = DebtFrame(
+            debtor=0,
+            reason=CashReason.RENT,
+            total=900,
+            obligations=(Obligation(creditor=1, amount=900),),
+            resume=Phase.AWAITING_END_TURN,
+        )
+        state = GameState(**{**dict(state), "phase": Phase.DEBT_SETTLEMENT, "interrupts": (frame,)})
+        legal: tuple[Command, ...] = (MortgageProperty(player=0, tile=6), DeclareBankruptcy(player=0))
+        assert NormalBot().choose(state, 0, legal).kind == "mortgage_property"
+
+    def test_never_swaps_one_half_of_a_split_two_square_group_for_the_other(self) -> None:
+        """The defect this test exists for was legal, deterministic, and completely pointless.
+
+        Brown and dark blue have two members each. With one apiece, *each* square completes the group
+        for whoever does not hold it — so the bot's qualified as something to give away and the
+        opponent's qualified as something to want, and pairing them produced an offer that swapped a
+        split group for the same split group. Every turn, forever.
+        """
+        base = _state()
+        brown = _group_of(base, 1)
+        state = _owned(base, {brown[0]: 0, brown[1]: 1})
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert isinstance(chosen, ProposeTrade)
+        assert chosen.offer.receive.tiles == (brown[1],)
+        assert chosen.offer.give.tiles == (), f"it offered a square from the group it wants to complete: {chosen}"
+
+    def _sweetened(self, *, cash: int) -> tuple[GameState, int, int]:
+        """Seat 0 wants a dark blue square and holds nothing seat 1 needs — only a dead light blue.
+
+        The light blue group has an unsold member, so handing seat 1 the bot's share completes nothing;
+        it is a blocker being given up, and the price gap is what makes the offer worth answering.
+        """
+        base = _state(cash=cash)
+        dark_blue = _group_of(base, 39)
+        light_blue = _group_of(base, 6)
+        owners = {dark_blue[0]: 0, dark_blue[1]: 1, light_blue[0]: 0, light_blue[1]: 1}
+        return _owned(base, owners), dark_blue[1], light_blue[0]
+
+    def test_pays_a_sweetener_when_it_has_nothing_the_other_side_needs(self) -> None:
+        state, want, give = self._sweetened(cash=1500)
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert isinstance(chosen, ProposeTrade)
+        assert chosen.offer.receive.tiles == (want,)
+        assert chosen.offer.give.tiles == (give,)
+        gap = (state.board.tile(want).price or 0) - (state.board.tile(give).price or 0)
+        assert gap > 0, "the fixture stopped exercising the sweetener"
+        assert chosen.offer.give.cash == gap, "the sweetener should close the gap in printed prices"
+
+    def test_the_sweetener_never_dips_into_the_reserve(self) -> None:
+        # Opinion 1 outranks opinion 4 when proposing, exactly as it does when responding.
+        state, _want, _give = self._sweetened(cash=CASH_BUFFER + 40)
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert isinstance(chosen, ProposeTrade)
+        assert chosen.offer.give.cash == 40
+        assert state.player(0).cash - chosen.offer.give.cash == CASH_BUFFER
+
+    def test_offers_cash_alone_when_it_has_no_square_to_spare(self) -> None:
+        base = _state()
+        group = _group_of(base, 6)
+        state = _owned(base, {group[0]: 0, group[1]: 0, group[2]: 1})
+        chosen = NormalBot().choose(state, 0, self._rolling())
+        assert isinstance(chosen, ProposeTrade)
+        assert chosen.offer.give.tiles == ()
+        # Twice the printed price: dear for one square, and the right price for the one that makes a
+        # whole group, because building is not legal without one.
+        assert chosen.offer.give.cash == (state.board.tile(group[2]).price or 0) * 2
+
+    def test_says_nothing_when_it_cannot_afford_to_say_anything(self) -> None:
+        # No reciprocal square, nothing spare, and no cash above the reserve: the honest answer is to
+        # roll rather than to open a trade it cannot fund.
+        base = _state(cash=CASH_BUFFER)
+        group = _group_of(base, 6)
+        state = _owned(base, {group[0]: 0, group[1]: 0, group[2]: 1})
+        legal = self._rolling()
+        assert NormalBot().choose(state, 0, legal) in legal
+
+
+class _Proposes:
+    """A bot that opens an empty trade whenever the driver allows it, and records both facts.
+
+    Empty on purpose: `TradeSide()` moves nothing, so it is legal between any two solvent players in a
+    portfolio phase and needs no position set up for it. What is under test is the *driver's* budget,
+    not the offer.
+    """
+
+    level: BotLevel = BotLevel.NORMAL
+
+    def __init__(self, *, propose: bool = True) -> None:
+        self.propose = propose
+        self.permitted: list[tuple[int, PlayerId]] = []
+        self.proposals: list[tuple[int, PlayerId]] = []
+
+    def choose(
+        self,
+        state: GameState,
+        player: PlayerId,
+        legal: tuple[Command, ...],
+        *,
+        may_trade: bool = True,
+    ) -> Command:
+        if may_trade:
+            self.permitted.append((state.turn_number, player))
+        if self.propose and may_trade and state.phase in PORTFOLIO_PHASES:
+            other = next(seat.id for seat in state.solvent_players if seat.id != player)
+            offer = TradeOffer(proposer=player, recipient=other, give=TradeSide(), receive=TradeSide())
+            command = ProposeTrade(player=player, offer=offer)
+            if is_legal(state, command):
+                self.proposals.append((state.turn_number, player))
+                return command
+        return NormalBot().choose(state, player, legal, may_trade=False)
+
+
+class TestTheDriverSpendsTheTradePermission:
+    """The loop ADR-009 has to break, and where it is broken.
+
+    A bot is a pure function of the position, and declining an offer puts the position back to
+    essentially what it was — so a bot asked twice would offer the identical swap forever. The fix is
+    the driver's, not the engine's and not the bot's: one proposal per seat per turn, spent whether the
+    answer is yes or no. `kesef_server/bots.py` enforces the same rule for the server.
+    """
+
+    def test_one_proposal_per_seat_per_turn(self) -> None:
+        bot = _Proposes()
+        tournament.play(bot, EasyBot(), seed=3, turn_cap=12)
+        assert bot.proposals, "the stub never got to propose, so this proves nothing"
+        duplicated = [key for key in bot.proposals if bot.proposals.count(key) > 1]
+        assert not duplicated, f"a seat proposed more than once in a turn: {duplicated}"
+
+    def test_the_game_still_reaches_a_result(self) -> None:
+        """Without the guard this is not a failed assertion, it is a game that never ends.
+
+        The stub proposes, the offer is answered, the position is back where it was, and the seat is
+        asked again — so the turn never advances and `play` runs into `STEP_CAP_PER_GAME`.
+        """
+        outcome = tournament.play(_Proposes(), EasyBot(), seed=3, turn_cap=12)
+        assert outcome.turns >= 1
+
+    def test_a_bot_that_never_proposes_keeps_its_permission_all_turn(self) -> None:
+        # The other half of the rule: the budget is spent by *proposing*, not merely by being asked. A
+        # driver that withdrew the permission after any move at all would silence a bot that had not
+        # used it — so a seat that declines to propose must still be asked with the permission open on
+        # its later moves in the same turn.
+        bot = _Proposes(propose=False)
+        tournament.play(bot, EasyBot(), seed=3, turn_cap=6)
+        assert not bot.proposals
+        asked_twice = [key for key in set(bot.permitted) if bot.permitted.count(key) > 1]
+        assert asked_twice, f"no seat was offered the permission twice in one turn: {bot.permitted}"
+
+
+class TestTheStrengthGate:
+    """MON-602's headline acceptance criterion, asserted rather than reported.
+
+    Roughly 25 seconds, which is why it was worth waiting for the capped-game gate to pass before
+    adding it: an assertion nobody dares run is documentation. The thresholds are `tournament.py`'s,
+    fixed before the contest existed (G-62), and nothing here may move them — if this fails, the bot is
+    what changes.
+    """
+
+    def test_beats_the_easy_bot_and_finishes_its_games(self) -> None:
+        result = tournament.contest(NormalBot(), EasyBot())
+        assert result.wins >= tournament.WINS_REQUIRED, result.summary()
+        assert result.capped <= tournament.MAX_CAPPED, result.summary()

@@ -48,7 +48,7 @@ from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset, RulesetName
 from kesef_engine.state import GameState
 from kesef_server import errors
-from kesef_server.bots import drive
+from kesef_server.bots import drive, seats_that_proposed_this_turn
 from kesef_server.config import Settings, settings
 from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
 from kesef_server.log import configure_logging, get_logger
@@ -501,6 +501,11 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
 
     A client with no socket open is not stranded: `useGame` refetches from its cursor, so the moves are
     waiting in the log.
+
+    The one thing passed *in* to the driver is which seats have already proposed a trade this turn
+    (ADR-009). It is derived from the session log on every step because this loop hands the driver one
+    step at a time and a proposal to a human ends the call altogether — a driver-local memory would
+    reset before the human had answered, and the same offer would come straight back.
     """
     for _ in range(config.bot_max_steps_per_call):
         session = store.get(game_id)
@@ -508,6 +513,7 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
             session.state,
             think_seconds=config.bot_think_seconds,
             max_steps=1,
+            traded_seats=seats_that_proposed_this_turn(entry.event for entry in session.log),
         ):
             store.update(game_id, step.state, step.events)
             break
