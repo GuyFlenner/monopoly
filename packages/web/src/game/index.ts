@@ -14,7 +14,7 @@ export {
   UNREADABLE_SAVE_KEY,
 } from "./saveFile";
 export type { SaveFilePort } from "./saveFile";
-export { useUiStore } from "./uiStore";
+export { MAX_PINNED_PLAYERS, useUiStore } from "./uiStore";
 export type { PanelId, UiState } from "./uiStore";
 export { useGame, useGameContext } from "./useGame";
 export type { GameStatus, UseGameResult } from "./useGame";
