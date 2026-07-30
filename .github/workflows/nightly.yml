@@ -108,8 +108,8 @@ jobs:
 
       # `-m slow` on the command line lands after the `-m "not slow"` in pyproject's addopts
       # and wins, so this is the inverse of the PR gate's selection rather than an addition
-      # to it. MON-603's bot contests are what live here: two hundred full games, roughly ten
-      # minutes, and a wall-clock nobody asserts on (G-F30).
+      # to it. MON-603's bot contests are what live here: two hundred full games with a rollout
+      # search in half the seats — tens of minutes, and a wall-clock nobody asserts on (G-F30).
       #
       # Exit code 5 ("no tests collected") used to be tolerated here, because for two
       # milestones there were no slow-marked tests to collect. It is a **failure** now: an
