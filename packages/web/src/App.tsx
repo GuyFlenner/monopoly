@@ -206,6 +206,7 @@ function SetupFlow({
       <Frame>
         <ErrorState
           error={failure}
+          testId="setup-error"
           onRetry={() => {
             void boards.refetch();
             void rulesets.refetch();
@@ -226,7 +227,7 @@ function SetupFlow({
   if (boards.data === undefined || rulesets.data === undefined) {
     return (
       <Frame>
-        <LoadingState />
+        <LoadingState testId="setup-loading" />
       </Frame>
     );
   }
@@ -248,7 +249,7 @@ function SetupFlow({
   if (playable.length === 0) {
     return (
       <Frame>
-        <EmptyState messageKey="setup.no_boards" />
+        <EmptyState messageKey="setup.no_boards" testId="setup-empty" />
         {/* A save carries its own board, so this works with an empty picker. See above. */}
         <LoadSavedGame onLoad={load} />
       </Frame>

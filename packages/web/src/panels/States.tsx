@@ -74,6 +74,15 @@ export interface EmptyStateProps {
   readonly messageKey: string;
   readonly params?: StateParams;
   readonly className?: string;
+  /**
+   * A hook for a test that needs *this* state rather than the words in it.
+   *
+   * Worth a prop rather than leaving callers to `getByText`: a state's sentence can legitimately
+   * appear twice on a page — a loading state also announces itself into the polite region — and a
+   * `getByText` that starts matching two nodes fails in a way that reads as a defect in the app.
+   * Every one of the three carries `data-state` unconditionally as well, for a caller with none.
+   */
+  readonly testId?: string;
 }
 
 /**
@@ -86,10 +95,11 @@ export function EmptyState({
   messageKey,
   params = NO_PARAMS,
   className = "",
+  testId,
 }: EmptyStateProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <p data-state="empty" className={`text-sm opacity-70 ${className}`}>
+    <p data-state="empty" data-testid={testId} className={`text-sm opacity-70 ${className}`}>
       {t(messageKey, params)}
     </p>
   );
@@ -108,6 +118,8 @@ export interface LoadingStateProps {
    */
   readonly announce?: boolean;
   readonly className?: string;
+  /** See {@link EmptyStateProps.testId}. */
+  readonly testId?: string;
 }
 
 export function LoadingState({
@@ -115,6 +127,7 @@ export function LoadingState({
   params = NO_PARAMS,
   announce = true,
   className = "",
+  testId,
 }: LoadingStateProps): React.JSX.Element {
   const { t } = useTranslation();
   const push = useOptionalAnnounce();
@@ -135,7 +148,7 @@ export function LoadingState({
   }, [announce, messageKey, push]);
 
   return (
-    <p data-state="loading" className={`text-sm opacity-80 ${className}`}>
+    <p data-state="loading" data-testid={testId} className={`text-sm opacity-80 ${className}`}>
       {t(messageKey, params)}
     </p>
   );
@@ -155,6 +168,8 @@ export interface ErrorStateProps {
    */
   readonly onRetry?: () => void;
   readonly className?: string;
+  /** See {@link EmptyStateProps.testId}. */
+  readonly testId?: string;
 }
 
 export function ErrorState({
@@ -162,6 +177,7 @@ export function ErrorState({
   headingKey = "error.title",
   onRetry,
   className = "",
+  testId,
 }: ErrorStateProps): React.JSX.Element {
   const { t } = useTranslation();
   const reasonText = useReasonText();
@@ -169,6 +185,7 @@ export function ErrorState({
   return (
     <div
       data-state="error"
+      data-testid={testId}
       // -1 rather than 0: the message is a focus *target*, not a tab stop. Nobody should have to
       // tab past a past failure to reach the button that retries it.
       tabIndex={-1}

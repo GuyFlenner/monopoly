@@ -311,7 +311,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     return (
       <Chrome onLeave={onLeave}>
         {status.error === undefined ? (
-          <LoadingState />
+          <LoadingState testId="game-loading" />
         ) : (
           /*
             With a retry, since MON-708. A first view that failed is the one failure on this screen
@@ -319,7 +319,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             client simply has not got it yet — and until now the only way out was "New game", which
             *abandons* the game the URL is pointing at. A dead end that looks like a decision.
           */
-          <ErrorState error={status.error} onRetry={refetch} />
+          <ErrorState error={status.error} onRetry={refetch} testId="game-error" />
         )}
       </Chrome>
     );

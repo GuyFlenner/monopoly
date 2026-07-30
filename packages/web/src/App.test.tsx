@@ -204,7 +204,26 @@ describe("App — the setup screen", () => {
 
   it("shows the loading state from the catalogue while the two lists are in flight", () => {
     renderApp(makeEdge({}, { hang: true }));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // Scoped to the placeholder, because since MON-708 the sentence is in *two* places and both are
+    // deliberate: the visible `<LoadingState>` and the polite live region it announced itself
+    // through. An unscoped `getByText` finds both and fails, which is the assertion below.
+    expect(screen.getByTestId("setup-loading")).toHaveTextContent("Loading…");
+  });
+
+  it("announces a wait politely through the one Announcer rather than a region of its own", async () => {
+    // MON-708: "loading states announced politely via the existing Announcer (no new live regions)".
+    // A wait nobody is told about is a blank screen to a screen-reader user, and a wait announced
+    // from a region the loading component rendered itself is the GAP D1/G-54 double-speak defect.
+    renderApp(makeEdge({}, { hang: true }));
+
+    const polite = await waitFor(() => {
+      const region = document.querySelector('[data-announcer="polite"]');
+      expect(region).toHaveTextContent("Loading…");
+      return region;
+    });
+    // The sentence is in the *shared* region, and no second one appeared to carry it.
+    expect(polite).toHaveAttribute("aria-live", "polite");
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(2);
   });
 
   it("renders the server's own reason key when a list cannot be fetched", async () => {
