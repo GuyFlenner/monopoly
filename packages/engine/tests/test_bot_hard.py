@@ -25,6 +25,15 @@ The measured ablation is the same claim at scale, and it is recorded here becaus
 rollouts are worth their wall-clock: with ``ROLLOUT_CANDIDATES`` set to 1, so that no decision ever has
 two candidates to compare, the same bot wins **15 of 30** against the normal bot. With the rollouts on it
 wins 24. The heuristics alone are a coin flip.
+
+## What the contests came out at
+
+    hard vs normal:  80/100 wins (needed 60), 0 draws, 0 capped (max 5), turns 35/104/309
+    hard vs easy:    89/100 wins (needed 60), 0 draws, 0 capped (max 5), turns 16/71/250
+
+`uv run pytest -m slow` is both of those: 800 s on a developer machine with other work on it. The
+numbers are reproducible rather than merely repeatable — the seeds are fixed and every bot in the
+contest is a pure function of the position, so a second run deals the identical two hundred games.
 """
 
 from __future__ import annotations

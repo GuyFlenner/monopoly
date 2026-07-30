@@ -61,6 +61,23 @@ never asserted** (G-F30): a time-based budget would make the bot's *choices* dep
 machine was, which is the same defect as a global RNG — the golden games would stop replaying, and the
 contest result would depend on the CI runner. The counter is the gate; the stopwatch is a metric.
 
+## What it measured
+
+Over the fixed contest — seeds 1–50, each played from both seats, scored by `tournament.py`'s
+thresholds, which were set before any of these bots existed (G-62):
+
+    hard vs normal:  80/100 wins (needed 60), 0 draws, 0 capped (max 5), turns 35/104/309
+    hard vs easy:    89/100 wins (needed 60), 0 draws, 0 capped (max 5), turns 16/71/250
+
+Both are asserted rather than reported, in `test_bot_hard.py::TestTheStrengthGate`, and the second one
+is asserted rather than inherited: "hard beats normal, normal beats easy, therefore hard beats easy" is
+an argument about a relation that is not transitive, and every amendment above is aimed at the *normal*
+bot's habits in particular.
+
+The rollouts are what earn that. With :data:`ROLLOUT_CANDIDATES` set to 1, so that no decision ever has
+two candidates to compare and the bot is nothing but its heuristics, the same five amendments win **15
+of 30** against the normal bot on the same seeds. With the search on, 24 of 30.
+
 ## What it still does not do
 
 No tree, no nested search, no opponent model beyond "the opponent plays like the normal bot". The
