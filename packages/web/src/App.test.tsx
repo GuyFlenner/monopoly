@@ -31,7 +31,8 @@ import type { BoardSummary, Command, GameStateView, GameView, RentQuote, Ruleset
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
 import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
-import { makeView } from "./test/fixtures";
+import { KIDS_RULESET, makeView } from "./test/fixtures";
+import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
 // --- The fake edge ----------------------------------------------------------
 
@@ -639,6 +640,127 @@ describe("App — the game screen", () => {
     const dossier = screen.getByTestId("player-dossier");
     expect(dossier).toHaveAttribute("data-player", "1");
     expect(dossier).toHaveAttribute("data-current", "false");
+  });
+
+  /**
+   * Kids Mode, asserted on the composition (MON-604).
+   *
+   * This is the level the acceptance criterion lives at. "Auction and mortgage affordances absent,
+   * not disabled" is not a property of any one component — every one of them is individually
+   * innocent, because the auction panel is mounted from an interrupt frame and the mortgage chit
+   * comes from `legal_commands`. What could be wrong is the *shell*: a panel mounted on a guess, a
+   * chit rendered `disabled`, a comfort scale that never reaches the subtree. So the fixture is a
+   * whole kids game and the assertions are over the mounted app.
+   *
+   * Note the negative assertions are paired with a positive one each time. `queryByText(...)` being
+   * null is also what a blank screen looks like, and a test that only checks absence passes hardest
+   * when nothing renders at all.
+   */
+  describe("Kids Mode (MON-604)", () => {
+    function kidsGame(commands: readonly Command[] = [ROLL]): Edge {
+      return gameEdge(gameView({ ruleset: KIDS_RULESET }, commands));
+    }
+
+    it("steps the whole subtree's hit targets up rather than one component's", async () => {
+      openGameUrl("g1");
+      const { container } = renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+
+      const scoped = container.querySelectorAll(`[${COMFORT_ATTRIBUTE}="${KIDS_COMFORT}"]`);
+      expect(scoped, "the comfort scale is not switched on anywhere").toHaveLength(1);
+      // On an ancestor of the controls, not beside them — that is what makes it reach the chits, the
+      // seat picker, the dice toggle and every dialog rendered inside the screen.
+      expect(scoped[0]?.querySelector("[data-command-kind]")).not.toBeNull();
+    });
+
+    it("leaves the floor alone under the full rules", async () => {
+      openGameUrl("g1");
+      const { container } = renderApp(gameEdge(gameView({}, [ROLL])));
+      await screen.findByTestId("board-grid");
+      expect(container.querySelectorAll(`[${COMFORT_ATTRIBUTE}]`)).toHaveLength(0);
+    });
+
+    it("renders no auction panel and no mortgage chit, disabled or otherwise", async () => {
+      openGameUrl("g1");
+      // A legal set with a mortgage in it would be a contract violation in a kids game, so the
+      // honest fixture is the set the engine would send: no mortgage, no bid, no withdrawal.
+      renderApp(kidsGame([ROLL, END_TURN]));
+      await screen.findByTestId("board-grid");
+
+      const chits = [...document.querySelectorAll("[data-command-kind]")].map((chit) =>
+        chit.getAttribute("data-command-kind"),
+      );
+      expect(chits, "the bar renders something").not.toHaveLength(0);
+      expect(chits).not.toContain("mortgage_property");
+      expect(chits).not.toContain("place_bid");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      // Absent, not disabled: no chit in the product is ever `disabled`, and this is the composition
+      // where a "kids mode" would be tempted to add one.
+      for (const chit of document.querySelectorAll("[data-command-kind]")) {
+        expect(chit).not.toHaveAttribute("disabled");
+        expect(chit).not.toHaveAttribute("aria-disabled");
+      }
+    });
+
+    it("reads its buttons and headings in the simpler wording", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+      // A pattern rather than an exact name: the hinted chit's accessible name also carries the
+      // "Suggested" badge, which is a feature — a screen reader should hear the mark.
+      expect(screen.getByRole("button", { name: /Throw the dice/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Roll the dice/ })).not.toBeInTheDocument();
+      expect(screen.getByText("What you can do")).toBeInTheDocument();
+      expect(screen.getByText("What everyone has")).toBeInTheDocument();
+    });
+
+    it("shows whose turn it is with a piece and a name, prominently", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+
+      const banner = screen.getByTestId("turn-banner");
+      expect(banner.dataset.kids).toBe("true");
+      expect(within(banner).getByTestId("turn-banner-name")).toHaveTextContent("Ruti");
+      // The piece, not only the name: the channel a pre-reader is actually using.
+      expect(banner.querySelector("svg path")).not.toBeNull();
+    });
+
+    it("opens the hint and marks the move it points at (MON-605)", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame([END_TURN, ROLL]));
+      await screen.findByTestId("board-grid");
+
+      expect(screen.getByTestId("hint-panel").dataset.prominent).toBe("true");
+      expect(screen.getByTestId("hint-reason")).toHaveTextContent("Every turn starts with a roll");
+      // The mark lands on the chit the ranking chose, which is the roll rather than the first
+      // command the engine happened to list.
+      const marked = document.querySelectorAll('[data-hinted="true"]');
+      expect(marked).toHaveLength(1);
+      expect(marked[0]?.getAttribute("data-command-kind")).toBe("roll_dice");
+    });
+
+    it("keeps the hint folded and unmarked under the full rules", async () => {
+      openGameUrl("g1");
+      renderApp(gameEdge(gameView({}, [END_TURN, ROLL])));
+      await screen.findByTestId("board-grid");
+
+      const panel = screen.getByTestId("hint-panel");
+      expect(panel.dataset.prominent).toBe("false");
+      expect(panel).not.toHaveAttribute("open");
+      expect(document.querySelectorAll('[data-hinted="true"]')).toHaveLength(0);
+      // Available, though — that is the difference between quieter and absent.
+      expect(screen.getByText("Show a hint")).toBeInTheDocument();
+    });
+
+    it("still mounts exactly the two live regions the Announcer owns", async () => {
+      // The hint speaks, which is the newest way a third region could arrive (GAP D1/G-54).
+      openGameUrl("g1");
+      const { container } = renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+      expect(container.querySelectorAll("[aria-live]")).toHaveLength(2);
+      expect(container.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
+    });
   });
 
   /**

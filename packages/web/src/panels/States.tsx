@@ -39,11 +39,30 @@ import { useTranslation } from "react-i18next";
 
 import { useOptionalAnnounce } from "@/a11y";
 import type { ApiError } from "@/api";
+import type { Copy } from "@/i18n/copy";
 
 /** Interpolation params for a state's sentence. The same shape the Announcer carries. */
 export type StateParams = Readonly<Record<string, string | number>>;
 
 const NO_PARAMS: StateParams = {};
+
+/**
+ * How a state's key becomes a sentence, when the caller has an opinion.
+ *
+ * The opinion that exists is Kids Mode's: `useCopy(kids)` prefers the simpler `kids.*` twin where the
+ * catalogue has one (MON-604), and a leaf rendering `t("actionbar.none")` directly would show the
+ * grown-up wording inside a kids game — a screen speaking in two registers at once.
+ *
+ * A prop rather than `useCopy` inside these components, because whether a game is a kids game comes
+ * from `presentationFor(state.ruleset)`, and a presentational leaf has no business reaching for game
+ * state. It is the idiom `ActionBar`, `HintPanel` and `TurnBanner` already use: the screen resolves
+ * `kids` once and passes the translator down.
+ *
+ * Note this is *not* the `resolve` prop MON-708 deleted from `SetupScreen`. That one threaded an
+ * `i18n.exists` guard — a correctness concern, which belongs inside and is now inside
+ * {@link useReasonText}. This threads a product decision the leaf genuinely cannot see.
+ */
+export type StateCopy = Copy;
 
 /**
  * Turn an {@link ApiError} into a sentence.
@@ -74,6 +93,8 @@ export interface EmptyStateProps {
   readonly messageKey: string;
   readonly params?: StateParams;
   readonly className?: string;
+  /** See {@link StateCopy}. Defaults to plain `t`, which is what a screen with no kids flag wants. */
+  readonly resolve?: StateCopy;
   /**
    * A hook for a test that needs *this* state rather than the words in it.
    *
@@ -95,12 +116,14 @@ export function EmptyState({
   messageKey,
   params = NO_PARAMS,
   className = "",
+  resolve,
   testId,
 }: EmptyStateProps): React.JSX.Element {
   const { t } = useTranslation();
+  const say = resolve ?? t;
   return (
     <p data-state="empty" data-testid={testId} className={`text-sm opacity-70 ${className}`}>
-      {t(messageKey, params)}
+      {say(messageKey, params)}
     </p>
   );
 }
@@ -118,6 +141,8 @@ export interface LoadingStateProps {
    */
   readonly announce?: boolean;
   readonly className?: string;
+  /** See {@link StateCopy}. */
+  readonly resolve?: StateCopy;
   /** See {@link EmptyStateProps.testId}. */
   readonly testId?: string;
 }
@@ -127,9 +152,11 @@ export function LoadingState({
   params = NO_PARAMS,
   announce = true,
   className = "",
+  resolve,
   testId,
 }: LoadingStateProps): React.JSX.Element {
   const { t } = useTranslation();
+  const say = resolve ?? t;
   const push = useOptionalAnnounce();
   // Once per mount, per message — not once per render. A pending query re-renders its subtree for
   // reasons that have nothing to do with the wait, and each of those would be another sentence in
@@ -144,12 +171,16 @@ export function LoadingState({
       return;
     }
     said.current = messageKey;
+    // The *key* is pushed, not the resolved text: the Announcer translates when it speaks, so a
+    // language changed mid-wait is heard in the new one. It resolves through plain `t`, which means a
+    // kids game hears the grown-up wording of a wait — filed rather than fixed here, because the fix
+    // is the bus carrying a resolver and that is MON-604's territory, not MON-708's.
     push({ politeness: "polite", key: messageKey, params: heldParams.current });
   }, [announce, messageKey, push]);
 
   return (
     <p data-state="loading" data-testid={testId} className={`text-sm opacity-80 ${className}`}>
-      {t(messageKey, params)}
+      {say(messageKey, params)}
     </p>
   );
 }
