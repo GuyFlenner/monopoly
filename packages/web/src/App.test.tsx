@@ -602,9 +602,9 @@ describe("App — the game screen", () => {
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
 
     await waitFor(() => {
-      expect(
-        edge.calls.filter((call) => call.path === "/api/games/g1").length,
-      ).toBeGreaterThan(before);
+      expect(edge.calls.filter((call) => call.path === "/api/games/g1").length).toBeGreaterThan(
+        before,
+      );
     });
   });
 

@@ -30,7 +30,7 @@ function savedGame(body: unknown = { schema_version: 1, game_id: "g1" }): File {
 function control(): HTMLInputElement {
   // The input is the control, so this is what a test picks up — `getByLabelText` rather than
   // `getByRole("button")`, which is the assertion that the label is actually tied to it.
-  return screen.getByLabelText("Choose a saved game file") as HTMLInputElement;
+  return screen.getByLabelText<HTMLInputElement>("Choose a saved game file");
 }
 
 describe("LoadSavedGame", () => {
@@ -113,9 +113,7 @@ describe("LoadSavedGame", () => {
 
     for (const [status, key, sentence] of cases) {
       const { unmount } = render(
-        <LoadSavedGame
-          onLoad={() => Promise.reject(new ApiError(status, key, { limit: 4 }))}
-        />,
+        <LoadSavedGame onLoad={() => Promise.reject(new ApiError(status, key, { limit: 4 }))} />,
       );
       await userEvent.upload(control(), savedGame());
       expect(await screen.findByText(sentence), key).toBeInTheDocument();

@@ -47,14 +47,18 @@ describe("cueFor", () => {
   });
 
   it("cues a square changing hands, however it changed", () => {
-    for (const reason of ["purchase", "auction", "trade", "bankruptcy"]) {
-      expect(cueFor(event("property_acquired", { reason }))).toBe("purchase");
+    for (const via of ["purchase", "auction", "trade", "bankruptcy"]) {
+      expect(cueFor(event("property_acquired", { via }))).toBe("purchase");
     }
   });
 
-  it("cues jail in both directions", () => {
-    expect(cueFor(event("sent_to_jail"))).toBe("jail");
-    expect(cueFor(event("left_jail"))).toBe("jail");
+  it("cues jail in both directions, and by every route into and out of it", () => {
+    for (const via of ["tile", "card", "three_doubles"]) {
+      expect(cueFor(event("sent_to_jail", { via }))).toBe("jail");
+    }
+    for (const via of ["fine", "card", "doubles", "time_served"]) {
+      expect(cueFor(event("left_jail", { via }))).toBe("jail");
+    }
   });
 
   it("does not cue rent, because its own cash_changed already does", () => {

@@ -114,6 +114,7 @@ const SALARY: LoggedEvent = loggedEvent(3, {
   delta: 200,
   balance: 1700,
   reason: "go_salary",
+  counterparty: "bank",
 });
 
 const OPENING: LoggedEvent[] = [ROLL, MOVE, SALARY];
@@ -188,9 +189,7 @@ describe("useSoundCues", () => {
     });
 
     act(() => {
-      sockets[0]?.push(
-        loggedEvent(4, { type: "sent_to_jail", player: 0, from_tile: 30, reason: "tile" }),
-      );
+      sockets[0]?.push(loggedEvent(4, { type: "sent_to_jail", player: 0, via: "tile" }));
     });
 
     expect(played).toEqual(["dice", "cash", "jail"]);
@@ -226,7 +225,7 @@ describe("useSoundCues", () => {
           player: 0,
           tile: 1,
           price: 60,
-          reason: "purchase",
+          via: "purchase",
         }),
       );
     });

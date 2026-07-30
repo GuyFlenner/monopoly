@@ -100,9 +100,7 @@ describe("readSaveFile", () => {
   it("refuses a file that is not JSON at all, with its own key", async () => {
     // A photograph renamed to `.json` is not a save from a different version of the game, and
     // telling a parent it is would send them looking for an upgrade that does not exist.
-    const failure = await readSaveFile(new Blob(["PNG\r\n\n"])).catch(
-      (cause: unknown) => cause,
-    );
+    const failure = await readSaveFile(new Blob(["PNG\r\n\n"])).catch((cause: unknown) => cause);
 
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).reasonKey).toBe(UNREADABLE_SAVE_KEY);

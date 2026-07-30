@@ -359,7 +359,9 @@ function BidderRail({
         rectangle under a "Bidders" heading, which reads as a panel that failed to load. It says so
         instead. Not a rule: this is `eligible.length`, not a judgement about who may bid.
       */}
-      {frame.eligible.length === 0 && <EmptyState messageKey="auction.no_bidders" className="mt-2" />}
+      {frame.eligible.length === 0 && (
+        <EmptyState messageKey="auction.no_bidders" className="mt-2" />
+      )}
       <ol className="mt-2 flex flex-wrap gap-2 rounded-2xl bg-table p-3 text-on-table">
         {frame.eligible.map((id) => {
           const seat = seatOf(players, id);

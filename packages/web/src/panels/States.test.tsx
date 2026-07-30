@@ -129,13 +129,17 @@ describe("ErrorState", () => {
   it("renders the server's reason key with its params", () => {
     render(<ErrorState error={new ApiError(422, "error.server_at_capacity", { limit: 4 })} />);
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
-    expect(screen.getByText("The table is full — 4 games are already running.")).toBeInTheDocument();
+    expect(
+      screen.getByText("The table is full — 4 games are already running."),
+    ).toBeInTheDocument();
   });
 
   it("falls back by HTTP class rather than throwing on a key the catalogue has not got", () => {
     // A newer server inventing a key must not blank the screen. Under test `missingKeyHandler`
     // throws, so the `i18n.exists` guard inside `useReasonText` is load-bearing, not defensive.
-    const { unmount } = render(<ErrorState error={new ApiError(422, "error.invented_by_a_newer_server")} />);
+    const { unmount } = render(
+      <ErrorState error={new ApiError(422, "error.invented_by_a_newer_server")} />,
+    );
     expect(screen.getByText("That move isn't allowed right now.")).toBeInTheDocument();
     unmount();
 
@@ -171,7 +175,9 @@ describe("ErrorState", () => {
 
     // Without one there is no button at all — a 422 refusing a seating arrangement will refuse it
     // again, and a button that changes nothing is worse than no button.
-    render(<ErrorState error={new ApiError(422, "error.too_few_players", { minimum: 2, seats: 1 })} />);
+    render(
+      <ErrorState error={new ApiError(422, "error.too_few_players", { minimum: 2, seats: 1 })} />,
+    );
     expect(screen.queryByRole("button")).toBeNull();
   });
 

@@ -25,7 +25,17 @@ interface Recorded {
 }
 
 /** A context that records rather than sounds. `state` is settable so autoplay can be exercised. */
-function fakeContext(state = "running"): { context: AudioContextLike; log: Recorded } {
+function fakeContext(
+  state = "running",
+  /**
+   * What `resume()` answers.
+   *
+   * `"never"` returns a promise that never settles — a browser sitting on the permission. It is the
+   * only way to *observe* that `play` does not await the resume: a port that did would schedule
+   * nothing, and the tones would never be laid down.
+   */
+  resumeWith: "resolve" | "never" = "resolve",
+): { context: AudioContextLike; log: Recorded } {
   const log = {
     oscillators: 0,
     gains: 0,
@@ -71,10 +81,10 @@ function fakeContext(state = "running"): { context: AudioContextLike; log: Recor
     },
     resume: () => {
       log.resumes += 1;
-      return Promise.resolve();
+      return resumeWith === "never" ? new Promise<void>(() => undefined) : Promise.resolve();
     },
   };
-  return { context, log: log as Recorded };
+  return { context, log };
 }
 
 describe("createWebAudioPort", () => {
@@ -128,16 +138,25 @@ describe("createWebAudioPort", () => {
     }
   });
 
-  it("resumes a suspended context without waiting for it", () => {
-    // Both halves matter. Resuming is what makes the first cue after a click audible; *not awaiting*
-    // is what stops a refused permission from turning a cue into a pending promise the caller might
-    // one day be tempted to await. `play` returns `undefined`, by contract.
+  it("resumes a suspended context", () => {
+    // Resuming is what makes the first cue after the player's first click audible. An `AudioContext`
+    // that is never resumed is silent for the rest of the session.
     const { context, log } = fakeContext("suspended");
-    const port = createWebAudioPort(() => context);
+    createWebAudioPort(() => context).play("dice");
 
-    expect(port.play("dice")).toBeUndefined();
     expect(log.resumes).toBe(1);
-    expect(log.started).toHaveLength(2); // scheduled anyway, not gated on the resume
+  });
+
+  it("cues without waiting for the resume to be granted", () => {
+    // The half that is easy to get wrong and impossible to notice by hand: a browser can sit on the
+    // permission indefinitely, and a port that awaited it would schedule nothing at all. Observed
+    // rather than asserted from the return type — `resume()` here returns a promise that never
+    // settles, so the two tones being laid down anyway *is* the proof that nothing awaited it.
+    const { context, log } = fakeContext("suspended", "never");
+    createWebAudioPort(() => context).play("dice");
+
+    expect(log.resumes).toBe(1);
+    expect(log.started).toHaveLength(2);
   });
 
   it("does not resume a context that is already running", () => {
@@ -194,10 +213,10 @@ describe("browserAudioContext", () => {
 
   it("returns null rather than throwing when the constructor refuses", () => {
     const original = (globalThis as { AudioContext?: unknown }).AudioContext;
-    (globalThis as { AudioContext?: unknown }).AudioContext = class {
-      constructor() {
-        throw new DOMException("NotAllowedError");
-      }
+    // A plain function rather than a class: `new` on it throws just the same, and a class whose only
+    // member is a throwing constructor is what `no-extraneous-class` exists to catch.
+    (globalThis as { AudioContext?: unknown }).AudioContext = function refusing(): never {
+      throw new DOMException("NotAllowedError");
     };
     try {
       expect(browserAudioContext()).toBeNull();
