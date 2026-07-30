@@ -5,7 +5,7 @@ describe it: the four opinions underneath are the same four, and everything belo
 them. Copying the scorer to change three of its numbers would have produced two files that drift apart,
 and a strength gate measured against a bot that is no longer the shipped one.
 
-Four amendments, in the order they were worth points:
+Five amendments, in the order they were worth points:
 
 1. **A reserve that knows what it is afraid of.** The normal bot keeps a flat 250 back. That is too
    timid on turn three, when the worst landing on the board costs 20 — it declines Boardwalk holding
@@ -24,6 +24,10 @@ Four amendments, in the order they were worth points:
 4. **Scepticism about a helpful-looking swap.** The reciprocal swap the normal bot loves to offer
    completes a group for each side, and the two groups are rarely worth the same. Rollouts are what
    answer this, which is why a trade response is always rolled out however wide the heuristic gap.
+5. **A smaller reserve for houses than for deeds.** Amendment 1 pointing the other way, and the last one
+   found: a house is not an asset to protect, it is what makes the opponent pay. Under a house shortage
+   the bot that converts cash into houses first wins, and two bots both saving for a rainy day sit there
+   until the turn cap (:data:`BUILD_RESERVE`).
 
 ## Where the randomness comes from, and why the rollouts must *not* see the real dice
 
@@ -486,7 +490,7 @@ def _rollout(
 
 
 class HardBot(NormalBot):
-    """The normal bot's four opinions, amended four times and backed by short rollouts.
+    """The normal bot's four opinions, amended five times and backed by short rollouts.
 
     Holds no state: the rollout policy is another stateless bot, and the budget counters live and die
     inside one :func:`search` call.
@@ -502,7 +506,7 @@ class HardBot(NormalBot):
         *,
         may_trade: bool = True,
     ) -> Command:
-        command, _budget = search(state, player, legal, may_trade=may_trade)
+        command, _budget = search(state, player, legal, may_trade=may_trade, bot=self)
         return command
 
     # --- Amendment 1: the reserve -------------------------------------------------------------------
@@ -684,12 +688,17 @@ def search(
     legal: tuple[Command, ...],
     *,
     may_trade: bool = True,
+    bot: HardBot | None = None,
 ) -> tuple[Command, Budget]:
     """The whole decision, and what it cost. :meth:`HardBot.choose` is this function's first element.
 
     Returning the budget is what makes the acceptance criterion testable: "the per-move budget is
     deterministic" is a claim about counters, and a counter nobody can read is a claim nobody can check.
     The tests assert on this; nothing in the engine or the server reads it.
+
+    ``bot`` is the seat's own instance, passed by :meth:`HardBot.choose` so that the ranking used here is
+    the ranking of the bot that was asked. It defaults to a fresh one for the callers that have no bot in
+    hand — the tests — and a fresh one is interchangeable with any other, because a bot holds no state.
 
     The shape is: rank everything, then spend the rollouts on the options the ranking cannot separate.
 
@@ -706,7 +715,7 @@ def search(
         # `end_turn`. Same refusal as the other two bots, for the same reason.
         raise ValueError("no legal commands to choose from")
 
-    bot = HardBot()
+    bot = bot if bot is not None else HardBot()
     scored = [(bot._score(state, player, option), index, option) for index, option in enumerate(legal)]
     scored.sort(key=lambda entry: (-entry[0], entry[1]))
 
