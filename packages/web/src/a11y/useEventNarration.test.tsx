@@ -96,6 +96,7 @@ function renderNarration(events: LoggedEvent[] = ROLL_AND_MOVE): HTMLElement {
       id: "classic",
       name_key: "board.classic.name",
       tiles: [makeTile(0), makeTile(1), makeTile(2, { name_key: "tile.classic.baltic_avenue" })],
+      catalogue_ready: true,
       go_to_jail_target: 10,
     },
   });

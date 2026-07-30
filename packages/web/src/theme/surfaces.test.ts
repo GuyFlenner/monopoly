@@ -3,7 +3,17 @@ import { URL as NodeURL, fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { FOCUS_CSS_VAR, FOCUS_RING, MIN_TARGET_PX, SURFACE_CSS_VAR, SURFACES } from "./surfaces";
+import {
+  COMFORT_ATTRIBUTE,
+  FOCUS_CSS_VAR,
+  FOCUS_RING,
+  KIDS_COMFORT,
+  KIDS_TARGET_PX,
+  MIN_TARGET_PX,
+  SURFACE_CSS_VAR,
+  SURFACES,
+  TARGET_CSS_VAR,
+} from "./surfaces";
 
 /**
  * The one duplication in the theme, and its tripwire.
@@ -106,9 +116,28 @@ describe("index.css chrome", () => {
     const utility = /@utility\s+target\s*\{([\s\S]*?)\}/.exec(CSS);
     expect(utility, "index.css has no .target utility").not.toBeNull();
     const body = utility?.[1] ?? "";
-    // A control 44px tall and 20px wide passes a naive height check and still cannot be hit.
-    expect(body).toMatch(new RegExp(`min-block-size:\\s*${String(MIN_TARGET_PX)}px`));
-    expect(body).toMatch(new RegExp(`min-inline-size:\\s*${String(MIN_TARGET_PX)}px`));
+    // A control 44px tall and 20px wide passes a naive height check and still cannot be hit. Both
+    // axes size from one custom property whose *fallback* is the floor, so a subtree that raises
+    // the property cannot accidentally raise one axis only.
+    for (const property of ["min-block-size", "min-inline-size"]) {
+      expect(body).toMatch(
+        new RegExp(`${property}:\\s*var\\(${TARGET_CSS_VAR},\\s*${String(MIN_TARGET_PX)}px\\)`),
+      );
+    }
+  });
+
+  it("steps the target up for a kids game, and nowhere else (MON-604)", () => {
+    // The whole comfort scale is this one rule. If it stops declaring the property, every
+    // `.target` silently falls back to the 44px floor and Kids Mode looks identical — a
+    // regression no screenshot would catch, because nothing would look broken.
+    const rule = new RegExp(`\\[${COMFORT_ATTRIBUTE}="${KIDS_COMFORT}"\\]\\s*\\{([\\s\\S]*?)\\}`);
+    const block = rule.exec(DECLARATIONS);
+    expect(block, `index.css declares no [${COMFORT_ATTRIBUTE}] rule`).not.toBeNull();
+    expect(declaredValue(block?.[1] ?? "", TARGET_CSS_VAR)).toBe(`${String(KIDS_TARGET_PX)}px`);
+
+    // A step up, not a step down: a "comfortable" target below the floor would be a regression
+    // wearing the word comfortable.
+    expect(KIDS_TARGET_PX).toBeGreaterThan(MIN_TARGET_PX);
   });
 
   it("uses no physical property anywhere in the stylesheet", () => {

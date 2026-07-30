@@ -14,16 +14,20 @@ from __future__ import annotations
 # `Any` rather than `object` for decoded JSON. These helpers walk a response body whose shape the
 # server's schemas already guarantee; typing it as `object` bought nothing but a cast at every
 # subscript, which is noise that hides the assertions.
+import asyncio
 from typing import Any
 
-from conftest import minimal_state, new_game_payload, seat
+from conftest import SESSION_TTL_SECONDS, minimal_state, new_game_payload, seat
 from fastapi.testclient import TestClient
 
 from kesef_engine.commands import TradeOffer, TradeSide
 from kesef_engine.events import Event, TradeDeclined, TradeProposed, TurnStarted
 from kesef_engine.primitives import BotLevel, PlayerId
 from kesef_engine.state import GameState, PlayerKind, PlayerState, PropertyState
+from kesef_server.api import _advance_bots
 from kesef_server.bots import bot_for, drive, seats_that_proposed_this_turn
+from kesef_server.config import Settings
+from kesef_server.sessions import SessionStore
 
 
 def _refetch(client: TestClient, game_id: str) -> dict[str, Any]:
@@ -388,3 +392,64 @@ class TestOneTradeProposalPerSeatPerTurn:
             TradeProposed(offer=_offer_from(1)),
         ]
         assert seats_that_proposed_this_turn(log) == frozenset({0, 1})
+
+
+class TestOverlappingAdvanceCalls:
+    """Two queued `_advance_bots` tasks for one game must not double-apply a move (MON-806).
+
+    Every request that can change a game queues `_advance_bots` as a background task, so two
+    requests in quick succession give the same game two drivers. Each driver's loop re-reads the
+    session and applies **one** step per iteration — so between one driver's read and its write,
+    the other driver reads the *same* position, computes the *same* move, and `store.update`
+    appends the same events twice. Found by a screen-capture rig over pure HTTP: 14 repeated
+    event signatures in a 62-event log, including two identical `property_acquired` for one tile.
+
+    The `await` on the thinking delay inside `drive` is what lets the interleave happen
+    deterministically here — each driver yields the loop exactly where the race lives, between
+    read and write. That is also why this test runs with a 1 ms think delay rather than the
+    suite's usual zero: `drive` skips the `await` entirely at zero, and a coroutine that never
+    yields cannot race. Production always has a positive delay (0.6 s), so the test's shape is
+    the honest one.
+    """
+
+    @staticmethod
+    def _bot_opening(game_id: str) -> GameState:
+        # Seat 0 is an easy bot about to take the opening turn; seat 1 is a human, so the drive
+        # has a natural stopping point and the run is bounded.
+        return minimal_state(
+            game_id=game_id,
+            players=(
+                PlayerState(id=0, name="Bot", kind=PlayerKind(bot_level=BotLevel.EASY), token="token.0", cash=1500),
+                PlayerState(id=1, name="Human", kind=PlayerKind(), token="token.1", cash=1500),
+            ),
+        )
+
+    async def test_two_overlapping_calls_apply_each_move_once(self) -> None:
+        config = Settings(bot_think_seconds=0.001)
+        raced = SessionStore(max_sessions=8, ttl_seconds=SESSION_TTL_SECONDS)
+        raced.create(self._bot_opening("raced"))
+        baseline = SessionStore(max_sessions=8, ttl_seconds=SESSION_TTL_SECONDS)
+        baseline.create(self._bot_opening("baseline"))
+
+        await asyncio.gather(
+            _advance_bots(raced, "raced", config),
+            _advance_bots(raced, "raced", config),
+        )
+        await _advance_bots(baseline, "baseline", config)
+
+        # Same seed, same bot, zero think time: the raced game must record exactly the moves the
+        # single-driver game records — nothing repeated, nothing lost. Comparing whole events is
+        # deliberate; a looser "no adjacent duplicates" check would miss an interleave that
+        # replays a stretch of turn rather than one move.
+        raced_events = [entry.event for entry in raced.get("raced").log]
+        baseline_events = [entry.event for entry in baseline.get("baseline").log]
+        assert raced_events == baseline_events
+
+    async def test_a_call_for_a_deleted_game_is_a_quiet_no_op(self) -> None:
+        # DELETE /games/{id} can land between a command's response and its queued advance task
+        # running. The task finding nothing is not an error; before MON-806 it raised.
+        config = Settings(bot_think_seconds=0)
+        store = SessionStore(max_sessions=8, ttl_seconds=SESSION_TTL_SECONDS)
+        store.create(self._bot_opening("gone"))
+        store.delete("gone")
+        await _advance_bots(store, "gone", config)

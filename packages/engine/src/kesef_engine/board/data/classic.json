@@ -1,6 +1,7 @@
 {
   "id": "classic",
   "name_key": "board.classic.name",
+  "catalogue_ready": true,
   "tiles": [
     {
       "index": 0,

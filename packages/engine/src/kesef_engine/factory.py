@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from kesef_engine.board.loader import load_board
 from kesef_engine.board.models import BOARD_SIZE
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
+from kesef_engine.errors import InvalidSeatingError
 from kesef_engine.primitives import BotLevel
 from kesef_engine.rng import Rng
 from kesef_engine.ruleset import Ruleset
@@ -67,15 +68,27 @@ def new_game(
 ) -> GameState:
     """Build the opening state. Deterministic: the same arguments give the same game.
 
-    Raises ``ValueError`` for fewer than 2 or more than 6 seats and for duplicate names
-    (case-insensitive) — the same rules the state model enforces, raised here with the
-    caller's vocabulary before a half-built state ever exists.
+    Raises :class:`~kesef_engine.errors.InvalidSeatingError` — carrying an i18n key and its
+    params, per MON-418 — for fewer than 2 or more than 6 seats and for duplicate names
+    (case-insensitive). These are the same rules the state model enforces, raised here with the
+    caller's vocabulary before a half-built state ever exists; the difference is that a *player*
+    causes these three, so the refusal has to be something a setup screen can put in front of a
+    parent in either language.
+
+    Duplicate names are compared case-insensitively and the reported name is the one that
+    repeated, as typed. Reflecting it is safe by construction: ``Seat.name`` is capped at 24
+    characters, so there is no amplifier here of the sort ``kesef_server.errors`` truncates for.
     """
-    if not MIN_PLAYERS <= len(seats) <= MAX_PLAYERS:
-        raise ValueError(f"a game needs {MIN_PLAYERS}-{MAX_PLAYERS} seats, got {len(seats)}")
-    names = [seat.name.casefold() for seat in seats]
-    if len(set(names)) != len(names):
-        raise ValueError("duplicate seat names")
+    if len(seats) < MIN_PLAYERS:
+        raise InvalidSeatingError("error.too_few_players", minimum=MIN_PLAYERS, seats=len(seats))
+    if len(seats) > MAX_PLAYERS:
+        raise InvalidSeatingError("error.too_many_players", maximum=MAX_PLAYERS, seats=len(seats))
+    seen: set[str] = set()
+    for seat in seats:
+        folded = seat.name.casefold()
+        if folded in seen:
+            raise InvalidSeatingError("error.duplicate_names", name=seat.name)
+        seen.add(folded)
     load_board(board_id)  # unknown boards fail here, loudly, not on the first roll
 
     rules = ruleset if ruleset is not None else Ruleset.universal()

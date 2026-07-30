@@ -47,7 +47,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventNarration } from "@/a11y";
-import type { ApiError, Command, PlayerView } from "@/api";
+import type { ApiError, Command, PlayerView, RentQuote } from "@/api";
 import {
   Board,
   describeTile,
@@ -58,13 +58,20 @@ import {
   TOKEN_PX,
   type Translate,
 } from "@/board";
+import { useCopy } from "@/i18n/copy";
 import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { EventLog } from "@/panels/EventLog";
+import { noteLines } from "@/panels/EventLogLines";
+import { HintPanel, RentExplanation } from "@/panels/HintPanel";
+import { suggest } from "@/panels/hints";
 import { PlayerDossier } from "@/panels/PlayerDossier";
 import { TradeBuilder } from "@/panels/TradeBuilder";
+import { TurnBanner } from "@/panels/TurnBanner";
+import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "@/theme";
 
+import { presentationFor, type Presentation } from "./presentation";
 import { useUiStore } from "./uiStore";
 import { useGame } from "./useGame";
 
@@ -127,17 +134,32 @@ export function FailureNote({
   );
 }
 
-/** The header both the loading gate and the game itself carry, so leaving is always possible. */
+/**
+ * The header both the loading gate and the game itself carry, so leaving is always possible.
+ *
+ * It is also where the comfort scale is switched (MON-604). `data-comfort="kids"` on this one box
+ * raises `--kesef-target` for the whole subtree, so every `.target` control below — chits, seat
+ * picker, dice toggle, the confirm dialog's two buttons, the trade panel's cash steppers — grows
+ * together. One attribute rather than a `kids ? …` in each component, because the per-component
+ * version is a list, and a list grows a hole the first time somebody adds a button. Modals are
+ * inside this subtree even when they paint over it, so they inherit it too.
+ */
 function Chrome({
   onLeave,
+  comfort,
   children,
 }: {
   readonly onLeave: () => void;
+  /** `"kids"` steps the hit-target scale up; `undefined` leaves the 44 px floor in place. */
+  readonly comfort?: string | undefined;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-2 text-start sm:p-4">
+    <div
+      {...{ [COMFORT_ATTRIBUTE]: comfort }}
+      className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-2 text-start sm:p-4"
+    >
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold tracking-tight">{t("app.title")}</h1>
         <div className="flex flex-wrap items-center gap-2">
@@ -169,12 +191,14 @@ function TurnSummary({
   players,
   currentId,
   turnNumber,
+  t,
 }: {
   readonly players: readonly PlayerView[];
   readonly currentId: number;
   readonly turnNumber: number;
+  /** The screen's translate, so the well's wording matches the column beside it. */
+  readonly t: Translate;
 }): React.JSX.Element {
-  const { t } = useTranslation();
   const current = players.find((player) => player.id === currentId);
   const seat = current === undefined ? undefined : seatOf(players, current.id);
 
@@ -194,6 +218,60 @@ function TurnSummary({
         </span>
       </p>
     </div>
+  );
+}
+
+/**
+ * What the selected square would charge, and why (MON-420).
+ *
+ * Every figure is `RentQuote`'s, and the explanation is the engine's own `rent.note.*` keys
+ * rendered through the same resolver the event log uses — so the sentence a player reads *before*
+ * landing is assembled exactly like the one they read in the log afterwards. Two resolvers is how
+ * the board and the log would end up explaining one figure differently.
+ *
+ * `amount` is nullable and the nullability is the point: a utility's rent is a multiple of a throw
+ * that has not happened, so the engine sends no amount and `rent.note.utility_quote` says
+ * "× whatever the dice show". Printing the last roll's total, or an average, would be a number
+ * nothing stands behind.
+ *
+ * Nothing here decides whether rent is owed. A square that charges nothing quotes `null`, which is
+ * why the caller renders no panel at all rather than a zero.
+ */
+function SquareRent({
+  quote,
+  t,
+  kids,
+}: {
+  readonly quote: RentQuote;
+  readonly t: Translate;
+  /** Unfold the "why this much?" breakdown by default. `presentation.kids` (MON-605). */
+  readonly kids: boolean;
+}): React.JSX.Element {
+  return (
+    <span data-testid="square-rent" className="flex flex-col gap-1">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
+          {t("label.rent")}
+        </span>
+        {quote.amount !== null && quote.amount !== undefined && (
+          <span data-testid="square-rent-amount" dir="ltr" className="font-bold tabular-nums">
+            {quote.amount}
+          </span>
+        )}
+        {noteLines(quote.note_keys, quote.note_params, { translate: t }).map((note) => (
+          <span key={note.key} className="text-xs opacity-75">
+            {t(note.key, note.params)}
+          </span>
+        ))}
+      </span>
+      {/*
+        MON-605's "why this number" affordance, on top of MON-420's sentences rather than instead of
+        them: the engine's own explanation stays on screen, and the *figures* it was built from fold
+        away behind a disclosure that Kids Mode opens. Nothing in there is multiplied — see
+        `RentExplanation`.
+      */}
+      <RentExplanation quote={quote} t={t} open={kids} />
+    </span>
   );
 }
 
@@ -219,6 +297,27 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const [dismissedTrade, setDismissedTrade] = useState<string | null>(null);
 
   /**
+   * What the rule set in force means for the screen (MON-604).
+   *
+   * Four presentation switches read off `state.ruleset` — see `presentation.ts` for the line between
+   * "do not draw an affordance for this" and "this is not legal", which this file stays on the right
+   * side of by never consulting one of these to decide what to send.
+   */
+  const presentation: Presentation = useMemo(() => presentationFor(state?.ruleset), [state]);
+
+  /**
+   * The command the hint layer is pointing at (MON-605).
+   *
+   * `legalCommands` in, one of its own elements out — so the action bar can mark it by identity and
+   * this file learns nothing about what any command means. Marked only where hints are prominent:
+   * under the full rules the hint is folded away, and a permanent badge would not be "quieter".
+   */
+  const hintedCommand = useMemo(
+    () => (presentation.hintsProminent ? suggest(legalCommands)?.command : undefined),
+    [presentation.hintsProminent, legalCommands],
+  );
+
+  /**
    * Post a command.
    *
    * The rejection is caught rather than left floating: the mutation already records it and
@@ -231,7 +330,14 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     [send],
   );
 
-  const translate = useCallback<Translate>((key, params) => t(key, params ?? {}), [t]);
+  /**
+   * The screen's translate.
+   *
+   * `useCopy` prefers the simpler `kids.*` wording where the catalogue has a twin and is exactly `t`
+   * everywhere else, so a label reads more plainly in a kids game without this file holding a list
+   * of which labels have been simplified (MON-604, `i18n/copy.ts`).
+   */
+  const translate: Translate = useCopy(presentation.kids);
 
   const tileName = useCallback(
     (index: number) => {
@@ -288,6 +394,15 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     );
   }, [selectedTile, board, state, tileName, translate]);
 
+  /**
+   * The rent the selected square would charge, straight off the projection.
+   *
+   * `state.rent_quotes` is index-aligned with `board.tiles` and priced for the seat about to act,
+   * so this is a lookup and not a decision — no multiplier, no tier, no "is it owned" branch. Those
+   * all live in `rules/rent.py`, which is why this field had to exist before the affordance could.
+   */
+  const squareQuote = selectedTile === null ? null : state?.rent_quotes[selectedTile];
+
   const connectionKey =
     status.connection.state === "reconnecting"
       ? "status.reconnecting"
@@ -310,7 +425,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   }
 
   return (
-    <Chrome onLeave={onLeave}>
+    <Chrome onLeave={onLeave} comfort={presentation.kids ? KIDS_COMFORT : undefined}>
       {connectionKey !== null && (
         <p data-testid="connection-note" className="text-sm opacity-80">
           {t(connectionKey)}
@@ -323,6 +438,19 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <main className="flex min-w-0 flex-col gap-3">
+          {/*
+            Whose turn it is, at a size a pre-reader can follow across the room (MON-604). Above the
+            board rather than inside it: the interior well is a ledger, and the answer to "is it me?"
+            should not be the same size as the turn count.
+          */}
+          <TurnBanner
+            players={state.players}
+            currentId={state.current_player_id}
+            turnNumber={state.turn_number}
+            kids={presentation.kids}
+            t={translate}
+          />
+
           <Board
             board={board}
             state={state}
@@ -335,6 +463,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                 players={state.players}
                 currentId={state.current_player_id}
                 turnNumber={state.turn_number}
+                t={translate}
               />
               {/* The switch lives in the chrome, so the tray does not draw a second one. */}
               <DiceTray dice={state.dice} withSkipToggle={false} />
@@ -342,19 +471,45 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
           </Board>
 
           {squareNote !== null && (
-            <p className="bg-tile text-ink border-hairline rounded-xl border p-3 text-sm">
-              <span className="me-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
-                {t("label.selected_square")}
-              </span>
-              {squareNote}
-            </p>
+            <div className="bg-tile text-ink border-hairline flex flex-col gap-1 rounded-xl border p-3 text-sm">
+              <p>
+                <span className="me-2 text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
+                  {translate("label.selected_square")}
+                </span>
+                {squareNote}
+              </p>
+              {/*
+                The "explain this rent" affordance (MON-420). Absent when the square owes this seat
+                nothing — the engine quotes `null` for an unowned, mortgaged or self-owned square,
+                so there is no branch here about what any of those mean.
+              */}
+              {squareQuote !== null && squareQuote !== undefined && (
+                <SquareRent quote={squareQuote} t={translate} kids={presentation.kids} />
+              )}
+            </div>
           )}
         </main>
 
         <aside className="flex min-w-0 flex-col gap-4">
           {/*
+            The hint (MON-605), directly above the rail it is talking about — open in a kids game,
+            folded under the full rules. It gets `legalCommands` and nothing else, so it can only ever
+            point at a move the engine offered; see `panels/hints.ts`.
+          */}
+          <HintPanel
+            commands={legalCommands}
+            jailFine={state.ruleset.jail_fine}
+            prominent={presentation.hintsProminent}
+            kids={presentation.kids}
+          />
+
+          {/*
             `legalCommands` verbatim, and `send` as the sink. The two together are the whole of
             ADR-005 on this side of the wire.
+
+            `kids`, `auctions` and `hinted` change what a chit *says* and how one is *marked*. None of
+            them can add or remove a button: the set is `commands`, unfiltered, and the hint is an
+            element of it.
           */}
           <ActionBar
             id={ACTIONS_REGION_ID}
@@ -362,6 +517,9 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             onCommand={dispatch}
             board={board}
             jailFine={state.ruleset.jail_fine}
+            kids={presentation.kids}
+            auctions={presentation.auctions}
+            hinted={hintedCommand}
           />
 
           {/*
@@ -377,7 +535,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             }}
             className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
           >
-            {t("action.propose_trade")}
+            {translate("action.propose_trade")}
           </button>
 
           <section aria-labelledby={playersHeadingId} className="flex flex-col gap-2">
@@ -385,7 +543,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
               id={playersHeadingId}
               className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70"
             >
-              {t("dossier.all_players")}
+              {translate("dossier.all_players")}
             </h2>
             {/*
               Every seat, always — including on someone else's turn (spec §5.2, MON-406). No

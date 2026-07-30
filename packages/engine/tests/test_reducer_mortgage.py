@@ -157,3 +157,26 @@ def test_kids_mode_offers_neither_mortgage_nor_unmortgage() -> None:
         with pytest.raises(IllegalCommandError) as excinfo:
             apply(state, command)
         assert excinfo.value.reason_key == "error.mortgages_disabled"
+
+
+# --- Who did it (MON-414) -----------------------------------------------------
+
+
+def test_both_mortgage_events_name_the_player_who_acted() -> None:
+    """MON-414: without ``player`` the log had no subject and rendered in the passive voice.
+
+    Mortgaging is legal off-turn, and holdings are public, so "Boardwalk was mortgaged" in a
+    six-seat game withholds the one fact a reader wants. Asserted for both directions and against
+    a non-current seat, because reading the actor off ``current_player_id`` instead would agree
+    with this event on the ordinary path and be wrong on exactly that case.
+    """
+    state = _portfolio(properties={RAILROAD: PropertyState(owner=1), 1: PropertyState(owner=1, mortgaged=True)})
+    assert state.current_player_id != 1, "the point of the case: seat 1 is acting off-turn"
+
+    _, mortgaged = apply(state, MortgageProperty(player=1, tile=RAILROAD))
+    taken = next(event for event in mortgaged if isinstance(event, MortgageChanged))
+    assert (taken.player, taken.tile, taken.mortgaged) == (1, RAILROAD, True)
+
+    _, lifted = apply(state, UnmortgageProperty(player=1, tile=1))
+    paid_off = next(event for event in lifted if isinstance(event, MortgageChanged))
+    assert (paid_off.player, paid_off.tile, paid_off.mortgaged) == (1, 1, False)

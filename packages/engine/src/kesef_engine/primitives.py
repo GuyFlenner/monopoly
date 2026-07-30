@@ -73,6 +73,16 @@ class AuctionReason(StrEnum):
     """Ships behind ``Ruleset.building_shortage_auction`` (off in v1, owner decision 1)."""
 
 
+BuildingLevel = Literal["house", "hotel"]
+"""Which of the two buildings something is.
+
+One alias rather than the literal repeated, because the fifth house *is* a hotel and that
+mapping is a rule: :class:`BuildingLot` auctions one of these, and ``BuildingChanged`` says
+which one went up or came down so no client has to decide that five houses means a hotel
+(MON-413).
+"""
+
+
 class _LotBase(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -92,7 +102,7 @@ class BuildingLot(_LotBase):
     """
 
     kind: Literal["building"] = "building"
-    building: Literal["house", "hotel"]
+    building: BuildingLevel
 
 
 Lot = Annotated[TileLot | BuildingLot, Field(discriminator="kind")]

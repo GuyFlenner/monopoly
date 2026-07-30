@@ -56,11 +56,15 @@ export {
 } from "./patterns";
 
 export {
+  COMFORT_ATTRIBUTE,
   FOCUS_CSS_VAR,
   FOCUS_RING,
+  KIDS_COMFORT,
+  KIDS_TARGET_PX,
   MIN_TARGET_PX,
   SURFACE_CSS_VAR,
   SURFACES,
+  TARGET_CSS_VAR,
   THEMES,
   type Surfaces,
   type ThemeName,

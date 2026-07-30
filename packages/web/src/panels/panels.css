@@ -112,6 +112,23 @@
   outline-offset: 2px;
 }
 
+/*
+ * The chit the hint is pointing at (MON-605), marked by its *shape*.
+ *
+ * A solid double rim — the keyline plus a second ring outside it — which reads as a counter that has
+ * been picked out and set apart. It is deliberately a different shape from `--terminal`'s *dashed*
+ * double rim, so "suggested" and "you cannot take this back" are never confusable, and neither of
+ * them depends on a hue: `actions.ts` is explicit that a shade of red is exactly what a protan
+ * player cannot see, and the same is true of a shade of green meaning "do this".
+ *
+ * The badge inside the chit carries the same information in words, from `hint.badge`. Two channels,
+ * one of which a pre-reader can use and one of which a screen reader can.
+ */
+.kesef-chit--hinted {
+  outline: 2px solid var(--color-hairline);
+  outline-offset: 3px;
+}
+
 /* The die-cut well the icon sits in. Recessed, so the glyph reads as stamped rather than printed. */
 .kesef-chit__well {
   border-radius: 0.5rem;

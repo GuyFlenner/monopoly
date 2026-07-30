@@ -24,10 +24,21 @@ from __future__ import annotations
 
 from kesef_engine.commands import BuildHouse, SellHouse
 from kesef_engine.events import BuildingChanged, Event
-from kesef_engine.primitives import CashReason, TileIndex
+from kesef_engine.primitives import BuildingLevel, CashReason, TileIndex
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import update_property
-from kesef_engine.state import GameState
+from kesef_engine.state import HOTEL_LEVEL, GameState
+
+
+def level_reached(houses: int) -> BuildingLevel:
+    """Which building the tile arrived at, or came down from, at ``houses``.
+
+    "The fifth house *is* the hotel" is the rule this function is, and it lives here so that
+    ``BuildingChanged.level`` is the engine's answer rather than a ``houses === 5`` in the client
+    (MON-413). Read twice — once for a build, where ``houses`` is the level after the money moved,
+    and once for a sale, where it is the level the building came *off*.
+    """
+    return "hotel" if houses >= HOTEL_LEVEL else "house"
 
 
 def handle_build(state: GameState, command: BuildHouse) -> tuple[GameState, tuple[Event, ...]]:
@@ -37,7 +48,10 @@ def handle_build(state: GameState, command: BuildHouse) -> tuple[GameState, tupl
     state, paid = move_cash(
         state, source=command.player, dest="bank", amount=tile.house_cost or 0, reason=CashReason.BUILD
     )
-    return state, (*paid, BuildingChanged(tile=command.tile, houses=houses, delta=1))
+    return state, (
+        *paid,
+        BuildingChanged(tile=command.tile, houses=houses, delta=1, level=level_reached(houses)),
+    )
 
 
 def handle_sell(state: GameState, command: SellHouse) -> tuple[GameState, tuple[Event, ...]]:
@@ -56,6 +70,8 @@ def handle_sell(state: GameState, command: SellHouse) -> tuple[GameState, tuple[
         half_price = (state.board.tile(target).house_cost or 0) // 2
         refund += (before - after) * half_price
         state = update_property(state, target, houses=after)
-        events.append(BuildingChanged(tile=target, houses=after, delta=after - before))
+        # ``before``, not ``after``: what came *down* is whatever stood there, so a demolished
+        # hotel says "hotel" while the tile it left behind is bare.
+        events.append(BuildingChanged(tile=target, houses=after, delta=after - before, level=level_reached(before)))
     state, paid = move_cash(state, source="bank", dest=command.player, amount=refund, reason=CashReason.SELL_BUILDING)
     return state, (*paid, *events)

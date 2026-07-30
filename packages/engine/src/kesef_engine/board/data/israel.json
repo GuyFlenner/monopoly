@@ -1,6 +1,7 @@
 {
   "id": "israel",
   "name_key": "board.israel.name",
+  "catalogue_ready": true,
   "tiles": [
     {
       "index": 0,

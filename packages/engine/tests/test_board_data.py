@@ -159,3 +159,28 @@ def test_tax_field_is_required_only_on_tax_tiles() -> None:
 def test_short_board_is_rejected() -> None:
     with pytest.raises(BoardDataError, match="expected 40 tiles"):
         Board(id="stub", name_key="b", tiles=(Tile(index=0, kind=TileKind.GO, name_key="go"),))
+
+
+# --- catalogue_ready (MON-419) -------------------------------------------------
+
+
+@pytest.mark.parametrize("board_id", BOARDS)
+def test_every_shipped_board_declares_its_catalogue_ready(board_id: str) -> None:
+    """Both boards have verified names in both languages, so both may be offered.
+
+    The flag itself is *declared*, so this only says what the data claims. Whether the claim is
+    true is cross-checked against the actual catalogues in ``tests/test_key_contract.py``, which is
+    the only place that can read both sides.
+    """
+    assert load_board(board_id).catalogue_ready is True
+
+
+def test_a_board_that_says_nothing_is_not_offered() -> None:
+    """The default is the safe one: an undeclared board is hidden, not painted blank (G-46).
+
+    The failure this prevents is a new board reaching the picker before its names do — which is
+    what happened to the Israeli layout, and what the dossier and the event log still carry
+    ``i18n.exists`` guards for.
+    """
+    tiles = load_board("classic").tiles
+    assert Board(id="undeclared", name_key="board.undeclared.name", tiles=tiles).catalogue_ready is False

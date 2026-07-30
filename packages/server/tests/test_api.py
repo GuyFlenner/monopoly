@@ -25,7 +25,7 @@ from fastapi.testclient import TestClient
 from kesef_engine.board.models import BOARD_SIZE
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
 from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
-from kesef_engine.state import MAX_PLAYERS, SCHEMA_VERSION
+from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, SCHEMA_VERSION
 from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
 from kesef_server.config import Settings
 from kesef_server.errors import MAX_REFLECTED_CHARS
@@ -79,6 +79,14 @@ EXPECTED_SCHEMAS: Final = {
     "ErrorResponse",
     "GameSummary",
     "BoardSummary",
+    # The ruleset projection (MON-417, G-36): `/rulesets` no longer returns raw flags, so the
+    # setup screen's client-side diff and its `ruleset.<field>` label map both deleted.
+    "RulesetView",
+    "RuleFlagView",
+    "RuleFlagValue",
+    "RuleNumberValue",
+    "RuleNumberListValue",
+    "RuleAbsentValue",
     # The save file — the one place the full state is still on the wire
     "GameState",
     "PlayerState",
@@ -128,6 +136,8 @@ EXPECTED_SCHEMAS: Final = {
     "TokenMoved",
     "CashChanged",
     "RentCharged",
+    # MON-420: the shape `RentCharged` inherits, and what `GameStateView.rent_quotes` ships.
+    "RentQuote",
     "PropertyAcquired",
     "AuctionStarted",
     "BidPlaced",
@@ -325,6 +335,20 @@ def test_boards_endpoint_lists_both_boards(client: TestClient) -> None:
     assert boards["classic"]["ownable_count"] == 28
 
 
+def test_boards_endpoint_says_whether_a_board_can_be_named(client: TestClient) -> None:
+    """MON-419 / G-46: the flag the picker filters on, so no board of blanks can be chosen.
+
+    Both boards carry verified names in both languages as of MON-503, so both are true here — and
+    the assertion that matters is not the value but that the field *exists on every board*, since
+    the picker treats a missing flag as "not ready" and would offer nothing at all.
+    """
+    boards = client.get("/boards").json()
+    assert boards, "no boards listed, so this asserts nothing"
+    for board in boards:
+        assert "catalogue_ready" in board, f"{board['id']} would be filtered out of the picker"
+        assert board["catalogue_ready"] is True
+
+
 def test_boards_endpoint_returns_keys_not_prose(client: TestClient) -> None:
     """The API must never hand the client an English string to display."""
     for board in client.get("/boards").json():
@@ -332,11 +356,66 @@ def test_boards_endpoint_returns_keys_not_prose(client: TestClient) -> None:
 
 
 def test_rulesets_endpoint_exposes_what_kids_mode_changes(client: TestClient) -> None:
-    rulesets = {ruleset["name"]: ruleset for ruleset in client.get("/rulesets").json()}
+    """MON-417: the raw flags still ship, and each setting now arrives explained.
+
+    The ``ruleset`` object is unchanged — the game screen reads flags off it — but a client no
+    longer has to diff two of them or invent label keys, which is what the setup screen did.
+    """
+    rulesets = {view["name"]: view for view in client.get("/rulesets").json()}
     assert set(rulesets) == {"universal", "kids"}
-    assert rulesets["universal"]["auctions_enabled"] is True
-    assert rulesets["kids"]["auctions_enabled"] is False
-    assert rulesets["kids"]["hints_enabled"] is True
+    assert rulesets["universal"]["ruleset"]["auctions_enabled"] is True
+    assert rulesets["kids"]["ruleset"]["auctions_enabled"] is False
+    assert rulesets["kids"]["ruleset"]["hints_enabled"] is True
+    assert rulesets["kids"]["label_key"] == "setup.kids"
+
+
+def test_every_ruleset_flag_arrives_with_a_label_key(client: TestClient) -> None:
+    for view in client.get("/rulesets").json():
+        assert view["flags"], f"{view['name']} explains nothing"
+        for flag in view["flags"]:
+            assert flag["label_key"] == f"ruleset.{flag['field']}"
+        assert "name" not in {flag["field"] for flag in view["flags"]}, "the identity is not a setting"
+
+
+def test_the_universal_rules_differ_from_themselves_in_nothing(client: TestClient) -> None:
+    """The baseline half of the diff. A ``differs_from_universal`` that were always true would
+    satisfy the Kids-mode test below and list every rule in the game under "what this changes"."""
+    universal = next(view for view in client.get("/rulesets").json() if view["name"] == "universal")
+    assert [flag["field"] for flag in universal["flags"] if flag["differs_from_universal"]] == []
+
+
+def test_kids_mode_marks_exactly_the_settings_it_changes(client: TestClient) -> None:
+    kids = next(view for view in client.get("/rulesets").json() if view["name"] == "kids")
+    changed = {flag["field"] for flag in kids["flags"] if flag["differs_from_universal"]}
+    assert changed == {
+        "starting_cash",
+        "auctions_enabled",
+        "mortgages_enabled",
+        "max_jail_turns",
+        "hints_enabled",
+        "target_duration_minutes",
+        "simplified_trades",
+    }
+
+
+def test_a_flag_carries_both_halves_of_the_change_classified_by_kind(client: TestClient) -> None:
+    """Both values, tagged — so a row reads "Auctions: off (full rules: on)" without the client
+    sniffing at ``boolean | number | number[] | null``."""
+    kids = next(view for view in client.get("/rulesets").json() if view["name"] == "kids")
+    flags = {flag["field"]: flag for flag in kids["flags"]}
+
+    assert flags["auctions_enabled"]["value"] == {"kind": "flag", "on": False}
+    assert flags["auctions_enabled"]["universal_value"] == {"kind": "flag", "on": True}
+    assert flags["starting_cash"]["value"] == {"kind": "number", "value": 2000}
+    # A boolean must never classify as the number 1: `isinstance(True, int)` is true in Python.
+    assert flags["hints_enabled"]["value"]["kind"] == "flag"
+    # "No target length" is its own case, not a zero.
+    assert flags["target_duration_minutes"]["universal_value"] == {"kind": "absent"}
+    assert flags["target_duration_minutes"]["value"] == {"kind": "number", "value": 45}
+    assert flags["starting_cash_denominations"]["value"] == {
+        "kind": "numbers",
+        "values": [500, 100, 50, 20, 10, 5, 1],
+    }
 
 
 def test_games_list_starts_empty(client: TestClient) -> None:
@@ -474,23 +553,61 @@ def test_an_unknown_board_is_a_key_based_422(client: TestClient) -> None:
     assert response.json() == {"reason_key": "error.unknown_board", "params": {"board_id": "atlantis"}}
 
 
-def test_duplicate_seat_names_are_the_engines_refusal_not_the_servers(client: TestClient) -> None:
-    """The server does not look for duplicate names; the factory does. See errors.py."""
+def test_duplicate_seat_names_are_the_engines_refusal_and_say_which_name(client: TestClient) -> None:
+    """MON-418: the server does not look for duplicate names; the factory does, and it names one.
+
+    ``error.invalid_new_game`` used to be the answer — one coarse key covering three different
+    mistakes, so a screen could only recite all of them and hope the parent spotted theirs.
+    """
     response = client.post("/games", json=new_game_payload(seats=[seat("Ann"), seat("ann")]))
     assert response.status_code == UNPROCESSABLE
-    assert response.json()["reason_key"] == "error.invalid_new_game"
+    assert response.json() == {"reason_key": "error.duplicate_names", "params": {"name": "ann"}}
 
 
-def test_seat_count_is_validated_before_the_engine_is_reached(client: TestClient) -> None:
-    """A one-player game is rejected by the schema, and the rejection is still a key."""
+def test_a_one_player_game_is_refused_with_the_rule_not_with_a_field_path(client: TestClient) -> None:
+    """MON-418: "a game needs two players" reaches the screen as itself.
+
+    The constraint was a pydantic ``min_length`` on ``seats``, so this answered
+    ``error.malformed_request`` with ``fields: "seats"`` — a form complaint about a rule, and one
+    the setup screen deliberately does not check for itself (validation is the engine's, ADR-005).
+    """
     response = client.post("/games", json={"seats": [seat("Solo")]})
     assert response.status_code == UNPROCESSABLE
-    assert response.json()["reason_key"] == "error.malformed_request"
+    assert response.json() == {
+        "reason_key": "error.too_few_players",
+        "params": {"minimum": MIN_PLAYERS, "seats": 1},
+    }
 
 
-def test_too_many_seats_is_rejected(client: TestClient) -> None:
+def test_an_empty_table_is_refused_the_same_way(client: TestClient) -> None:
+    """Zero seats reaches the engine too, now that the field carries no ``min_length``."""
+    response = client.post("/games", json={"seats": []})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.too_few_players"
+
+
+def test_a_refusal_the_factory_does_not_name_stays_one_coarse_key(client: TestClient) -> None:
+    """MON-418 keyed the three refusals a *player* can cause. This is the floor under the rest.
+
+    Two seats sharing a ``token`` is reachable from the wire — ``SeatConfig.token`` is free-form —
+    and it is refused by ``GameState``'s own validator as a bare ``ValueError`` rather than by the
+    factory's keyed checks. That is a client defect, not a mistake a parent made (the setup screen
+    assigns a distinct piece per seat), so it keeps the coarse key: guessing a precise one here
+    would mean the transport holding a copy of a rule, which is what ``errors.py`` forbids.
+    """
+    seats = [seat("Ann"), {**seat("Bob"), "token": seat("Ann")["token"]}]
+    response = client.post("/games", json={"seats": seats})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {"reason_key": "error.invalid_new_game", "params": {}}
+
+
+def test_too_many_seats_is_refused_with_the_ceiling(client: TestClient) -> None:
     response = client.post("/games", json={"seats": [seat(f"P{i}") for i in range(MAX_PLAYERS + 1)]})
     assert response.status_code == UNPROCESSABLE
+    assert response.json() == {
+        "reason_key": "error.too_many_players",
+        "params": {"maximum": MAX_PLAYERS, "seats": MAX_PLAYERS + 1},
+    }
 
 
 def test_a_bot_seat_without_a_level_is_rejected(client: TestClient) -> None:

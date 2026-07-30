@@ -27,6 +27,7 @@ from kesef_engine.commands import TradeOffer
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import (
     AuctionReason,
+    BuildingLevel,
     CashReason,
     Deck,
     Lot,
@@ -93,32 +94,65 @@ class CashChanged(_EventBase):
     counterparty: Counterparty = "bank"
 
 
-class RentCharged(_EventBase):
+class RentQuote(BaseModel):
+    """What a square charges, before anybody has landed on it (MON-420).
+
+    ``RentCharged`` is this shape plus *who paid*, and that is enforced structurally: the event
+    inherits from here. Before MON-420 the multipliers lived only inside
+    ``rules.rent._property_rent``, so the "explain this rent" affordance on the board and in the
+    dossier had nothing to render and the UI's only options were to say nothing or to re-derive
+    the tier ladder in TypeScript. One shape means the sentence a player reads *before* deciding
+    is assembled from the same ``rent.note.*`` keys as the one they read in the log afterwards.
+
+    **A utility quote carries no amount.** Its rent is a multiple of a throw that has not
+    happened, so ``amount`` and ``dice_total`` are both ``None`` and ``multiplier`` carries the
+    figure the throw will be multiplied by — which is what ``rent.note.utility_quote`` says. An
+    invented amount (the last roll's, or the average) would be a number the engine cannot stand
+    behind, and is exactly the sort of plausible fiction the log's self-containment rule exists
+    to prevent.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    owner: PlayerId
+    tile: TileIndex
+    amount: int | None = Field(default=None, ge=0)
+    """What is owed. ``None`` only on a utility quote — see the class docstring."""
+    base_rent: int = Field(default=0, ge=0)
+    """The tier's printed rent, before any multiplier. 0 on a utility quote, whose base is the
+    throw."""
+    houses: int = Field(default=0, ge=0, le=5)
+    """Buildings standing. 5 means a hotel."""
+    multiplier: int = Field(default=1, ge=1)
+    """2 for an undeveloped full group; 4 or 10 for a utility."""
+    dice_total: int | None = None
+    """The roll a utility's rent was multiplied by. None for everything else, and for a quote."""
+    group: ColorGroup | None = None
+    note_keys: tuple[str, ...] = ()
+    """i18n keys explaining the maths, e.g. ``rent.note.full_group_doubled``."""
+    note_params: dict[str, int | str] = Field(default_factory=dict)
+    """Interpolation values for ``note_keys``. Keys and numbers only — never a sentence.
+
+    A param whose name ends in ``_key`` carries an i18n key rather than a value, which is how
+    ``rent.note.full_group_doubled`` names a colour group without shipping the enum's English
+    identifier into a Hebrew sentence (MON-415)."""
+
+
+class RentCharged(RentQuote):
     """Narration for a rent payment. The money itself moves in ``CashChanged``.
 
     Everything needed to *explain* the figure is here, because "every rent figure can be
     explained, not merely charged" is a product gate and the explanation must survive in
     the log after the board has changed underneath it.
+
+    The explanation is inherited rather than restated: see :class:`RentQuote`.
     """
 
     type: Literal["rent_charged"] = "rent_charged"
     payer: PlayerId
-    owner: PlayerId
-    tile: TileIndex
     amount: int = Field(ge=0)
-    base_rent: int = Field(ge=0)
-    """The tier's printed rent, before any multiplier."""
-    houses: int = Field(default=0, ge=0, le=5)
-    """Buildings standing when the rent was charged. 5 means a hotel."""
-    multiplier: int = Field(default=1, ge=1)
-    """2 for an undeveloped full group; 4 or 10 for a utility."""
-    dice_total: int | None = None
-    """The roll a utility's rent was multiplied by. None for everything else."""
-    group: ColorGroup | None = None
-    note_keys: tuple[str, ...] = ()
-    """i18n keys explaining the maths, e.g. ``rent.note.full_group_doubled``."""
-    note_params: dict[str, int | str] = Field(default_factory=dict)
-    """Interpolation values for ``note_keys``. Keys and numbers only — never a sentence."""
+    """Narrowed from the quote's optional: a charge that happened has a figure. The utility
+    caveat belongs to the quote alone, because charging one rolls for it."""
 
 
 class PropertyAcquired(_EventBase):
@@ -182,10 +216,23 @@ class BuildingChanged(_EventBase):
     houses: int = Field(ge=0, le=5)
     """0-4 houses, 5 means a hotel."""
     delta: int
+    level: BuildingLevel
+    """Which building went up or came down (MON-413).
+
+    Carried because "the fifth house is a hotel" is a rule, and a client that read it off
+    ``houses == 5`` would be holding a copy of that rule in TypeScript — so before this field the
+    log could only say "a building", which is the one thing a six-year-old watching a hotel go up
+    does not want to be told. ``houses`` and ``delta`` still say how many stand and how many
+    moved; this says *what* moved.
+    """
 
 
 class MortgageChanged(_EventBase):
     type: Literal["mortgage_changed"] = "mortgage_changed"
+    player: PlayerId
+    """Who mortgaged or paid it off (MON-414). Without it the log had no subject and rendered in
+    the passive voice — "Boardwalk was mortgaged" — which in a six-seat game says nothing about
+    the fact a reader wants, and reads worse in Hebrew than in English."""
     tile: TileIndex
     mortgaged: bool
 
