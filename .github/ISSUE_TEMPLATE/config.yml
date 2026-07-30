@@ -1,0 +1,19 @@
+# Blank issues are off on purpose.
+#
+# The one thing that makes a bug in this project cheap to fix is the seed: `state.rng` is part of
+# the serialized state, so a seed plus the commands played reproduces a game exactly. A blank issue
+# is the one shape that never asks for it, and every such report costs a round trip before anybody
+# can even look. Both templates are short and both have a "not sure" escape hatch, so nothing here
+# forces a reporter to diagnose their own bug before filing it.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Read the design first
+    url: https://github.com/GuyFlenner/monopoly/blob/main/docs/superpowers/specs/2026-07-25-kesef-street-design.md
+    about: How the engine, the server and the UI divide the work, and why. Most "is this a bug or intended" questions are answered here.
+  - name: Check the backlog
+    url: https://github.com/GuyFlenner/monopoly/blob/main/docs/BACKLOG.md
+    about: Every planned work item with its acceptance criteria, plus what is deliberately deferred past v1 and why.
+  - name: Contributing guide
+    url: https://github.com/GuyFlenner/monopoly/blob/main/CONTRIBUTING.md
+    about: Setup, the verify gate, what a rule owes in tests, and the PR flow.
