@@ -96,3 +96,30 @@ export const FOCUS_CSS_VAR: Readonly<Record<keyof typeof FOCUS_RING, string>> = 
 
 /** Minimum hit target, in CSS pixels. Mirrored by the `.target` utility in `index.css`. */
 export const MIN_TARGET_PX = 44;
+
+/**
+ * The comfortable hit target a kids game steps up to (MON-604).
+ *
+ * 44 px is a *floor* — the smallest control WCAG 2.5.5 and §5.5 will accept, sized for an adult
+ * who is aiming. A six-year-old is not aiming, and the honest response to that is not a second set
+ * of components but a bigger number in the same place: `.target` reads
+ * {@link TARGET_CSS_VAR} and `[data-comfort="kids"]` sets it, so every control in the product —
+ * chits, seat pickers, dice toggles, dialog buttons, the trade panel's cash steppers — grows
+ * together and none of them can be forgotten.
+ *
+ * 56 rather than 48: 48 is the next conventional step and is barely a change, and rather than 64,
+ * which stops three controls fitting across a 320 px phone.
+ */
+export const KIDS_TARGET_PX = 56;
+
+/**
+ * The custom property `.target` sizes itself from. Declared so `surfaces.test.ts` can hold
+ * `index.css` to the two numbers above rather than to a literal it also spells out.
+ */
+export const TARGET_CSS_VAR = "--kesef-target";
+
+/** The attribute that switches the comfort scale, set once on the game screen's outermost box. */
+export const COMFORT_ATTRIBUTE = "data-comfort";
+
+/** The value of {@link COMFORT_ATTRIBUTE} that steps the scale up. */
+export const KIDS_COMFORT = "kids";

@@ -47,6 +47,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { BoardView, Command } from "@/api";
+import { useCopy, type Copy } from "@/i18n/copy";
 import {
   ACTION_THEME,
   Icon,
@@ -83,6 +84,28 @@ export interface ActionBarProps {
    * line up without the caller having to know either value.
    */
   readonly id?: string;
+  /**
+   * Prefer the simpler wording (MON-604). `presentationFor(state.ruleset).kids`.
+   *
+   * Affects only which catalogue key a label resolves to — see `i18n/copy.ts`. It cannot affect
+   * *which* buttons exist, because that is `commands`.
+   */
+  readonly kids?: boolean;
+  /**
+   * `ruleset.auctions_enabled` (MON-604). Selects the true `decline_purchase` consequence sentence.
+   *
+   * Presentation, not legality: this bar renders whatever `commands` holds either way. See
+   * `consequenceKeyFor`.
+   */
+  readonly auctions?: boolean;
+  /**
+   * The one command the hint layer is pointing at, if any (MON-605).
+   *
+   * Compared by **identity** against the members of `commands`, so it can only ever mark a chit the
+   * engine already offered — a `hinted` value from anywhere else marks nothing. It adds a rim and a
+   * badge and changes nothing else: no filter, no reorder, no `disabled`. The list stays verbatim.
+   */
+  readonly hinted?: Command | undefined;
 }
 
 /** The id `Board.tsx` links to by default. Kept in step with its `actionsRegionId` default. */
@@ -130,8 +153,6 @@ export function groupCommands(commands: readonly Command[]): readonly CommandGro
   });
 }
 
-type Translate = (key: string, params?: Readonly<Record<string, string | number>>) => string;
-
 /** The glyph and its direction badge, in the die-cut well. Both `aria-hidden`, always. */
 function ActionGlyph({ theme }: { readonly theme: ActionTheme }): React.JSX.Element {
   return (
@@ -161,16 +182,32 @@ interface ChitProps {
    * lint exception.
    */
   readonly onKeyDown?: React.KeyboardEventHandler<HTMLButtonElement> | undefined;
+  /**
+   * The hint's badge text, or `undefined` for a chit the hint is not pointing at (MON-605).
+   *
+   * Text and a rim, never colour: `panels.css`'s `.kesef-chit--hinted` draws a solid double rim,
+   * which is a different *shape* from the terminal chit's dashed one and survives greyscale — the
+   * same argument `actions.ts` makes about why danger is not a shade of red.
+   */
+  readonly hintBadge?: string | undefined;
 }
 
 /** One command, as a pressable counter. */
-function Chit({ command, label, squareName, onActivate, onKeyDown }: ChitProps): React.JSX.Element {
+function Chit({
+  command,
+  label,
+  squareName,
+  onActivate,
+  onKeyDown,
+  hintBadge,
+}: ChitProps): React.JSX.Element {
   const theme = ACTION_THEME[command.kind];
   return (
     <button
       type="button"
       data-command-kind={command.kind}
       data-terminal={requiresConfirmation(command.kind)}
+      data-hinted={hintBadge !== undefined}
       onClick={(event) => {
         onActivate(command, event.currentTarget);
       }}
@@ -179,6 +216,7 @@ function Chit({ command, label, squareName, onActivate, onKeyDown }: ChitProps):
         "kesef-chit",
         `kesef-chit--${theme.tone}`,
         requiresConfirmation(command.kind) ? "kesef-chit--terminal" : "",
+        hintBadge === undefined ? "" : "kesef-chit--hinted",
         "target flex w-full items-center gap-3 px-3 py-2 text-start text-sm font-semibold",
       ]
         .filter(Boolean)
@@ -191,6 +229,14 @@ function Chit({ command, label, squareName, onActivate, onKeyDown }: ChitProps):
           <span className="text-xs font-normal opacity-80">{squareName}</span>
         )}
       </span>
+      {hintBadge !== undefined && (
+        <span
+          data-testid="hint-badge"
+          className="border-hairline ms-auto shrink-0 rounded-full border px-2 py-0.5 text-[0.625rem] font-bold tracking-[0.1em] uppercase"
+        >
+          {hintBadge}
+        </span>
+      )}
     </button>
   );
 }
@@ -200,7 +246,9 @@ interface GroupProps {
   readonly label: (command: Command) => string;
   readonly squareName: (command: Command) => string | undefined;
   readonly onActivate: (command: Command, trigger: HTMLButtonElement) => void;
-  readonly t: Translate;
+  readonly t: Copy;
+  /** The hint's badge for a member of this group, or `undefined`. See {@link ChitProps.hintBadge}. */
+  readonly hintBadge: (command: Command) => string | undefined;
 }
 
 /**
@@ -217,12 +265,21 @@ function CommandGroupDisclosure({
   squareName,
   onActivate,
   t,
+  hintBadge,
 }: GroupProps): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const panelId = useId();
   const toggle = useRef<HTMLButtonElement>(null);
   const theme = ACTION_THEME[group.kind];
   const first = group.commands[0];
+  /*
+    The hint points at one command; when that command is behind a collapsed group, the *toggle* has
+    to carry the mark too or the badge is invisible until the group is opened — which is the one
+    state in which a child needs the mark most. So the group is marked when it contains the hinted
+    command, and the member keeps its own badge once revealed.
+  */
+  const hintedMember = group.commands.find((command) => hintBadge(command) !== undefined);
+  const groupBadge = hintedMember === undefined ? undefined : hintBadge(hintedMember);
 
   /** Escape closes the group and hands focus back to the affordance that opened it (GAP E1). */
   const collapse: React.KeyboardEventHandler<HTMLButtonElement> = (event) => {
@@ -243,11 +300,19 @@ function CommandGroupDisclosure({
         aria-controls={panelId}
         data-command-kind={group.kind}
         data-group="true"
+        data-hinted={groupBadge !== undefined}
         onClick={() => {
           setOpen((was) => !was);
         }}
         onKeyDown={collapse}
-        className={`kesef-chit kesef-chit--${theme.tone} target flex w-full items-center gap-3 px-3 py-2 text-start text-sm font-semibold`}
+        className={[
+          "kesef-chit",
+          `kesef-chit--${theme.tone}`,
+          groupBadge === undefined ? "" : "kesef-chit--hinted",
+          "target flex w-full items-center gap-3 px-3 py-2 text-start text-sm font-semibold",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
         <ActionGlyph theme={theme} />
         <span className="flex min-w-0 flex-col">
@@ -257,6 +322,14 @@ function CommandGroupDisclosure({
             {t("label.squares", { count: group.commands.length })}
           </span>
         </span>
+        {groupBadge !== undefined && (
+          <span
+            data-testid="hint-badge"
+            className="border-hairline ms-auto shrink-0 rounded-full border px-2 py-0.5 text-[0.625rem] font-bold tracking-[0.1em] uppercase"
+          >
+            {groupBadge}
+          </span>
+        )}
       </button>
 
       {open && (
@@ -272,6 +345,7 @@ function CommandGroupDisclosure({
                 squareName={squareName(command)}
                 onActivate={onActivate}
                 onKeyDown={collapse}
+                hintBadge={hintBadge(command)}
               />
             </li>
           ))}
@@ -286,7 +360,9 @@ interface ConfirmProps {
   readonly actionLabel: string;
   readonly onConfirm: () => void;
   readonly onCancel: () => void;
-  readonly t: Translate;
+  readonly t: Copy;
+  /** `ruleset.auctions_enabled`. Chooses between the two true `decline_purchase` sentences. */
+  readonly auctions: boolean;
 }
 
 /**
@@ -303,6 +379,7 @@ function ConfirmStep({
   onConfirm,
   onCancel,
   t,
+  auctions,
 }: ConfirmProps): React.JSX.Element {
   const titleId = useId();
   const bodyId = useId();
@@ -311,8 +388,12 @@ function ConfirmStep({
   // Derived, but still asked through the theme's predicate rather than unconditionally: this step
   // is only ever mounted for a terminal command, and a `confirm.consequence.*` key for a kind that
   // has no confirm step would resolve to nothing and throw (G-F17).
+  //
+  // `auctions` picks the variant, because declining a purchase in a game with auctions switched off
+  // does *not* send the square to auction — and a dialog that says it does teaches a rule this table
+  // is not playing (MON-604).
   const consequenceKey = requiresConfirmation(command.kind)
-    ? consequenceKeyFor(command.kind)
+    ? consequenceKeyFor(command.kind, auctions)
     : undefined;
 
   // Focus lands on cancel, not on proceed. The safe option is the default option: a player who
@@ -392,17 +473,36 @@ export function ActionBar({
   board,
   jailFine,
   id = ACTIONS_REGION_ID,
+  kids = false,
+  auctions = true,
+  hinted,
 }: ActionBarProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const [pending, setPending] = useState<Command | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
 
-  const translate: Translate = (key, params) => t(key, params ?? {});
+  // Every label and heading in the bar goes through the kids-aware resolver, which is `t` verbatim
+  // outside a kids game. It changes what a button *says* and never which buttons exist.
+  const copy = useCopy(kids);
 
   const label = useCallback(
-    (command: Command) => t(labelKeyFor(command), labelParamsFor(command, jailFine)),
-    [t, jailFine],
+    (command: Command) => copy(labelKeyFor(command), labelParamsFor(command, jailFine)),
+    [copy, jailFine],
+  );
+
+  /**
+   * The hint's badge for one command, or `undefined` (MON-605).
+   *
+   * Identity, not a structural comparison: `hinted` is an element of `commands`, so `===` marks the
+   * chit the hint layer actually chose. Two `build_house` commands for different squares are two
+   * different objects, which is exactly what makes "that one" expressible without this file learning
+   * what a tile index means.
+   */
+  const hintBadge = useCallback(
+    (command: Command): string | undefined =>
+      hinted !== undefined && command === hinted ? copy("hint.badge") : undefined,
+    [hinted, copy],
   );
 
   /**
@@ -476,11 +576,11 @@ export function ActionBar({
       className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]"
     >
       <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">
-        {t("actionbar.label")}
+        {copy("actionbar.label")}
       </h2>
 
       {groups.length === 0 ? (
-        <p className="py-2 text-sm opacity-70">{t("actionbar.none")}</p>
+        <p className="py-2 text-sm opacity-70">{copy("actionbar.none")}</p>
       ) : (
         <ul className="flex flex-col gap-2">
           {groups.map((group) =>
@@ -491,7 +591,8 @@ export function ActionBar({
                 label={label}
                 squareName={squareName}
                 onActivate={activate}
-                t={translate}
+                t={copy}
+                hintBadge={hintBadge}
               />
             ) : (
               group.commands.map((command, index) => (
@@ -501,6 +602,7 @@ export function ActionBar({
                     label={label(command)}
                     squareName={squareName(command)}
                     onActivate={activate}
+                    hintBadge={hintBadge(command)}
                   />
                 </li>
               ))
@@ -515,7 +617,8 @@ export function ActionBar({
           actionLabel={label(pending)}
           onConfirm={confirm}
           onCancel={dismiss}
-          t={translate}
+          t={copy}
+          auctions={auctions}
         />
       )}
     </section>

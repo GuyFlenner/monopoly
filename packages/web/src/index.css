@@ -84,8 +84,28 @@
  * Both axes, because a 44px-tall control 20px wide passes a naive height check and still cannot
  * be hit by a six-year-old (GAP §5, G-C6). Logical property names throughout: `min-inline-size`
  * is the width in Hebrew too.
+ *
+ * The size is a custom property with the 44px floor as its fallback, so the floor holds everywhere
+ * unless a subtree raises it — which is what makes Kids Mode's comfort scale one rule and not a
+ * per-component decision. See `[data-comfort]` below.
  */
 @utility target {
-  min-block-size: 44px;
-  min-inline-size: 44px;
+  min-block-size: var(--kesef-target, 44px);
+  min-inline-size: var(--kesef-target, 44px);
+}
+
+/*
+ * Kids Mode's comfort scale (MON-604).
+ *
+ * One declaration, scoped by an attribute the game screen sets on its outermost box, and every
+ * `.target` control inside it grows together: the action chits, the seat picker, the dice toggle,
+ * the confirm dialog's two buttons, the trade panel's cash steppers. Doing it here rather than in
+ * each component is the whole point — a per-component `kids ? "min-h-14" : "target"` is a list
+ * that grows a hole the first time somebody adds a button.
+ *
+ * The numbers are mirrored in `src/theme/surfaces.ts` (`MIN_TARGET_PX`, `KIDS_TARGET_PX`) and
+ * `surfaces.test.ts` parses this file, so the two cannot drift.
+ */
+[data-comfort="kids"] {
+  --kesef-target: 56px;
 }
