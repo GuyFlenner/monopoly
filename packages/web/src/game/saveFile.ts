@@ -104,10 +104,39 @@ export const UNREADABLE_SAVE_KEY = "error.save_unreadable";
  * is the fallback for a failure nobody named, and this one has a name.
  */
 export async function readSaveFile(file: Blob): Promise<unknown> {
-  const text = await file.text();
+  const text = await textOf(file);
   try {
     return JSON.parse(text) as unknown;
   } catch {
     throw new ApiError(NO_RESPONSE, UNREADABLE_SAVE_KEY);
   }
+}
+
+/**
+ * A blob's text, by whichever route this environment offers.
+ *
+ * `Blob.text()` is the modern one-liner and is not universal: Safari did not ship it until 14, and
+ * **jsdom does not implement it at all** — which is not merely a test inconvenience. A `readSaveFile`
+ * written as `await file.text()` cannot be tested in this suite, so the one path in MON-704 that
+ * handles a file the player chose would have been asserted nowhere.
+ *
+ * `FileReader` is the fallback because it is what both of those environments do have. It is only
+ * reached when `text` is absent, so the ordinary browser path is unchanged and one line long.
+ */
+function textOf(file: Blob): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+    // A file the OS handed over and then refused to read. Reported as the same key as unparseable
+    // content: from the player's side, the file did not open.
+    reader.onerror = () => {
+      reject(new ApiError(NO_RESPONSE, UNREADABLE_SAVE_KEY));
+    };
+    reader.readAsText(file);
+  });
 }
