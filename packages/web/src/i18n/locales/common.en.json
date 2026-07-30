@@ -158,6 +158,18 @@
     "other_holdings": "Railroads and utilities",
     "all_players": "Everyone's properties"
   },
+  "engine": {
+    "local": {
+      "note": "The whole game runs inside this browser. The first visit downloads the rules engine; after that it is cached.",
+      "failed": "The rules engine could not be loaded.",
+      "failed_note": "Check the connection and try again. Nothing has been lost — no game had started."
+    },
+    "stage": {
+      "runtime": "Starting Python in the browser…",
+      "dependencies": "Fetching the libraries…",
+      "rules": "Loading the rules…"
+    }
+  },
   "error": {
     "already_mortgaged": "This square is already mortgaged.",
     "at_maximum_development": "This square is fully built — a hotel is as far as it goes.",
