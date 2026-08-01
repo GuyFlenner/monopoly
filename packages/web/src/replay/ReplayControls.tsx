@@ -48,7 +48,12 @@ interface Step {
   readonly labelKey: string;
   /** Where this button goes, given where we are. */
   readonly to: (position: number, total: number) => number;
-  /** Whether it can go anywhere from here. A button that changes nothing is disabled, not silent. */
+  /**
+   * Whether it can go anywhere from here.
+   *
+   * Rendered as `aria-disabled` rather than `disabled` — see the button below for why that
+   * distinction is a keyboard-correctness matter rather than a stylistic one.
+   */
   readonly enabled: (position: number, total: number) => boolean;
 }
 
