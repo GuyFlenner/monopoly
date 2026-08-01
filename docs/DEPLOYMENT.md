@@ -7,15 +7,29 @@ has to stay private.
 
 ---
 
-## 1. Turn it on (one time, by hand)
+## 1. Turn it on
 
-1. **Settings → Pages → Build and deployment → Source: `GitHub Actions`.**
-2. Push to `main`, or run **Actions → Deploy to GitHub Pages → Run workflow**.
-3. The live URL appears on the workflow run, and is `https://<owner>.github.io/<repo>/`.
+**The workflow does it.** `actions/configure-pages` runs with `enablement: true`, so the first
+deploy switches Pages on and sets its source to *GitHub Actions* by itself. Push to `main`, or run
+**Actions → Deploy to GitHub Pages → Run workflow**; the live URL appears on the run and is
+`https://<owner>.github.io/<repo>/`.
 
-Step 1 cannot be automated, and deliberately so — enabling Pages changes what a repository publishes
-to the world, which is an owner's decision and not a workflow's. Until it is switched,
-`actions/deploy-pages` fails with *"Get Pages site failed"*.
+This is a correction, not a convenience. The first run after MON-805 merged did everything right —
+built both wheels, played a real turn in a real browser against real Pyodide at the real base path —
+and then failed on `configure-pages`, because `GET /repos/{owner}/{repo}/pages` was a 404 and the
+step had been told not to enable anything. A one-line settings dependency is a poor gate for a
+deploy that had already proved itself.
+
+What the workflow can and cannot do is worth being precise about, since "a workflow that enables
+publishing" sounds alarming: `pages: write` lets it set this repository's **Pages build source** to
+the workflow that is already running. It cannot change repository visibility, and it does not make a
+private repository's code public. If the repository is private, Pages stays a paid feature — the
+free routes are in [§5](#5-if-the-repository-must-stay-private).
+
+If you would rather hold the switch yourself, set `enablement: false` in
+`.github/workflows/deploy-pages.yml` and flip **Settings → Pages → Build and deployment → Source:
+`GitHub Actions`** by hand instead. Until Pages is on either way, `actions/deploy-pages` fails with
+*"Get Pages site failed"*.
 
 > **A private repository needs GitHub Pro.** Pages on a private repo is a paid feature. If that is
 > not the plan, see [§5](#5-if-the-repository-must-stay-private) — there are three free routes and

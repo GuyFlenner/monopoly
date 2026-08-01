@@ -35,8 +35,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
-  # So the owner can publish a build without pushing, which is what the first run after enabling
-  # Pages in Settings needs to be.
+  # So the owner can publish a build without pushing — re-running by hand after a settings change,
+  # or republishing an unchanged tree.
   workflow_dispatch:
 
 permissions:
@@ -123,7 +123,18 @@ jobs:
             packages/web/test-results/
           retention-days: 7
 
+      # `enablement: true` so the *first* run turns Pages on by itself rather than failing with a
+      # 404 and waiting for somebody to tick a box in Settings. That is exactly what happened on the
+      # first run after MON-805 merged: every build step passed, the smoke test played a turn in a
+      # real browser, and the job died here because `GET /repos/{owner}/{repo}/pages` was a 404.
+      #
+      # It is safe to leave on. The action treats an already-enabled site as success, and this only
+      # ever sets the build source to "GitHub Actions" — the thing this workflow *is*. It cannot
+      # change repository visibility, and a private repository stays private (its Pages site then
+      # needs a paid plan; see docs/DEPLOYMENT.md for the free routes).
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
