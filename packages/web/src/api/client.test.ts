@@ -101,6 +101,40 @@ describe("ApiClient — the happy paths", () => {
 
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/games/a%2Fb");
   });
+
+  it("posts a save to the load route as the whole body (MON-704)", async () => {
+    // The body is the `GameState` itself, not `{state: ...}` — `POST /games/load` declares the
+    // schema directly (see `api.load_game`'s hand-written `openapi_extra`), so a wrapper here would
+    // be a 422 on every load.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, EMPTY_VIEW));
+    const save = { schema_version: 1, game_id: "kitchen-table", rng: { seed: 7 } };
+
+    await clientWith(fetchImpl).loadGame(save);
+
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/games/load");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual(save);
+  });
+
+  it("posts whatever the file said, without vetting it first", async () => {
+    // The parameter is `unknown` on purpose. Whether a document is a `GameState`, and whether its
+    // `schema_version` is one the engine still reads, are the engine's questions — answered as
+    // `error.save_schema_mismatch` on the far side. A validator here would be a second opinion about
+    // the engine's schema held by the layer least able to keep it current.
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(422, { reason_key: "error.save_schema_mismatch", params: {} }),
+      );
+
+    const failure = await clientWith(fetchImpl)
+      .loadGame({ not: "a game" })
+      .catch((cause: unknown) => cause);
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(isApiError(failure) && failure.reasonKey).toBe("error.save_schema_mismatch");
+  });
 });
 
 describe("ApiClient — every failure is a typed key, never prose", () => {

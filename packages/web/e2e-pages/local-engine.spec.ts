@@ -46,9 +46,7 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
   await expect(page.getByText(/פייתון|Python/)).toBeVisible();
 
   // The app opens in Hebrew. English first, because the assertions below are written in it.
-  await page
-    .locator('label:has(input[name$="-locale"][value="en"])')
-    .click({ timeout: 240_000 });
+  await page.locator('label:has(input[name$="-locale"][value="en"])').click({ timeout: 240_000 });
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
   // `/boards` and `/rulesets` were answered by `kesef_engine.board.loader`, out of the JSON inside

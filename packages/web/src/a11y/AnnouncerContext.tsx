@@ -59,3 +59,23 @@ export function useAnnouncer(): AnnouncerContextValue {
 export function useAnnounce(): AnnouncerContextValue["announce"] {
   return useAnnouncer().announce;
 }
+
+/** Discards its announcements. The value {@link useOptionalAnnounce} returns with no provider. */
+const SILENT: AnnouncerContextValue["announce"] = () => undefined;
+
+/**
+ * `announce`, or a no-op when there is no `<AnnouncerProvider>` above.
+ *
+ * For **presentational leaves only** — the empty, loading and error states in
+ * `panels/States.tsx` (MON-708). Those are rendered by every panel in the product and also, in a
+ * component test, entirely on their own; a loading placeholder that throws unless the whole app
+ * shell is mounted around it would push every panel's three-state test into an integration test,
+ * and the announcement is the part of it least worth that price.
+ *
+ * Everything with something of its own to say keeps {@link useAnnounce}, which throws. The
+ * distinction is deliberate: a *narrator* with no region to speak into is a defect, and silence
+ * would hide it. A spinner is not a narrator.
+ */
+export function useOptionalAnnounce(): AnnouncerContextValue["announce"] {
+  return useContext(AnnouncerContext)?.announce ?? SILENT;
+}

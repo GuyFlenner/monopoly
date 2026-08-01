@@ -20,6 +20,10 @@ A **transport**, exactly like ``api.py``, and held to the same three rules:
    anyio (``packages/server/tests/test_browser_parity.py`` asserts it), because
    ``uvicorn[standard]`` has native wheels and WebAssembly has none.
 
+One game gets one bot driver at a time here too: ``advance_bots_step`` holds this session's
+``Session.advance_lock``, the same lock ``transport.advance_bots`` holds for the HTTP transport
+(MON-806). It is held for one step rather than for a whole run, because a page pumps step by step.
+
 ## Why the answers are envelopes rather than values
 
 Every function here returns a JSON **string** of ``{"status": ..., "body": ...}``. Two reasons,
@@ -51,7 +55,6 @@ hanging the tab — the same bound, in the same place in the sequence, as the HT
 
 from __future__ import annotations
 
-import asyncio
 import json
 import secrets
 from collections.abc import Awaitable, Callable
@@ -60,7 +63,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError, InvalidSeatingError
 from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal
 from kesef_engine.reducer import apply
@@ -192,14 +195,6 @@ class BrowserHost:
         )
         self._budget: dict[str, int] = {}
         """Bot steps still allowed for each game before the pump stops. See the module docstring."""
-        self._advancing: dict[str, asyncio.Lock] = {}
-        """One lock per game, so two overlapping pumps cannot interleave half-applied turns.
-
-        The HTTP transport has no equivalent yet — its ``_advance_bots`` background tasks can
-        overlap, which is what MON-806 is about. Here the hazard is immediate rather than
-        theoretical: a page that submits a command while the previous command's bots are still
-        thinking would otherwise have two loops reading ``store.get`` around the same ``await``.
-        """
 
     # --- Meta ---------------------------------------------------------------
 
@@ -207,8 +202,7 @@ class BrowserHost:
         return self._answer("/boards", lambda: Reply(OK, _listed(transport.board_summaries())))
 
     def list_rulesets(self) -> str:
-        rulesets: list[Ruleset] = transport.rulesets()
-        return self._answer("/rulesets", lambda: Reply(OK, _listed(list(rulesets))))
+        return self._answer("/rulesets", lambda: Reply(OK, _listed(list(transport.rulesets()))))
 
     # --- Games --------------------------------------------------------------
 
@@ -233,6 +227,11 @@ class BrowserHost:
             )
         except BoardDataError:
             raise errors.unknown_board(request.board_id) from None
+        except InvalidSeatingError as refused:
+            # The engine's own key, forwarded whole, exactly as `api.create_game` forwards it
+            # (MON-418, G-33). "Two to six players" and "no shared names" are rules, so neither
+            # transport restates them nor flattens the three refusals into one coarse key.
+            raise errors.invalid_seating(refused.reason_key, transport.wire_params(refused.context)) from None
         except ValueError:
             raise errors.invalid_new_game() from None
         session = transport.create(self.store, state)
@@ -316,7 +315,6 @@ class BrowserHost:
         transport.session(self.store, game_id)
         self.store.delete(game_id)
         self._budget.pop(game_id, None)
-        self._advancing.pop(game_id, None)
         return Reply(NO_CONTENT)
 
     # --- The event stream ---------------------------------------------------
@@ -346,7 +344,11 @@ class BrowserHost:
         return await self._answer_async(f"/games/{game_id}/bots", lambda: self._advance_bots_step(game_id))
 
     async def _advance_bots_step(self, game_id: str) -> Reply:
-        async with self._advancing.setdefault(game_id, asyncio.Lock()):
+        # `Session.advance_lock`, the same lock `transport.advance_bots` holds for the HTTP transport
+        # (MON-806). Held for *one* step here rather than for a whole run, because a page pumps step
+        # by step and cannot wait for a bot's entire turn inside one call — but the invariant it buys
+        # is identical: no two drivers of one game read the same position around the same await.
+        async with transport.session(self.store, game_id).advance_lock:
             # The budget is read *inside* the lock, and that is not tidiness. Read outside it, six
             # pumps in flight all saw the same unspent budget before any of them had spent theirs,
             # so a cap of four allowed six moves — `test_pumping_concurrently_changes_nothing`

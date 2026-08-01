@@ -55,6 +55,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { useTranslation } from "react-i18next";
 
 import type { BoardView, GameStateView } from "@/api";
+// The file, not `@/panels` — there is no barrel there, and importing one presentational leaf is
+// what keeps this out of a cycle: `panels/TradeBuilder` imports `@/board`, and `States.tsx` imports
+// nothing from either.
+import { EmptyState } from "@/panels/States";
 
 import {
   GRID_SPAN,
@@ -249,6 +253,28 @@ export function Board({
   }, [tiles]);
 
   const properties: readonly PropertyProjection[] = state.properties;
+
+  /*
+    A board with no squares (MON-708).
+
+    Unreachable through the picker — `catalogue_ready` is what keeps an unnamed board out of it, and
+    every real board has forty tiles — but reachable through a **save file**, which is a `board_id`
+    the player's disk supplied. Before this, a `BoardView` with an empty `tiles` array rendered the
+    felt, the grid, the skip link and no squares: a green rectangle with the interior well floating
+    in it, which is the "no blank whites" defect in a different colour. It says so instead, and the
+    children still render, so the turn summary and the dice tray remain usable.
+
+    `tiles.length === 0` is arithmetic on a projected array, not a rule. Nothing here decides what a
+    board *should* contain.
+  */
+  if (board.tiles.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3">
+        <EmptyState messageKey="board.empty" />
+        {children}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col items-center gap-3">

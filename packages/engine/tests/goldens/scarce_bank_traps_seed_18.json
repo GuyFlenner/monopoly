@@ -6497,7 +6497,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7087,7 +7087,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7097,7 +7097,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7202,7 +7202,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7562,7 +7562,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7572,7 +7572,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7582,7 +7582,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -7592,7 +7592,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -8007,7 +8007,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {
@@ -8017,7 +8017,7 @@
     },
     {
       "amount": null,
-      "player": null,
+      "player": 0,
       "type": "mortgage_changed"
     },
     {

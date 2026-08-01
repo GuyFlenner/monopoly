@@ -28,7 +28,10 @@ export interface Rect {
  * A fixed seed so the deal is the same every run. The rest of these specs measure geometry, and
  * geometry should not depend on which square a token happens to be standing on.
  */
-export async function startGame(page: Page): Promise<void> {
+export async function startGame(
+  page: Page,
+  options: { readonly ruleset?: "universal" | "kids" } = {},
+): Promise<void> {
   await page.goto("/");
 
   // The product opens in **Hebrew** (see `main.tsx`), so a spec that reads English labels has to ask
@@ -41,6 +44,13 @@ export async function startGame(page: Page): Promise<void> {
   await expect(names.first()).toBeVisible();
   await names.nth(0).fill("Ruti");
   await names.nth(1).fill("Dan");
+
+  // The rule set, when a spec cares which one. Selected by the input's `value` — the engine's own
+  // `RulesetName` — rather than by the visible label, which is translated and would tie the choice
+  // to the language this helper has just changed. Same reason as `switchTo`'s locale radio below.
+  if (options.ruleset !== undefined) {
+    await page.locator(`label:has(input[name$="-ruleset"][value="${options.ruleset}"])`).click();
+  }
 
   // Numeric, because the field is `type="number"` — the engine's RNG is seeded from an integer that
   // is part of the serialized state (ADR-002), not from a free-text label.

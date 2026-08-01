@@ -32,6 +32,7 @@ import {
   labelKeyFor,
   labelKeysFor,
   labelParamsFor,
+  NO_AUCTION_SUFFIX,
   tileOf,
 } from "./actionCommand";
 
@@ -214,6 +215,44 @@ describe("the terminal consequences", () => {
         6,
       );
       expect(consequence).not.toBe(CATALOGUE.get(baseLabelKey(kind)));
+    }
+  });
+});
+
+/**
+ * MON-604: the one consequence that is a lie in Kids Mode.
+ *
+ * `confirm.consequence.decline_purchase` states that the square goes up for auction, which is the
+ * universal rule and is false with `auctions_enabled` off. The dialog that gets it wrong is the one
+ * standing in front of a child, so both sentences have to exist and the flag has to pick between
+ * them. Note what is *not* under test: whether the command is legal either way. It is, in both.
+ */
+describe("the consequence of declining depends on whether there are auctions", () => {
+  it("keeps the auction sentence under the full rules", () => {
+    expect(consequenceKeyFor("decline_purchase", true)).toBe(consequenceKeyFor("decline_purchase"));
+    expect(CATALOGUE.get(consequenceKeyFor("decline_purchase", true))).toContain("auction");
+  });
+
+  it("says something different, and true, when there are none", () => {
+    const key = consequenceKeyFor("decline_purchase", false);
+    expect(key).toBe(`confirm.consequence.decline_purchase${NO_AUCTION_SUFFIX}`);
+    const sentence = CATALOGUE.get(key);
+    expect(sentence, "no sentence for declining in a game with no auctions").toBeDefined();
+    // The whole point of the variant: the word that made the other sentence wrong is gone.
+    expect(sentence).not.toContain("auction");
+    expect(sentence).not.toBe(CATALOGUE.get(consequenceKeyFor("decline_purchase", true)));
+  });
+
+  it("leaves every other terminal kind on one sentence", () => {
+    // `withdraw_from_auction` needs no variant — it cannot be legal in a game with no auctions in
+    // it — and a variant nobody selects is a leaf nobody reads.
+    for (const kind of TERMINAL_COMMANDS) {
+      if (kind === "decline_purchase") {
+        continue;
+      }
+      expect(consequenceKeyFor(kind, false), `${kind} grew a variant`).toBe(
+        consequenceKeyFor(kind, true),
+      );
     }
   });
 });

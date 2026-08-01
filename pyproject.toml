@@ -87,7 +87,15 @@ asyncio_mode = "auto"
 testpaths = ["packages/engine/tests", "packages/server/tests", "tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+
+# `-m "not slow"` is in the *default* invocation rather than in the CI command, so that a
+# developer's `uv run pytest` and the PR gate collect exactly the same tests (MON-603). The
+# nightly lane passes `-m slow` on the command line, which lands after addopts and therefore
+# wins — see .github/workflows/nightly.yml.
+addopts = "-v --tb=short -m 'not slow'"
+markers = [
+    "slow: minutes, not seconds. Nightly only (.github/workflows/nightly.yml), never the PR gate.",
+]
 
 [tool.coverage.run]
 branch = true

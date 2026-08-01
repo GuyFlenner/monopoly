@@ -1,0 +1,15 @@
+# Blank issues are off on purpose.
+#
+# The one thing that makes a bug in this project cheap to fix is the seed: `state.rng` is part of
+# the serialized state, so a seed plus the commands played reproduces a game exactly. A blank issue
+# is the one shape that never asks for it, and every such report costs a round trip before anybody
+# can even look. Both templates are short and both have a "not sure" escape hatch, so nothing here
+# forces a reporter to diagnose their own bug before filing it.
+blank_issues_enabled: false
+# No `contact_links`. GitHub requires absolute URLs there, which would mean hardcoding this
+# repository's slug into a committed file — and the slug is the trademarked word this project
+# deliberately keeps out of its own contents. It would also rot the moment the repository is
+# renamed or moved. The pointers a reporter actually needs are relative links in README.md and
+# CONTRIBUTING.md, which travel with the repository wherever it goes: `docs/BACKLOG.md` for what
+# is already planned, `docs/superpowers/specs/` for how the layers divide the work, and
+# `CONTRIBUTING.md` for the gate and the PR flow.

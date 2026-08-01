@@ -30,7 +30,7 @@ import type {
   GameView,
   LegalityView,
   NewGameRequest,
-  Ruleset,
+  RulesetView,
 } from "./types";
 
 /** Just enough of `fetch` to be substitutable in a test. */
@@ -86,8 +86,8 @@ export class ApiClient {
     return this.request<BoardSummary[]>("GET", "/boards", { signal });
   }
 
-  listRulesets(signal?: AbortSignal): Promise<Ruleset[]> {
-    return this.request<Ruleset[]>("GET", "/rulesets", { signal });
+  listRulesets(signal?: AbortSignal): Promise<RulesetView[]> {
+    return this.request<RulesetView[]>("GET", "/rulesets", { signal });
   }
 
   // --- Games --------------------------------------------------------------
@@ -144,6 +144,24 @@ export class ApiClient {
   /** The save file — the only response carrying hidden information (ADR-008 §2). */
   saveGame(gameId: string, signal?: AbortSignal): Promise<GameState> {
     return this.request<GameState>("GET", `/games/${encodeURIComponent(gameId)}/save`, { signal });
+  }
+
+  /**
+   * Restore a saved game. The body is exactly what {@link saveGame} returned (MON-704).
+   *
+   * The parameter is typed `unknown` rather than `GameState`, and that is the interesting decision
+   * here. A save arrives from a *file the player chose*, so at the moment it is posted nothing has
+   * established that it is a `GameState` — typing the parameter as one would mean a cast at every
+   * call site, which is a compiler-silencing assertion about a stranger's JSON. The server
+   * validates it against the real model and answers `error.save_schema_mismatch` when it is not
+   * one, which is the only place that check can be trusted: a client-side validator would be a
+   * second opinion about the engine's schema, and the version it disagreed with would be its own.
+   *
+   * The answer is an ordinary `GameView`, so a restored game reaches the UI exactly as a new one
+   * does and nothing downstream has a "was this loaded" branch in it.
+   */
+  loadGame(save: unknown, signal?: AbortSignal): Promise<GameView> {
+    return this.request<GameView>("POST", "/games/load", { body: save, signal });
   }
 
   async deleteGame(gameId: string, signal?: AbortSignal): Promise<void> {

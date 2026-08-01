@@ -18,7 +18,9 @@
     "tile_mortgaged": ", mortgaged",
     "tile_occupants": ". Standing here: {{names}}.",
     "animations_on": "Animations on.",
-    "animations_off": "Animations off."
+    "animations_off": "Animations off.",
+    "sound_on": "Sound on.",
+    "sound_off": "Sound off."
   },
   "action": {
     "roll_dice": "Roll the dice",
@@ -60,6 +62,7 @@
     "bidding_now": "Bidding now",
     "still_bidding": "Still in",
     "dropped_out": "Dropped out",
+    "no_bidders": "Nobody at the table can bid on this one.",
     "no_bids_yet": "No bids yet. Bidding opens at {{amount}}.",
     "standing_bid": "{{name}} holds the bid at {{amount}}.",
     "your_turn_to_bid": "{{name}}, it's your turn to bid",
@@ -90,7 +93,8 @@
     "skip_to_actions": "Skip to actions",
     "keyboard_hint": "Arrow keys move around the board, Home goes to GO, End goes to jail, and Enter opens a square.",
     "open_tile": "Open {{name}}",
-    "more_tokens": "+{{hidden}}"
+    "more_tokens": "+{{hidden}}",
+    "empty": "This board has no squares to show."
   },
   "bot_level": {
     "easy": "Easy",
@@ -125,7 +129,8 @@
     "consequence": {
       "decline_purchase": "The square goes up for auction instead. Anyone at the table can buy it, and it may go for less than you would have paid.",
       "withdraw_from_auction": "You will not be able to bid on this square again.",
-      "declare_bankruptcy": "You are out of the game. Everything you own goes to whoever you owe. This cannot be undone."
+      "declare_bankruptcy": "You are out of the game. Everything you own goes to whoever you owe. This cannot be undone.",
+      "decline_purchase_no_auction": "Nobody buys the square this turn. It stays on the market, and you can buy it the next time you land on it."
     }
   },
   "deck": {
@@ -187,6 +192,7 @@
     "illegal_move": "That move isn't allowed right now.",
     "insufficient_funds": "Not enough cash for that.",
     "invalid_game_id": "That isn't a valid game name.",
+    "duplicate_names": "Two players are both called {{name}}. Give one of them a different name.",
     "invalid_new_game": "Those seats won't work. Every player needs a different name, and a game takes between two and six of them.",
     "jail_card_not_held": "You don't have that Get Out of Jail card.",
     "malformed_request": "Something in the form isn't right yet: {{fields}}.",
@@ -212,10 +218,13 @@
     "recipient_bankrupt": "That player is out of the game, so they can't trade.",
     "save_schema_mismatch": "This saved game was made by a different version of Kesef Street.",
     "save_too_large": "That saved game is too big to load.",
+    "save_unreadable": "That file isn't a Kesef Street saved game.",
     "server_at_capacity": "The table is full — {{limit}} games are already running.",
     "tile_already_owned": "Somebody already owns this square.",
     "tile_not_ownable": "This square can't be owned by anyone.",
     "title": "Something went wrong",
+    "too_few_players": "A game needs at least {{minimum}} players — there is only {{seats}} so far.",
+    "too_many_players": "A game takes at most {{maximum}} players, and there are {{seats}} here.",
     "too_many_watchers": "Too many people are watching this game already.",
     "trade_too_complex": "This game keeps trades simple — try offering fewer things at once.",
     "trading_disabled": "Trading is switched off in this game.",
@@ -247,6 +256,63 @@
     "dark_blue": "Dark blue",
     "railroad": "Railroads",
     "utility": "Utilities"
+  },
+  "hint": {
+    "title": "What now?",
+    "show": "Show a hint",
+    "suggestion": "Try this: {{action}}",
+    "none": "Nothing to do right now.",
+    "badge": "Suggested",
+    "explain_rent": "Why this much?",
+    "rent": {
+      "title": "Where the number comes from",
+      "base": "Printed rent",
+      "houses": "Houses on this square",
+      "multiplier": "Multiplier",
+      "dice_total": "Dice total used"
+    },
+    "reason": {
+      "roll_dice": "Every turn starts with a roll. Nothing else can happen until the dice land.",
+      "use_jail_card": "You are holding a card that opens the jail door for free.",
+      "roll_for_jail": "A double gets you out of jail without paying anything.",
+      "pay_jail_fine": "Paying the bail gets you out straight away and back on the board.",
+      "place_bid": "The auction is waiting on you. Each bid has to beat the one before it.",
+      "respond_to_trade": "Somebody has made you an offer. Look at what each side gives before you answer.",
+      "buy_property": "You are standing on a square nobody owns. Its price is on the card.",
+      "build_house": "You hold a whole colour set, so houses can go up on it.",
+      "unmortgage_property": "Paying off the mortgage lets this square charge rent again.",
+      "propose_trade": "Nothing else is on the table. An offer to another player may open something up.",
+      "end_turn": "You are done. Ending the turn passes the dice on.",
+      "cancel_trade": "Your offer is still waiting for an answer. Taking it back costs nothing.",
+      "sell_house": "Selling a house turns a building back into cash.",
+      "mortgage_property": "A mortgage raises cash now, and the square earns nothing until it is paid off.",
+      "decline_purchase": "Nothing makes you buy. Read what happens next before you say no.",
+      "withdraw_from_auction": "Dropping out is final for this square. Only do it once the price is past what you want to pay.",
+      "declare_bankruptcy": "There is nothing left to sell or mortgage. Leaving the game is the only move on the table."
+    }
+  },
+  "kids": {
+    "action": {
+      "roll_dice": "Throw the dice",
+      "buy_property": "Buy it",
+      "decline_purchase": "Don't buy it",
+      "end_turn": "I'm done",
+      "build_house": "Put a house here",
+      "pay_jail_fine": "Pay {{amount}} and get out",
+      "propose_trade": "Swap with someone"
+    },
+    "actionbar": {
+      "label": "What you can do",
+      "none": "Nothing to do yet.",
+      "choose_square": "Which square?"
+    },
+    "dossier": {
+      "all_players": "What everyone has"
+    },
+    "label": {
+      "cash": "Money",
+      "selected_square": "This square"
+    }
   },
   "label": {
     "bank": "the bank",
@@ -302,12 +368,14 @@
     "left_jail_card": "{{name}} used a Get Out of Jail card.",
     "left_jail_doubles": "{{name}} rolled doubles and left jail.",
     "left_jail_time_served": "{{name}} served the full stretch and left jail.",
-    "building_built_one": "A building went up on {{tile}} — {{remaining}} there now.",
-    "building_built_other": "{{count}} buildings went up on {{tile}} — {{remaining}} there now.",
-    "building_sold_one": "A building came down from {{tile}} — {{remaining}} left.",
-    "building_sold_other": "{{count}} buildings came down from {{tile}} — {{remaining}} left.",
-    "mortgaged": "{{tile}} was mortgaged.",
-    "unmortgaged": "{{tile}} was paid off.",
+    "hotel_built": "A hotel went up on {{tile}}.",
+    "hotel_sold": "The hotel on {{tile}} came down.",
+    "house_built_one": "A house went up on {{tile}} — {{remaining}} there now.",
+    "house_built_other": "{{count}} houses went up on {{tile}} — {{remaining}} there now.",
+    "house_sold_one": "A house came down from {{tile}} — {{remaining}} left.",
+    "house_sold_other": "{{count}} houses came down from {{tile}} — {{remaining}} left.",
+    "mortgaged": "{{name}} mortgaged {{tile}}.",
+    "unmortgaged": "{{name}} paid off the mortgage on {{tile}}.",
     "trade_proposed": "{{proposer}} offered {{recipient}} a trade.",
     "trade_executed": "{{proposer}} and {{recipient}} shook on a trade.",
     "trade_declined": "{{recipient}} turned down {{proposer}}'s trade.",
@@ -331,6 +399,7 @@
       "full_group_doubled": "Doubled: one player owns the whole {{group}} set.",
       "railroad_count": "{{count}} railroads owned.",
       "utility_multiplier": "{{multiplier}} × the dice roll ({{dice_total}}).",
+      "utility_quote": "{{multiplier}} × whatever the dice show.",
       "with_hotel": "There is a hotel here, which charges the top rent.",
       "with_houses": "Rent goes up with each house: {{houses}} here."
     }
@@ -360,6 +429,15 @@
       "none": "None"
     },
     "previous": "Full rules: {{value}}"
+  },
+  "save": {
+    "download": "Save this game to a file",
+    "saving": "Saving…",
+    "load_heading": "Continue a saved game",
+    "load_button": "Choose a saved game file",
+    "load_hint": "Pick the .json file you saved earlier. The board and the rules come from the file.",
+    "load_failed": "Couldn't open that saved game",
+    "loading": "Opening the saved game…"
   },
   "setup": {
     "add_player": "Add a player",
@@ -391,6 +469,9 @@
     "title": "New game",
     "token": "Piece",
     "universal": "Full rules"
+  },
+  "sound": {
+    "mute": "Mute sound"
   },
   "status": {
     "reconnecting": "Reconnecting to the table. The game is still playable.",
@@ -438,5 +519,8 @@
     "side_gives": "{{name}} gives",
     "simplified_hint": "Kids mode: one thing from each side per trade.",
     "title": "Offer a trade"
+  },
+  "turn": {
+    "banner": "{{name}}'s turn"
   }
 }

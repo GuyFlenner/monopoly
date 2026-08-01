@@ -15,6 +15,11 @@
  *    `{{reason}}` renders the English word `mortgage_transfer_fee` inside a Hebrew page — the
  *    exact GAP A5 defect. Every enum goes through a `*_LABEL` record below, whose type is
  *    `Record<TheEnum, string>` so a new member is a compile error rather than a silent leak.
+ *
+ *    The records that remain are all for enums the *event's own shape* carries. There used to be
+ *    one more — `GROUP_KEYS`, mapping `ColorGroup` for the single `note_params` value that was an
+ *    enum — and it is gone: the engine sends `group_key: "group.light_blue"` now, so nothing here
+ *    knows what a colour group is (MON-415). See {@link resolveNoteParams}.
  * 3. **Every number comes off the event.** `RentCharged` carries `amount`, `base_rent`,
  *    `houses`, `multiplier`, `dice_total` and its own `note_keys`/`note_params` precisely so a
  *    turn-3 line does not render turn-20 state (G-36). Nothing here reads current state, and
@@ -22,7 +27,7 @@
  *    an expression to write here.
  */
 
-import type { ColorGroup, EventOfType, GameEvent, GameEventType, LoggedEvent } from "@/api";
+import type { EventOfType, GameEvent, GameEventType, LoggedEvent } from "@/api";
 
 /** A translated-string or numeric parameter. Never an enum value — see the header. */
 export type LineParams = Readonly<Record<string, string | number>>;
@@ -154,26 +159,41 @@ export const BUILDING_KEYS: Readonly<Record<Building, string>> = {
   hotel: "building.hotel",
 };
 
-/**
- * Colour-group labels, for the one `note_params` value that is an enum.
- *
- * `rent.note.full_group_doubled` ships `{"group": "light_blue"}` straight off the engine's
- * `ColorGroup`, so the note is the single place a raw enum could still reach a sentence. The
- * keys already exist in the catalogue (`group.*`) for the board's benefit.
- */
-const GROUP_KEYS: Readonly<Record<ColorGroup, string>> = {
-  brown: "group.brown",
-  light_blue: "group.light_blue",
-  pink: "group.pink",
-  orange: "group.orange",
-  red: "group.red",
-  yellow: "group.yellow",
-  green: "group.green",
-  dark_blue: "group.dark_blue",
-};
+/** The suffix marking a `note_params` entry as a catalogue key rather than a value. */
+const KEY_SUFFIX = "_key";
 
-function isColorGroup(value: unknown): value is ColorGroup {
-  return typeof value === "string" && value in GROUP_KEYS;
+/**
+ * Resolve the `*_key` entries in a rent note's params, and drop the raw keys.
+ *
+ * The engine's convention (see `RentQuote.note_params`): a param named `<name>_key` carries an
+ * i18n key, so `{group_key: "group.light_blue"}` becomes `{group: "Light blue"}` and the catalogue
+ * sentence keeps its natural `{{group}}` in both languages.
+ *
+ * This replaced `GROUP_KEYS` and its `isColorGroup` guard, and the difference is not cosmetic.
+ * That version had to know the eight `ColorGroup` members and had to recognise one of them by
+ * value — a raw engine enum translated at the render boundary, which is the MON-415 gap. This
+ * knows only that a name ending in `_key` names a key, so the next engine note to interpolate a
+ * key needs no change here at all. A value the catalogue cannot resolve is left as it arrived
+ * rather than blanked: `missingKeyHandler` throws under dev and test by design (G-F17), and one
+ * unresolvable note must not take the whole log down.
+ *
+ * Exported because the "explain this rent" affordance renders the same notes from a `RentQuote`
+ * (MON-420) and must resolve them the same way — two resolvers is how the log and the board would
+ * end up explaining one figure differently.
+ */
+export function resolveNoteParams(
+  raw: Readonly<Record<string, string | number>> | undefined,
+  context: Pick<LineContext, "translate">,
+): LineParams {
+  const params: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(raw ?? {})) {
+    if (name.endsWith(KEY_SUFFIX) && typeof value === "string") {
+      params[name.slice(0, -KEY_SUFFIX.length)] = context.translate(value);
+    } else {
+      params[name] = value;
+    }
+  }
+  return params;
 }
 
 /**
@@ -354,22 +374,31 @@ const TABLE: LineTable = {
   }),
 
   building_changed: (event, context) => ({
-    // `houses` is the count *after* the change and `delta` is the change, both off the wire.
-    // The sentence says "building" rather than "house" or "hotel" on purpose: the event does
-    // not carry which one it was, and inferring "five houses means a hotel" here would be a
-    // rule living in the UI. Contract gap, filed rather than papered over.
-    key: event.delta > 0 ? "log.building_built" : "log.building_sold",
+    // MON-413: `level` says which building moved, so the sentence says "hotel" or "house".
+    //
+    // It used to say "a building went up" for both, because the event carried only `houses` and
+    // `delta` and inferring "five houses means a hotel" here would have been the engine's rule
+    // living in the UI. `level` is now the engine's answer, and this is a lookup on it.
+    //
+    // A hotel is always exactly one, so its two keys do not pluralize; a house sale can take
+    // several off a group at once, so those do. `houses` is the count *after* the change and
+    // `delta` is the change — both still straight off the wire.
+    key: `log.${event.level}_${event.delta > 0 ? "built" : "sold"}`,
     shape: "entry",
-    count: Math.abs(event.delta),
+    ...(event.level === "house" ? { count: Math.abs(event.delta) } : {}),
     params: { tile: context.tileName(event.tile), remaining: event.houses },
   }),
 
   mortgage_changed: (event, context) => ({
-    // No player: `MortgageChanged` carries only the tile and the flag, so the line cannot
-    // name who did it. Another contract gap; the passive voice is the honest rendering.
+    // MON-414: the event names the player, so the line has a subject.
+    //
+    // The passive voice ("Boardwalk was mortgaged") was the honest rendering while the event
+    // carried only the tile and the flag. Mortgaging is legal off-turn, so reading the actor from
+    // `state.current_player_id` would have been wrong exactly when it mattered — and reading
+    // current state at all breaks the log's self-containment rule (ADR-008 §3).
     key: event.mortgaged ? "log.mortgaged" : "log.unmortgaged",
     shape: "entry",
-    params: { tile: context.tileName(event.tile) },
+    params: { name: context.playerName(event.player), tile: context.tileName(event.tile) },
   }),
 
   trade_proposed: (event, context) => ({
@@ -504,17 +533,25 @@ function lotLabel(event: EventOfType<"auction_started">["lot"], context: LineCon
 /**
  * The engine's own explanations, rendered as sub-lines rather than restated.
  *
- * `note_keys` and `note_params` come off the event, so the explanation of a turn-3 rent is
- * still the turn-3 explanation when read on turn 20. The one substitution is `group`, which
- * arrives as a `ColorGroup` value and would otherwise print the English word in a Hebrew page.
+ * `note_keys` and `note_params` come off the event, so the explanation of a turn-3 rent is still
+ * the turn-3 explanation when read on turn 20. The only transformation is
+ * {@link resolveNoteParams}, and it is generic — nothing here decides what any particular note
+ * means.
  */
 function rentNotes(event: EventOfType<"rent_charged">, context: LineContext): readonly LogLine[] {
-  const params: Record<string, string | number> = { ...(event.note_params ?? {}) };
-  const group = params["group"];
-  if (isColorGroup(group)) {
-    params["group"] = context.translate(GROUP_KEYS[group]);
-  }
-  return event.note_keys.map((key) => ({
+  return noteLines(event.note_keys, event.note_params, context);
+}
+
+/**
+ * `rent.note.*` keys as renderable sub-lines. Shared with the rent-quote affordance (MON-420).
+ */
+export function noteLines(
+  noteKeys: readonly string[],
+  noteParams: Readonly<Record<string, string | number>> | undefined,
+  context: Pick<LineContext, "translate">,
+): readonly LogLine[] {
+  const params = resolveNoteParams(noteParams, context);
+  return noteKeys.map((key) => ({
     key,
     params,
     icon: "→",

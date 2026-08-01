@@ -64,12 +64,26 @@ GAME_ID = "parity"
 """Named explicitly in every payload: both transports invent an id from ``secrets`` when none is
 given, so leaving it out would make them disagree on purpose."""
 
-FORWARD = ("roll_dice", "buy_property", "end_turn", "pay_jail_fine", "use_jail_card", "roll_for_jail")
-"""Command kinds that move a turn along, most-urgent first — the same list ``test_api`` walks with.
+FORWARD = (
+    "roll_dice",
+    "buy_property",
+    "withdraw_from_auction",
+    "respond_to_trade",
+    "end_turn",
+    "pay_jail_fine",
+    "use_jail_card",
+    "roll_for_jail",
+)
+"""Command kinds that move a turn along, most-urgent first — ``test_api``'s list plus two exits.
 
 A game is driven with these so the walk terminates. Picking the first legal command instead would
 mortgage and unmortgage forever, and preferring ``decline_purchase`` over ``buy_property`` opens an
-auction, which is a bidding loop rather than a turn."""
+auction.
+
+``withdraw_from_auction`` and ``respond_to_trade`` are the two additions, and both were earned. The
+hard bot bids and trades, so a walk without them stalled: the fallback picked ``place_bid``, the bot
+raised, and fourteen iterations went by inside one auction at turn two. Parity held the whole way —
+which is what this file is *for* — but "played out" has to mean the game moved."""
 
 
 def _payload(**overrides: Any) -> dict[str, Any]:
@@ -290,9 +304,28 @@ def test_an_unknown_board_is_the_same_refusal(pair: PairFactory) -> None:
     assert (status, body["reason_key"], body["params"]["board_id"]) == (422, "error.unknown_board", "atlantis")
 
 
-def test_two_seats_sharing_a_name_is_the_same_refusal(pair: PairFactory) -> None:
-    status, body = pair().create(seats=[seat("Ann"), seat("Ann")])
-    assert (status, body["reason_key"]) == (422, "error.invalid_new_game")
+@pytest.mark.parametrize(
+    ("seats", "reason_key", "param", "value"),
+    [
+        ([seat("Ann"), seat("Ann")], "error.duplicate_names", "name", "Ann"),
+        ([seat("Ann")], "error.too_few_players", "minimum", 2),
+        ([seat(f"P{index}") for index in range(7)], "error.too_many_players", "maximum", 6),
+    ],
+)
+def test_a_seating_the_engine_refuses_is_the_same_keyed_refusal(
+    pair: PairFactory, seats: list[dict[str, Any]], reason_key: str, param: str, value: int | str
+) -> None:
+    """``InvalidSeatingError``, forwarded whole by both transports (MON-418, G-33).
+
+    Three distinct keys rather than one coarse ``error.invalid_new_game``: "two to six players" and
+    "no shared names" are rules, so the engine is where they are decided and named. Both transports
+    forward the key *and* its params, which is what lets ``error.too_few_players`` say how many are
+    needed and ``error.duplicate_names`` say which name was repeated — and forwarding it is all
+    either transport does, since a server that looked for duplicates itself would hold a copy of a
+    rule even while agreeing with it.
+    """
+    status, body = pair().create(seats=seats)
+    assert (status, body["reason_key"], body["params"][param]) == (422, reason_key, value)
 
 
 def test_a_body_pydantic_refuses_names_the_same_fields(pair: PairFactory) -> None:
@@ -301,9 +334,13 @@ def test_a_body_pydantic_refuses_names_the_same_fields(pair: PairFactory) -> Non
     ``api.py`` strips FastAPI's ``"body"`` prefix off each ``loc``; ``browser.py`` validates the
     model directly and strips nothing. This is the one place the two spellings could silently
     diverge, and ``fields`` is what a catalogue sentence interpolates.
+
+    A bot seat with no ``bot_level``, rather than a wrong seat *count*: a count is no longer a body
+    error at all since MON-418 moved that judgement into the factory, where it arrives as the keyed
+    refusal above.
     """
     status, body = pair().create(seats=[seat("Ann"), seat("Bot", is_bot=True)])  # a bot with no level
-    assert (status, body["reason_key"], body["params"]["fields"]) == (422, "error.malformed_request", "seats.1, seats")
+    assert (status, body["reason_key"], body["params"]["fields"]) == (422, "error.malformed_request", "seats.1")
 
 
 def test_the_session_cap_is_the_same_refusal(pair: PairFactory) -> None:
@@ -532,28 +569,34 @@ def test_the_event_stream_of_an_unknown_game_is_a_404(pair: PairFactory) -> None
 # --- Bots ------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("level", ["easy", "normal"])
+@pytest.mark.parametrize("level", ["easy", "normal", "hard"])
 async def test_a_bot_game_played_out_stays_in_step(pair: PairFactory, level: str) -> None:
     """Same seed, same board, same bot: the background driver and the page's pump agree.
 
     The strongest assertion in this file and the cheapest to write, because it compares the
     *finished game* rather than the mechanism: it therefore covers ``seat_to_act``, ADR-009's
-    one-proposal-per-turn guard and the ordering of every event either transport produced. The
-    normal bot is included because it is the one that constructs a ``ProposeTrade``, which is the
-    move ``legal_commands`` never enumerates and the only one with a per-turn budget behind it.
+    one-proposal-per-turn guard and the ordering of every event either transport produced.
 
-    **The loop's shape is the thing to read.** The two transports are only comparable at the points
-    where the bots have finished moving on both: over HTTP that happens inside the request, because
-    ``TestClient`` runs background tasks before returning, and here it happens when the pump reports
-    done. So each iteration pumps first, *then* compares, then hands the human's move to both. A
-    comparison in the middle would be comparing a game that has had its bot turn with one that has
-    not, which is a difference in when — not in what.
+    All three levels, because the level is resolved through ``bots._BOTS`` and both transports go
+    through that one table — a level the engine has and the table has not is treated as "no bot
+    drives this seat", which is a game that silently stops rather than a crash. ``normal`` and
+    ``hard`` are also the two that construct a ``ProposeTrade``, the move ``legal_commands`` never
+    enumerates and the only one with a per-turn budget behind it.
+
+    **The loop's shape is the thing to read, and it is easy to get wrong.** The two transports are
+    only comparable where the bots have finished moving on *both*: over HTTP that is inside the
+    request, because ``TestClient`` runs background tasks before returning, and here it is when the
+    pump reports done. So every comparison is preceded by a pump — including the one after the loop,
+    which an earlier version of this test omitted. It passed at ``easy`` and ``normal`` and failed at
+    ``hard``, for a reason that was nothing to do with the bot: the loop's last action is a human's
+    command, so HTTP's driver had answered it and ours had not yet been asked to. A difference in
+    *when*, reported as a difference in what.
     """
     both = pair()
     both.create(seats=[seat("Ann"), seat("Bot", is_bot=True, bot_level=level)])
     steps = 0
 
-    for _ in range(8):
+    for _ in range(14):
         steps += await both.pump(GAME_ID)
         levelled = both.get(GAME_ID, 0)[1]
         mine = [command for command in levelled["legal_commands"] if command["player"] == 0]
@@ -561,6 +604,7 @@ async def test_a_bot_game_played_out_stays_in_step(pair: PairFactory, level: str
             break  # the game is over, or the human is out of it
         assert both.submit(GAME_ID, _forward(mine))[0] == 200
 
+    await both.pump(GAME_ID)
     assert steps > 0, "the bot's turn came round; a pump that did nothing would prove nothing"
     replay = both.get(GAME_ID, 0)[1]
     assert replay["state"]["turn_number"] >= 3
@@ -622,6 +666,32 @@ async def test_pumping_concurrently_changes_nothing(clock: FakeClock) -> None:
     assert concurrent[1]["event_cursor"] > 0, "the bots moved; two empty logs would be equal and vacuous"
     assert concurrent == sequential
     assert _envelope(hosts[0].save_game(GAME_ID)) == _envelope(hosts[1].save_game(GAME_ID)), "same RNG, not just log"
+
+
+async def test_both_transports_serialize_on_the_same_lock(pair: PairFactory) -> None:
+    """``Session.advance_lock`` is the one lock, held by the HTTP driver and by the page's pump.
+
+    MON-806 put the lock on the session rather than on either transport, and this is what stops the
+    browser facade quietly growing a second one: a private lock would pass every test above — the
+    invariant it buys is the same — and would then fail to exclude the HTTP driver in a build where
+    both run, which is exactly what a developer serving the built site from uvicorn does.
+
+    Held while it is held, released when it is not: a lock left acquired after an answer would
+    deadlock the next pump, and that is a hang rather than a wrong answer, so it is worth pinning.
+    """
+    both = pair()
+    both.create(seats=[seat("A", is_bot=True, bot_level="easy"), seat("B")])
+    session = both.facade.store.get(GAME_ID)
+    assert not session.advance_lock.locked()
+
+    async with session.advance_lock:
+        # Taken from outside, the facade's pump has to wait — so the answer cannot arrive yet.
+        pumping = asyncio.ensure_future(both.facade.advance_bots_step(GAME_ID))
+        await asyncio.sleep(0)
+        assert not pumping.done(), "the pump ran while another driver held this game's lock"
+
+    assert _envelope(await pumping)[0] == 200
+    assert not session.advance_lock.locked(), "released, or the next pump would hang forever"
 
 
 # --- Failures that are this side's fault ------------------------------------

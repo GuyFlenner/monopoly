@@ -447,3 +447,106 @@ def test_universal_ruleset_is_the_official_game() -> None:
 def test_ruleset_by_name_round_trips() -> None:
     for name in RulesetName:
         assert Ruleset.by_name(name).name is name
+
+
+# --- What a variant changes, and what to call it (MON-417) ---------------------
+
+
+def test_every_setting_is_a_field_and_the_identity_is_not_one() -> None:
+    """``setting_fields`` is read off the model, so a new flag cannot be unexplainable.
+
+    The setup screen used to keep a ``Record<keyof Ruleset, …>`` label map for exactly this gate,
+    one layer too high: a flag added here needed a regenerated contract *and* a client edit before
+    anything noticed it had no name.
+    """
+    fields = Ruleset.setting_fields()
+    assert set(fields) | Ruleset.IDENTITY_FIELDS == set(Ruleset.model_fields)
+    assert "name" not in fields
+    # Declaration order, not alphabetical: a list of changes must read the same way twice running.
+    assert fields == tuple(name for name in Ruleset.model_fields if name != "name")
+    assert fields[0] == "starting_cash", "declaration order, so the economy comes first"
+
+
+def test_a_settings_label_is_a_key_derived_from_its_wire_name() -> None:
+    assert Ruleset.label_key("auctions_enabled") == "ruleset.auctions_enabled"
+    assert all(Ruleset.label_key(field) == f"ruleset.{field}" for field in Ruleset.setting_fields())
+
+
+def test_kids_mode_reports_exactly_the_settings_it_changes() -> None:
+    universal = Ruleset.universal()
+    assert universal.differing_settings(universal) == frozenset()
+    assert Ruleset.kids().differing_settings(universal) == {
+        "starting_cash",
+        "auctions_enabled",
+        "mortgages_enabled",
+        "max_jail_turns",
+        "hints_enabled",
+        "target_duration_minutes",
+        "simplified_trades",
+    }
+
+
+def test_a_tuple_setting_is_compared_by_content_rather_than_identity() -> None:
+    universal = Ruleset.universal()
+    # A distinct tuple object with the same contents, which is what a round trip through JSON
+    # produces — comparing by identity would report every reloaded ruleset as different.
+    rebuilt = Ruleset.model_validate_json(universal.model_dump_json()).starting_cash_denominations
+    copied = universal.model_copy(update={"starting_cash_denominations": rebuilt})
+    assert copied.starting_cash_denominations is not universal.starting_cash_denominations
+    assert copied.differing_settings(universal) == frozenset()
+    shortened = universal.model_copy(update={"starting_cash_denominations": (500, 100)})
+    assert shortened.differing_settings(universal) == {"starting_cash_denominations"}
+
+
+# --- Group holdings, answered once (MON-421) ----------------------------------
+
+
+def test_group_holdings_report_the_six_figures_a_dossier_row_shows() -> None:
+    properties = {BROWN_TILES[0]: PropertyState(owner=0, houses=3), BROWN_TILES[1]: PropertyState(owner=0)}
+    state = make_state(properties=properties)
+    holdings = state.group_holdings(0, ColorGroup.BROWN)
+    assert holdings.group is ColorGroup.BROWN
+    assert (holdings.owned, holdings.total) == (2, 2)
+    assert holdings.complete is True
+    assert holdings.houses == 3
+    assert holdings.mortgaged_count == 0
+    # `complete` is the engine's "may this player build", not `owned == total` — see the class.
+    assert holdings.complete is state.owns_whole_group(0, ColorGroup.BROWN)
+
+
+def test_group_holdings_ignore_another_players_squares_in_the_same_group() -> None:
+    """The predicate this method exists to hold exactly once: ``owner == player``.
+
+    Three of these six numbers were server-side arithmetic before MON-421, which made the
+    projection the third copy of it — and a copy that reads a *different* player is the failure
+    the shape of this test is aimed at.
+    """
+    state = make_state(
+        properties={
+            LIGHT_BLUE_TILES[0]: PropertyState(owner=0, houses=2),
+            LIGHT_BLUE_TILES[1]: PropertyState(owner=1, houses=4, mortgaged=False),
+            LIGHT_BLUE_TILES[2]: PropertyState(owner=0, mortgaged=True),
+        }
+    )
+    mine = state.group_holdings(0, ColorGroup.LIGHT_BLUE)
+    assert (mine.owned, mine.total, mine.complete) == (2, 3, False)
+    assert mine.houses == 2, "the sibling's four houses belong to somebody else"
+    assert mine.mortgaged_count == 1
+
+    theirs = state.group_holdings(1, ColorGroup.LIGHT_BLUE)
+    assert (theirs.owned, theirs.houses, theirs.mortgaged_count) == (1, 4, 0)
+
+
+def test_group_holdings_count_a_hotel_as_the_engines_five() -> None:
+    """``houses`` is a sum of *levels*, which is what the dossier's number has always meant."""
+    state = make_state(properties={BROWN_TILES[0]: PropertyState(owner=0, houses=5)})
+    assert state.group_holdings(0, ColorGroup.BROWN).houses == 5
+
+
+def test_group_holdings_answer_for_every_group_including_an_empty_one() -> None:
+    state = make_state()
+    for group in ColorGroup:
+        holdings = state.group_holdings(0, group)
+        assert holdings.owned == 0
+        assert holdings.total in (2, 3), "every classic group has two or three members"
+        assert holdings.complete is False

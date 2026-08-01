@@ -10,7 +10,7 @@
  * 3. **Newest first**, and self-contained: the numbers come off the event.
  */
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import i18next from "i18next";
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +18,7 @@ import type { BoardView, GameEvent, GameEventType, LoggedEvent, PlayerView } fro
 
 import { loggedEvent, makeBoard, makePlayer, makeTile } from "../test/fixtures";
 import { EventLog } from "./EventLog";
-import { SILENT_EVENTS } from "./EventLogLines";
+import { resolveNoteParams, SILENT_EVENTS } from "./EventLogLines";
 
 const PLAYERS: readonly PlayerView[] = [
   makePlayer(0, { name: "Ruti" }),
@@ -82,7 +82,9 @@ const SAMPLE: Readonly<Record<GameEventType, GameEvent>> = {
     dice_total: null,
     group: "brown",
     note_keys: ["rent.note.full_group_doubled"],
-    note_params: { group: "brown" },
+    // `group_key`, not `group: "brown"`: the engine sends a catalogue key now (MON-415), so the
+    // log resolves it generically instead of holding a `Record<ColorGroup, string>` of its own.
+    note_params: { group_key: "group.brown", multiplier: 2 },
   },
   property_acquired: { type: "property_acquired", player: 0, tile: 1, price: 60, via: "auction" },
   auction_started: {
@@ -97,8 +99,8 @@ const SAMPLE: Readonly<Record<GameEventType, GameEvent>> = {
   card_drawn: { type: "card_drawn", player: 0, deck: "community_chest", card_id: "bank_error" },
   sent_to_jail: { type: "sent_to_jail", player: 0, via: "three_doubles" },
   left_jail: { type: "left_jail", player: 0, via: "time_served" },
-  building_changed: { type: "building_changed", tile: 1, houses: 3, delta: 1 },
-  mortgage_changed: { type: "mortgage_changed", tile: 1, mortgaged: true },
+  building_changed: { type: "building_changed", tile: 1, houses: 3, delta: 1, level: "house" },
+  mortgage_changed: { type: "mortgage_changed", player: 0, tile: 1, mortgaged: true },
   trade_proposed: { type: "trade_proposed", offer: OFFER() },
   trade_executed: { type: "trade_executed", offer: OFFER() },
   trade_declined: { type: "trade_declined", offer: OFFER() },
@@ -200,11 +202,47 @@ describe("ordering and self-containment", () => {
     expect(logText()).toContain("Dan paid Ruti 4 in rent");
   });
 
-  it("translates the group inside a rent note rather than printing the enum", () => {
+  it("resolves the group key inside a rent note rather than printing it", () => {
     renderLog([loggedEvent(1, SAMPLE.rent_charged)]);
     const text = logText();
     expect(text).toContain("Brown");
+    // Neither the enum value nor the key itself reaches the sentence (MON-415).
     expect(text).not.toContain("brown");
+    expect(text).not.toContain("group.");
+  });
+
+  it("says hotel or house, never 'building'", () => {
+    // MON-413. `level` is the engine's answer to "which building moved", so the log stopped saying
+    // "a building went up" — and the client never had to encode "five houses is a hotel".
+    renderLog([
+      loggedEvent(1, { type: "building_changed", tile: 1, houses: 5, delta: 1, level: "hotel" }),
+    ]);
+    expect(logText()).toContain(i18next.t("log.hotel_built", { tile: "Mediterranean Avenue" }));
+
+    cleanup();
+    renderLog([
+      loggedEvent(2, { type: "building_changed", tile: 1, houses: 5, delta: -5, level: "hotel" }),
+    ]);
+    expect(logText()).toContain(i18next.t("log.hotel_sold", { tile: "Mediterranean Avenue" }));
+  });
+
+  it("pluralizes a house sale by how many came down, and never pluralizes a hotel", () => {
+    renderLog([
+      loggedEvent(1, { type: "building_changed", tile: 1, houses: 1, delta: -2, level: "house" }),
+    ]);
+    expect(logText()).toContain("2 houses came down");
+  });
+
+  it("names who mortgaged, in the active voice", () => {
+    // MON-414. The passive voice was the honest rendering while the event carried no player.
+    renderLog([loggedEvent(1, { type: "mortgage_changed", player: 1, tile: 1, mortgaged: true })]);
+    const text = logText();
+    expect(text).toContain("Dan mortgaged");
+    expect(text).not.toContain("was mortgaged");
+
+    cleanup();
+    renderLog([loggedEvent(2, { type: "mortgage_changed", player: 0, tile: 1, mortgaged: false })]);
+    expect(logText()).toContain("Ruti paid off the mortgage");
   });
 
   it("names the cash reason in words", () => {
@@ -229,7 +267,9 @@ describe("ordering and self-containment", () => {
   });
 
   it("survives a tile the board has not supplied", () => {
-    renderLog([loggedEvent(1, { type: "mortgage_changed", tile: 39, mortgaged: false })]);
+    renderLog([
+      loggedEvent(1, { type: "mortgage_changed", player: 0, tile: 39, mortgaged: false }),
+    ]);
     expect(logText()).toBeTruthy();
   });
 
@@ -246,5 +286,38 @@ describe("the scrollable history is reachable without a mouse", () => {
     // cannot be scrolled from the keyboard at all.
     expect(screen.getByRole("list").closest("[tabindex]")).toHaveAttribute("tabindex", "0");
     expect(screen.getAllByRole("region", { name: i18next.t("log.title") })).toHaveLength(1);
+  });
+});
+
+describe("resolving the keys inside a note's params (MON-415)", () => {
+  /** Echoes the key it was given, so the assertions are about *which* value was translated. */
+  const translate = (key: string): string => `translated:${key}`;
+
+  it("resolves a `*_key` param into its bare name and drops the suffixed entry", () => {
+    expect(resolveNoteParams({ group_key: "group.brown", multiplier: 2 }, { translate })).toEqual({
+      group: "translated:group.brown",
+      multiplier: 2,
+    });
+  });
+
+  it("leaves an ordinary param alone, whatever its value looks like", () => {
+    // `count` is a number and `houses` is a plain value; neither names a catalogue entry, and a
+    // resolver that translated everything would put `translated:3` in front of a child.
+    expect(resolveNoteParams({ count: 3, houses: 2 }, { translate })).toEqual({
+      count: 3,
+      houses: 2,
+    });
+  });
+
+  it("knows nothing about colour groups — any namespace resolves the same way", () => {
+    // The point of the convention over the deleted `Record<ColorGroup, string>`: the next engine
+    // note to interpolate a key needs no change here at all.
+    expect(resolveNoteParams({ deck_key: "deck.chance" }, { translate })).toEqual({
+      deck: "translated:deck.chance",
+    });
+  });
+
+  it("survives an absent params object", () => {
+    expect(resolveNoteParams(undefined, { translate })).toEqual({});
   });
 });

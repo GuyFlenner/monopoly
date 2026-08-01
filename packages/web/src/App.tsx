@@ -37,13 +37,15 @@ import {
   type ApiError,
   type BoardSummary,
   type NewGameRequest,
-  type Ruleset,
+  type RulesetView,
 } from "./api";
-import { FailureNote, GameScreen, useReasonText } from "./game/GameScreen";
+import { GameScreen } from "./game/GameScreen";
 import { GameProvider, queryKeys } from "./game";
 import { type Locale } from "./i18n";
 import { useLocale } from "./i18n/useLocale";
+import { LoadSavedGame } from "./panels/LoadSavedGame";
 import { SetupScreen } from "./panels/SetupScreen";
+import { EmptyState, ErrorState, LoadingState } from "./panels/States";
 import { ThemeSprite } from "./theme";
 
 /** The query parameter carrying the game. One name, read and written in one place. */
@@ -159,16 +161,14 @@ function SetupFlow({
   onLocaleChange,
   onStarted,
 }: SetupFlowProps): React.JSX.Element {
-  const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const reasonText = useReasonText();
 
   const boards = useQuery<BoardSummary[], ApiError>({
     queryKey: queryKeys.boards(),
     queryFn: ({ signal }) => client.listBoards(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
-  const rulesets = useQuery<Ruleset[], ApiError>({
+  const rulesets = useQuery<RulesetView[], ApiError>({
     queryKey: queryKeys.rulesets(),
     queryFn: ({ signal }) => client.listRulesets(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
@@ -183,27 +183,43 @@ function SetupFlow({
     [client, queryClient, onStarted],
   );
 
+  /**
+   * Restore a save (MON-704).
+   *
+   * The response is a `GameView` exactly as `POST /games` returns one, so it is cached under the
+   * game's key and the screen switches — the identical two lines `start` runs. That is the whole of
+   * "a loaded game is just a game": nothing downstream of here has a branch for it.
+   */
+  const load = useCallback(
+    async (save: unknown): Promise<void> => {
+      const restored = await client.loadGame(save);
+      queryClient.setQueryData(queryKeys.game(restored.state.game_id), restored);
+      onStarted(restored.state.game_id);
+    },
+    [client, queryClient, onStarted],
+  );
+
   const failure = boards.error ?? rulesets.error;
 
   if (failure !== null) {
     return (
       <Frame>
-        <FailureNote
-          heading={t("error.title")}
-          body={reasonText(failure)}
-          action={
-            <button
-              type="button"
-              onClick={() => {
-                void boards.refetch();
-                void rulesets.refetch();
-              }}
-              className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
-            >
-              {t("label.retry")}
-            </button>
-          }
+        <ErrorState
+          error={failure}
+          testId="setup-error"
+          onRetry={() => {
+            void boards.refetch();
+            void rulesets.refetch();
+          }}
         />
+        {/*
+          Reachable even when the two lists failed, and that is the point of putting it here as well
+          as inside `SetupScreen`: loading a save needs neither `/boards` nor `/rulesets` — the board
+          and the rule set are *in the file* — so a server that cannot list its boards is still a
+          server that can resume yesterday's game. Hiding the one working affordance behind an
+          unrelated failure is the "no spinners forever" defect wearing an error message.
+        */}
+        <LoadSavedGame onLoad={load} />
       </Frame>
     );
   }
@@ -211,28 +227,43 @@ function SetupFlow({
   if (boards.data === undefined || rulesets.data === undefined) {
     return (
       <Frame>
-        <p className="text-sm opacity-80">{t("label.loading")}</p>
+        <LoadingState testId="setup-loading" />
       </Frame>
     );
   }
 
-  if (boards.data.length === 0) {
-    // A server with no boards is not a broken client, and saying so beats an empty picker with a
-    // submit button under it that can only ever be refused.
+  /*
+    Only boards whose squares have names (MON-419, G-46).
+
+    `catalogue_ready` is the server's flag, copied from the board data — the one place that can know,
+    since the names live in this package's catalogues and the server cannot read them. A board
+    without it would paint forty blank squares, which is the failure the `i18n.exists` guards in the
+    log, the action bar and the dossier exist to *survive* rather than to make acceptable.
+
+    Filtered here rather than inside `SetupScreen` so that the "no boards" state below covers both
+    causes with one sentence: a server with no boards and a server whose boards are all unnamed are
+    the same thing from a parent's side, and both beat an empty picker with a submit button under it.
+  */
+  const playable = boards.data.filter((board) => board.catalogue_ready);
+
+  if (playable.length === 0) {
     return (
       <Frame>
-        <p className="text-sm opacity-80">{t("setup.no_boards")}</p>
+        <EmptyState messageKey="setup.no_boards" testId="setup-empty" />
+        {/* A save carries its own board, so this works with an empty picker. See above. */}
+        <LoadSavedGame onLoad={load} />
       </Frame>
     );
   }
 
   return (
     <SetupScreen
-      boards={boards.data}
+      boards={playable}
       rulesets={rulesets.data}
       locale={locale}
       onLocaleChange={onLocaleChange}
       onStart={start}
+      onLoad={load}
     />
   );
 }

@@ -392,3 +392,137 @@ describe("labelKeyFor, through the rendered bar", () => {
     expect(screen.getByRole("button", { name: /Sell the hotel/ })).toBeInTheDocument();
   });
 });
+
+/**
+ * MON-604 / MON-605: the three inputs that change what a chit *says* or how one is *marked*.
+ *
+ * All three are presentation, and for each the assertion that matters is the one proving it did not
+ * become something else — that the rendered *set* of commands is identical with and without them. A
+ * "kids mode" that quietly dropped a button is the ADR-005 violation these props could grow into.
+ */
+describe("Kids Mode wording and the hint mark", () => {
+  const roll: Command = { kind: "roll_dice", player: 0 };
+  const endTurn: Command = { kind: "end_turn", player: 0, elapsed_seconds: null };
+
+  function kinds(): readonly (string | undefined)[] {
+    return commandButtons().map((button) => button.dataset.commandKind);
+  }
+
+  it("prefers the simpler label where the catalogue has one", () => {
+    render(<ActionBar commands={[roll]} onCommand={vi.fn()} board={BOARD} jailFine={50} kids />);
+    expect(screen.getByRole("button", { name: "Throw the dice" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Roll the dice" })).not.toBeInTheDocument();
+  });
+
+  it("renders exactly the same commands in a kids game as in a full one", () => {
+    const bankruptcy: Command = { kind: "declare_bankruptcy", player: 0 };
+    const commands = [roll, endTurn, bankruptcy];
+    const { unmount } = render(
+      <ActionBar commands={commands} onCommand={vi.fn()} board={BOARD} jailFine={50} />,
+    );
+    const full = kinds();
+    unmount();
+
+    render(<ActionBar commands={commands} onCommand={vi.fn()} board={BOARD} jailFine={50} kids />);
+    expect(kinds()).toEqual(full);
+  });
+
+  it("tells the truth about declining when the rule set has no auctions", async () => {
+    const decline: Command = { kind: "decline_purchase", player: 0 };
+    render(
+      <ActionBar
+        commands={[decline]}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        auctions={false}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /buy/i }));
+    // The universal sentence promises an auction. In a kids game there is none, and the dialog in
+    // front of the child must not describe a rule the table is not playing.
+    expect(screen.getByRole("dialog")).not.toHaveAccessibleDescription(/auction/i);
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(/stays on the market/i);
+  });
+
+  it("marks the hinted chit, and only that one", () => {
+    render(
+      <ActionBar
+        commands={[roll, endTurn]}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={roll}
+      />,
+    );
+    const buttons = commandButtons();
+    const rollChit = buttons[0];
+    expect(rollChit?.dataset.hinted).toBe("true");
+    expect(buttons[1]?.dataset.hinted).toBe("false");
+    // Words as well as a rim: the badge is the channel a screen reader and a greyscale display share.
+    expect(rollChit).not.toBeUndefined();
+    expect(within(rollChit as HTMLElement).getByTestId("hint-badge")).toHaveTextContent(
+      "Suggested",
+    );
+  });
+
+  it("marks nothing when the hint layer is quiet", () => {
+    renderBar([roll, endTurn]);
+    expect(screen.queryAllByTestId("hint-badge")).toHaveLength(0);
+  });
+
+  it("ignores a hinted command that is not one of the ones offered", () => {
+    // `hinted` is compared by identity against `commands`, which is what makes it impossible for a
+    // stale or fabricated value to mark — or appear to offer — anything. Structurally identical and
+    // still not marked, which is the whole point.
+    const elsewhere: Command = { kind: "roll_dice", player: 0 };
+    render(
+      <ActionBar
+        commands={[roll]}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={elsewhere}
+      />,
+    );
+    expect(screen.queryAllByTestId("hint-badge")).toHaveLength(0);
+  });
+
+  it("marks a collapsed group whose hidden member is the hinted one", () => {
+    const houses: readonly Command[] = [
+      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "build_house", player: 0, tile: 3 },
+    ];
+    render(
+      <ActionBar
+        commands={houses}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={houses[1]}
+      />,
+    );
+    // Otherwise the badge is invisible until the group is opened — the one state a child most needs
+    // it in.
+    const toggle = screen.getByRole("button", { expanded: false });
+    expect(toggle.dataset.hinted).toBe("true");
+    expect(within(toggle).getByTestId("hint-badge")).toBeInTheDocument();
+  });
+
+  it("never disables anything on account of a hint", () => {
+    render(
+      <ActionBar
+        commands={[roll, endTurn]}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={roll}
+        kids
+      />,
+    );
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).not.toBeDisabled();
+      expect(button).not.toHaveAttribute("aria-disabled");
+    }
+  });
+});

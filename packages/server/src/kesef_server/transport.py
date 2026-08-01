@@ -41,6 +41,7 @@ from kesef_server.schemas import (
     GameSummary,
     GameView,
     LoggedEvent,
+    RulesetView,
 )
 from kesef_server.sessions import (
     DuplicateGameError,
@@ -85,14 +86,24 @@ def board_summaries() -> list[BoardSummary]:
                 name_key=board.name_key,
                 tile_count=len(board.tiles),
                 ownable_count=sum(1 for tile in board.tiles if tile.is_ownable),
+                # Copied, not judged: see `Board.catalogue_ready` for why the flag is board data.
+                # Every board is listed and the *picker* filters, so a board held back is visible
+                # to a developer reading this response and absent from a parent's choices (MON-419).
+                catalogue_ready=board.catalogue_ready,
             )
         )
     return summaries
 
 
-def rulesets() -> list[Ruleset]:
-    """Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes."""
-    return [Ruleset.by_name(name) for name in RulesetName]
+def rulesets() -> list[RulesetView]:
+    """Both rulesets, expanded and labelled (MON-417, G-36).
+
+    The universal rules are the baseline every view is measured against, so they are resolved once
+    here rather than per view. ``differing_settings`` is the engine's answer — a client working out
+    which rules differ would be holding a rule.
+    """
+    universal = Ruleset.universal()
+    return [RulesetView.from_ruleset(Ruleset.by_name(name), universal) for name in RulesetName]
 
 
 def game_summaries(store: SessionStore) -> list[GameSummary]:
@@ -169,9 +180,17 @@ async def advance_bots_once(
     the call altogether — a driver-local memory would reset before the human had answered, and
     the same offer would come straight back.
 
-    Raises :class:`~kesef_server.sessions.UnknownGameError` if the game has been deleted since
-    the caller last looked: whether that is worth reporting is the caller's decision, and the two
-    transports make it differently.
+    **The caller must hold** ``Session.advance_lock`` (MON-806). This function reads a position and
+    writes the move it produced, with an ``await`` in between, so two callers running it
+    concurrently would both read the same position, compute the same move and append the same
+    events twice. The lock is not taken *here* because the two transports hold it across different
+    spans: :func:`advance_bots` holds it for a whole run of steps, and the browser facade holds it
+    for one, since a page pumps step by step.
+
+    Raises :class:`~kesef_server.sessions.UnknownGameError` if the game has been deleted since the
+    caller last looked: whether that is worth reporting is the caller's decision, and the two
+    transports make it differently — the HTTP background task is a quiet no-op, the browser's pump
+    answers the 404 the page is waiting for.
     """
     held = store.get(game_id)
     async for step in drive(
@@ -182,3 +201,39 @@ async def advance_bots_once(
     ):
         return logged(store.update(game_id, step.state, step.events), step.events)
     return None
+
+
+async def advance_bots(store: SessionStore, game_id: str, *, think_seconds: float, max_steps: int) -> None:
+    """Let every bot that can act do so, one stored move at a time, under this game's lock.
+
+    The HTTP transport's whole bot driver: :func:`api._advance_bots` is a background task that calls
+    this and nothing else. The browser transport does *not* call it — a page cannot wait for a whole
+    bot turn inside one call, so it pumps :func:`advance_bots_once` itself and holds the same lock
+    per step.
+
+    **One game gets one driver at a time (MON-806).** Every command queues one of these, so two
+    quick commands give the same game two, and the read-one-step-write loop inside
+    :func:`advance_bots_once` races against its twin. ``Session.advance_lock`` serializes them: the
+    latecomer waits, re-reads a position the first driver has already finished, finds nothing to do
+    and leaves. A skip-if-running flag would be cheaper but wrong — the running driver may already
+    have decided "no bot can act" from the position *before* the command that queued the second
+    task, and skipping would strand the bot until the next request.
+
+    **A game deleted while this runs is a quiet no-op**, not an error: there is nobody left to
+    advance, and this has no caller to report to.
+
+    The step cap is per call, so the next command resumes. It is not decoration: an engine change
+    that made two commands mutually re-enabling would otherwise turn this into a hang, and a hang in
+    a game server is worse than a bot that stops moving and logs why.
+    """
+    try:
+        held = store.get(game_id)
+    except UnknownGameError:
+        return
+    async with held.advance_lock:
+        for _ in range(max_steps):
+            try:
+                if await advance_bots_once(store, game_id, think_seconds=think_seconds) is None:
+                    return
+            except UnknownGameError:
+                return

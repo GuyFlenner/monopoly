@@ -42,6 +42,7 @@ import { seatOf, Token, TOKEN_PX } from "@/board";
 import { Icon, requiresConfirmation } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
+import { EmptyState } from "./States";
 
 /** The auction frame, narrowed out of the interrupt union rather than restated. */
 export type AuctionFrameView = Extract<InterruptFrameView, { kind: "auction" }>;
@@ -352,6 +353,15 @@ function BidderRail({
       <h3 id="auction-bidders-heading" className="text-lg font-bold">
         {t("auction.bidders")}
       </h3>
+      {/*
+        An auction with nobody eligible to bid is a real frame the engine can produce — every seat
+        bankrupt but the one that owns the lot, say — and before MON-708 it rendered as an empty felt
+        rectangle under a "Bidders" heading, which reads as a panel that failed to load. It says so
+        instead. Not a rule: this is `eligible.length`, not a judgement about who may bid.
+      */}
+      {frame.eligible.length === 0 && (
+        <EmptyState messageKey="auction.no_bidders" className="mt-2" />
+      )}
       <ol className="mt-2 flex flex-wrap gap-2 rounded-2xl bg-table p-3 text-on-table">
         {frame.eligible.map((id) => {
           const seat = seatOf(players, id);

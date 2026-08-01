@@ -38,7 +38,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
+from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError, InvalidSeatingError
 from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal
 from kesef_engine.reducer import apply
@@ -57,6 +57,7 @@ from kesef_server.schemas import (
     LegalityView,
     LoggedEvent,
     NewGameRequest,
+    RulesetView,
     is_addressable_game_id,
 )
 from kesef_server.sessions import (
@@ -291,8 +292,13 @@ def list_boards() -> list[BoardSummary]:
 
 
 @app.get("/rulesets", tags=["meta"])
-def list_rulesets() -> list[Ruleset]:
-    """Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes."""
+def list_rulesets() -> list[RulesetView]:
+    """Both rulesets, expanded and labelled, so the UI can show what Kids Mode actually changes.
+
+    Returns ``RulesetView`` rather than the raw ``Ruleset`` since MON-417 (G-36): each setting
+    arrives with its ``label_key`` and a ``differs_from_universal`` the engine decided, which is
+    what deleted the setup screen's client-side diff and its hand-kept label map.
+    """
     return transport.rulesets()
 
 
@@ -334,6 +340,13 @@ async def create_game(
         # any other reason answered a 422 naming the wrong cause. Anything else now falls
         # through to `_engine_error_handler`, which reports what it actually was.
         raise errors.unknown_board(request.board_id) from None
+    except InvalidSeatingError as refused:
+        # The engine's own key, forwarded whole — the same treatment `IllegalCommandError` gets, and
+        # for the same reason (G-33). "Two to six players" and "no shared names" are rules, so the
+        # server neither restates them nor flattens the three refusals into one coarse key: before
+        # MON-418 a removed seat was answered with `error.malformed_request` and a field path,
+        # because a pydantic `min_length` refused the body before `new_game` ever ran.
+        raise errors.invalid_seating(refused.reason_key, transport.wire_params(refused.context)) from None
     except ValueError:
         raise errors.invalid_new_game() from None
     session = _create(store, state)
@@ -449,10 +462,19 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
     (ADR-009). It is derived from the session log on every step because this loop hands the driver one
     step at a time and a proposal to a human ends the call altogether — a driver-local memory would
     reset before the human had answered, and the same offer would come straight back.
+
+    One game gets one driver at a time (MON-806), and a game deleted between the response and this
+    task running is a quiet no-op. Both of those, and the loop itself, live in
+    `transport.advance_bots`: the browser transport (MON-805) drives the same bots under the same
+    lock, and two implementations of "whose turn is it and may they act" is the defect `bots.py`
+    opens by describing.
     """
-    for _ in range(config.bot_max_steps_per_call):
-        if await transport.advance_bots_once(store, game_id, think_seconds=config.bot_think_seconds) is None:
-            return
+    await transport.advance_bots(
+        store,
+        game_id,
+        think_seconds=config.bot_think_seconds,
+        max_steps=config.bot_max_steps_per_call,
+    )
 
 
 @app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)

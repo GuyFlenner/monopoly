@@ -109,14 +109,31 @@ def save_too_large(limit_bytes: int) -> ApiError:
     return ApiError(CONTENT_TOO_LARGE, "error.save_too_large", limit_bytes=limit_bytes)
 
 
-def invalid_new_game() -> ApiError:
-    """The factory refused the seats — duplicate names, most likely.
+def invalid_seating(reason_key: str, params: dict[str, int | str]) -> ApiError:
+    """The engine's keyed refusal of a seating arrangement, forwarded (MON-418).
 
-    Deliberately one coarse key. The server could look for duplicate names itself and
-    report a precise one, but "two players may not share a name" is a rule, and a second
-    copy of a rule in the transport is a defect even while it agrees. A precise key needs
-    ``kesef_engine.factory`` to raise a *keyed* error rather than a bare ``ValueError``;
-    that is an engine change, noted here rather than worked around here.
+    The M3 note that used to sit under :func:`invalid_new_game` said a precise key "needs
+    ``kesef_engine.factory`` to raise a *keyed* error rather than a bare ``ValueError``; that is an
+    engine change, noted here rather than worked around here." That change is
+    :class:`~kesef_engine.errors.InvalidSeatingError`, and this is the forwarding.
+
+    Nothing is inspected or re-decided: the key and its params arrive from the factory, and the
+    only judgement here is the status code, which is transport. A caller-supplied name reaches
+    ``params`` through the ``error.duplicate_names`` key — capped at 24 characters by ``Seat.name``
+    long before it gets here, and subject to the interpolation warning on
+    :data:`MAX_REFLECTED_CHARS` like every other reflected value.
+    """
+    return ApiError(UNPROCESSABLE, reason_key, **params)
+
+
+def invalid_new_game() -> ApiError:
+    """The factory refused the seats for a reason it did not name.
+
+    The three refusals a *player* can cause — too few seats, too many, duplicate names — are keyed
+    at source now and forwarded by :func:`invalid_seating`. This stays as the floor under anything
+    else that raises ``ValueError`` while an opening state is assembled (a ``PlayerState`` field
+    constraint, say), which is a defect rather than a mistake a parent made: one coarse key beats
+    guessing, and guessing precisely would put a copy of a rule in the transport.
     """
     return ApiError(UNPROCESSABLE, "error.invalid_new_game")
 

@@ -27,10 +27,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 import { ApiClient, type FetchLike, type SocketLike } from "./api";
-import type { BoardSummary, Command, GameStateView, GameView, Ruleset } from "./api";
+import type { BoardSummary, Command, GameStateView, GameView, RentQuote, RulesetView } from "./api";
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
-import { makeView } from "./test/fixtures";
+import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
+import { KIDS_RULESET, makeView } from "./test/fixtures";
+import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
 // --- The fake edge ----------------------------------------------------------
 
@@ -116,11 +118,26 @@ function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Ed
 // --- Fixtures ---------------------------------------------------------------
 
 const BOARDS: readonly BoardSummary[] = [
-  { id: "classic", name_key: "board.classic.name", tile_count: 40, ownable_count: 28 },
+  {
+    id: "classic",
+    name_key: "board.classic.name",
+    tile_count: 40,
+    ownable_count: 28,
+    catalogue_ready: true,
+  },
 ];
 
-/** Two rule sets, because the Kids-mode diff needs a baseline to differ from. */
-const RULESETS = [{ name: "universal" }, { name: "kids" }] as unknown as Ruleset[];
+/** A board the picker must not offer: its forty square names resolve to nothing (MON-419). */
+const UNNAMED_BOARD: BoardSummary = {
+  id: "atlantis",
+  name_key: "board.classic.name",
+  tile_count: 40,
+  ownable_count: 28,
+  catalogue_ready: false,
+};
+
+/** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
+const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 const END_TURN: Command = { kind: "end_turn", player: 0 };
@@ -188,7 +205,26 @@ describe("App — the setup screen", () => {
 
   it("shows the loading state from the catalogue while the two lists are in flight", () => {
     renderApp(makeEdge({}, { hang: true }));
-    expect(screen.getByText("Loading…")).toBeInTheDocument();
+    // Scoped to the placeholder, because since MON-708 the sentence is in *two* places and both are
+    // deliberate: the visible `<LoadingState>` and the polite live region it announced itself
+    // through. An unscoped `getByText` finds both and fails, which is the assertion below.
+    expect(screen.getByTestId("setup-loading")).toHaveTextContent("Loading…");
+  });
+
+  it("announces a wait politely through the one Announcer rather than a region of its own", async () => {
+    // MON-708: "loading states announced politely via the existing Announcer (no new live regions)".
+    // A wait nobody is told about is a blank screen to a screen-reader user, and a wait announced
+    // from a region the loading component rendered itself is the GAP D1/G-54 double-speak defect.
+    renderApp(makeEdge({}, { hang: true }));
+
+    const polite = await waitFor(() => {
+      const region = document.querySelector('[data-announcer="polite"]');
+      expect(region).toHaveTextContent("Loading…");
+      return region;
+    });
+    // The sentence is in the *shared* region, and no second one appeared to carry it.
+    expect(polite).toHaveAttribute("aria-live", "polite");
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(2);
   });
 
   it("renders the server's own reason key when a list cannot be fetched", async () => {
@@ -208,6 +244,85 @@ describe("App — the setup screen", () => {
 
     expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
   });
+
+  it("never offers a board whose squares have no names", async () => {
+    // MON-419 / G-46. `catalogue_ready` is the server's flag, and a board without it would paint
+    // forty blanks. Both boards carry the *same* `name_key` here on purpose: the picker must filter
+    // on the flag rather than on whether it happens to recognise the name.
+    const edge = makeEdge({
+      "GET /api/boards": ok([...BOARDS, UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findAllByLabelText("Name");
+    const offered = screen.getAllByRole("radio", { name: /Classic/ });
+    expect(offered).toHaveLength(1);
+    expect((offered[0] as HTMLInputElement).value).toBe("classic");
+  });
+
+  it("says there are no boards when every board it was offered is unnamed", async () => {
+    // The two causes are one sentence from a parent's side, which is why the filter runs before the
+    // empty check rather than inside `SetupScreen`.
+    const edge = makeEdge({
+      "GET /api/boards": ok([UNNAMED_BOARD]),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    expect(await screen.findByText("The server has no boards to play on.")).toBeInTheDocument();
+  });
+
+  it("loads a saved game and moves to that game's board (MON-704)", async () => {
+    // The whole of "a loaded game is just a game": the load route answers a `GameView` exactly as
+    // `POST /games` does, so the response is cached under the game's key and the screen switches
+    // through the same two lines. Nothing downstream of the shell has a branch for it.
+    const restored = gameView({}, [ROLL]);
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "POST /api/games/load": ok(restored),
+      "GET /api/games/g1": ok(restored),
+    });
+    renderApp(edge);
+
+    const picker = await screen.findByLabelText("Choose a saved game file");
+    await userEvent.upload(
+      picker,
+      new File([JSON.stringify({ schema_version: 1, game_id: "g1" })], "save.json", {
+        type: "application/json",
+      }),
+    );
+
+    expect(await screen.findByTestId("board-grid")).toBeInTheDocument();
+    const posted = edge.calls.find((call) => call.path === "/api/games/load");
+    expect(posted?.body).toEqual({ schema_version: 1, game_id: "g1" });
+    expect(new URLSearchParams(globalThis.location.search).get("game")).toBe("g1");
+  });
+
+  it("keeps the load affordance reachable when the two lists failed", async () => {
+    // A save carries its own board and rule set, so a server that cannot list its boards is still a
+    // server that can resume yesterday's game. Hiding the one working affordance behind an unrelated
+    // failure is the "no spinners forever" defect wearing an error message.
+    // A 404 rather than a 5xx: `SetupFlow` retries a server-side failure twice before settling, so a
+    // 500 here would be a test waiting on a backoff to assert something unrelated to it.
+    const edge = makeEdge({
+      "GET /api/boards": refusal(404, "error.not_found"),
+      "GET /api/rulesets": ok(RULESETS),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-error");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
+
+  it("keeps the load affordance reachable when the server has no boards", async () => {
+    const edge = makeEdge({ "GET /api/boards": ok([]), "GET /api/rulesets": ok(RULESETS) });
+    renderApp(edge);
+
+    await screen.findByTestId("setup-empty");
+    expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
 });
 
 // --- The game screen --------------------------------------------------------
@@ -221,6 +336,85 @@ describe("App — the game screen", () => {
       "POST /api/games/g1/commands": ok(view),
     });
   }
+
+  describe("the rent a square would charge (MON-420)", () => {
+    /**
+     * Forty quotes, index-aligned with the ring, with one square priced.
+     *
+     * Everything on screen has to come off this: the multipliers live in `rules/rent.py`, so before
+     * `rent_quotes` existed the panel could say what a square *was* and not what it would cost.
+     */
+    function withQuote(tile: number, quote: RentQuote | null): GameView {
+      const quotes = Array.from({ length: 40 }, () => null as RentQuote | null);
+      quotes[tile] = quote;
+      return gameView({ rent_quotes: quotes });
+    }
+
+    async function openSquare(view: GameView, tile: number): Promise<void> {
+      openGameUrl("g1");
+      renderApp(gameEdge(view));
+      await screen.findByTestId("board-grid");
+      act(() => {
+        useUiStore.setState({ selectedTile: tile });
+      });
+    }
+
+    it("shows the figure and the engine's own explanation of it", async () => {
+      await openSquare(
+        withQuote(1, {
+          owner: 1,
+          tile: 1,
+          amount: 4,
+          base_rent: 2,
+          houses: 0,
+          multiplier: 2,
+          dice_total: null,
+          group: "brown",
+          note_keys: ["rent.note.full_group_doubled"],
+          note_params: { group_key: "group.brown", multiplier: 2 },
+        }),
+        1,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      expect(panel.textContent).toContain("4");
+      // The note, with its group key resolved — the same resolver the log uses (MON-415).
+      expect(panel.textContent).toContain("Brown");
+      expect(panel.textContent).not.toContain("group.");
+    });
+
+    it("states a utility's multiplier and no amount, because the throw has not happened", async () => {
+      await openSquare(
+        withQuote(12, {
+          owner: 1,
+          tile: 12,
+          amount: null,
+          base_rent: 0,
+          houses: 0,
+          multiplier: 4,
+          dice_total: null,
+          group: null,
+          note_keys: ["rent.note.utility_quote"],
+          note_params: { multiplier: 4 },
+        }),
+        12,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      // No invented figure: the caveat is the sentence, not a number nothing stands behind.
+      expect(screen.queryByTestId("square-rent-amount")).not.toBeInTheDocument();
+      expect(panel.textContent).toContain("4 × whatever the dice show");
+    });
+
+    it("says nothing at all about rent on a square that charges none", async () => {
+      // The engine quotes `null` for unowned, mortgaged and self-owned squares, so there is no
+      // branch in the UI about what any of those mean — and no "Rent 0" either.
+      await openSquare(withQuote(1, null), 1);
+      // The square's own panel is open — so the absence below is the rent line, not the whole note.
+      expect(await screen.findByText("Selected square")).toBeInTheDocument();
+      expect(screen.queryByTestId("square-rent")).not.toBeInTheDocument();
+    });
+  });
 
   it("renders one action chit per legal command, and nothing it was not offered", async () => {
     openGameUrl("g1");
@@ -264,6 +458,47 @@ describe("App — the game screen", () => {
     expect(
       document.body.querySelectorAll('[role="status"], [role="alert"], [role="log"]'),
     ).toHaveLength(0);
+  });
+
+  it("carries the mute switch and the save button in the chrome (MON-704, MON-706)", async () => {
+    // A wiring test, in the mounted app rather than per component. Both controls are tested on their
+    // own; what this catches is the way they actually break — a hook or a component that exists, is
+    // green in isolation, and was never placed on a screen.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(screen.getByTestId("mute-sound")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("save-game")).toBeEnabled();
+  });
+
+  it("plays a cue for an event that arrives over the socket (MON-706)", async () => {
+    // The one thing `useSoundCues.test.tsx` cannot show: that `GameScreen` actually calls it. The
+    // hook is exercised through the real composition here, with the browser's audio API absent — so
+    // what is asserted is that a cue reaching a jsdom with no `AudioContext` is silent rather than a
+    // crash, which is the environment the whole test suite runs in and half of CI too.
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    expect(() => {
+      act(() => {
+        sockets[0]?.onmessage?.({
+          data: JSON.stringify({
+            seq: 1,
+            event: {
+              type: "dice_rolled",
+              player: 0,
+              first: 2,
+              second: 1,
+              total: 3,
+              doubles_streak: 0,
+              purpose: "move",
+            },
+          }),
+        });
+      });
+    }).not.toThrow();
   });
 
   it("shows the auction panel when the live interrupt frame is an auction", async () => {
@@ -389,6 +624,32 @@ describe("App — the game screen", () => {
     expect(screen.getByRole("button", { name: "New game" })).toBeInTheDocument();
   });
 
+  it("offers a retry on a failed first fetch, and asks the server again (MON-708)", async () => {
+    // Until MON-708 the only way out of this screen was "New game", which *abandons* the game the
+    // URL is pointing at — a dead end that looks like a decision. The game is on the server and this
+    // client simply has not got it yet, so asking again is exactly the right thing to try.
+    openGameUrl("g1");
+    // A 404, for the reason above: `useGame` retries a 5xx twice, and this test is about the button
+    // rather than about the backoff.
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "GET /api/games/g1": refusal(404, "error.game_not_found"),
+    });
+    renderApp(edge);
+
+    await screen.findByTestId("game-error");
+    const before = edge.calls.filter((call) => call.path === "/api/games/g1").length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => {
+      expect(edge.calls.filter((call) => call.path === "/api/games/g1").length).toBeGreaterThan(
+        before,
+      );
+    });
+  });
+
   it("keeps the board on screen when the event socket drops", async () => {
     openGameUrl("g1");
     renderApp(gameEdge(gameView({}, [ROLL])));
@@ -420,6 +681,127 @@ describe("App — the game screen", () => {
     const dossier = screen.getByTestId("player-dossier");
     expect(dossier).toHaveAttribute("data-player", "1");
     expect(dossier).toHaveAttribute("data-current", "false");
+  });
+
+  /**
+   * Kids Mode, asserted on the composition (MON-604).
+   *
+   * This is the level the acceptance criterion lives at. "Auction and mortgage affordances absent,
+   * not disabled" is not a property of any one component — every one of them is individually
+   * innocent, because the auction panel is mounted from an interrupt frame and the mortgage chit
+   * comes from `legal_commands`. What could be wrong is the *shell*: a panel mounted on a guess, a
+   * chit rendered `disabled`, a comfort scale that never reaches the subtree. So the fixture is a
+   * whole kids game and the assertions are over the mounted app.
+   *
+   * Note the negative assertions are paired with a positive one each time. `queryByText(...)` being
+   * null is also what a blank screen looks like, and a test that only checks absence passes hardest
+   * when nothing renders at all.
+   */
+  describe("Kids Mode (MON-604)", () => {
+    function kidsGame(commands: readonly Command[] = [ROLL]): Edge {
+      return gameEdge(gameView({ ruleset: KIDS_RULESET }, commands));
+    }
+
+    it("steps the whole subtree's hit targets up rather than one component's", async () => {
+      openGameUrl("g1");
+      const { container } = renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+
+      const scoped = container.querySelectorAll(`[${COMFORT_ATTRIBUTE}="${KIDS_COMFORT}"]`);
+      expect(scoped, "the comfort scale is not switched on anywhere").toHaveLength(1);
+      // On an ancestor of the controls, not beside them — that is what makes it reach the chits, the
+      // seat picker, the dice toggle and every dialog rendered inside the screen.
+      expect(scoped[0]?.querySelector("[data-command-kind]")).not.toBeNull();
+    });
+
+    it("leaves the floor alone under the full rules", async () => {
+      openGameUrl("g1");
+      const { container } = renderApp(gameEdge(gameView({}, [ROLL])));
+      await screen.findByTestId("board-grid");
+      expect(container.querySelectorAll(`[${COMFORT_ATTRIBUTE}]`)).toHaveLength(0);
+    });
+
+    it("renders no auction panel and no mortgage chit, disabled or otherwise", async () => {
+      openGameUrl("g1");
+      // A legal set with a mortgage in it would be a contract violation in a kids game, so the
+      // honest fixture is the set the engine would send: no mortgage, no bid, no withdrawal.
+      renderApp(kidsGame([ROLL, END_TURN]));
+      await screen.findByTestId("board-grid");
+
+      const chits = [...document.querySelectorAll("[data-command-kind]")].map((chit) =>
+        chit.getAttribute("data-command-kind"),
+      );
+      expect(chits, "the bar renders something").not.toHaveLength(0);
+      expect(chits).not.toContain("mortgage_property");
+      expect(chits).not.toContain("place_bid");
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      // Absent, not disabled: no chit in the product is ever `disabled`, and this is the composition
+      // where a "kids mode" would be tempted to add one.
+      for (const chit of document.querySelectorAll("[data-command-kind]")) {
+        expect(chit).not.toHaveAttribute("disabled");
+        expect(chit).not.toHaveAttribute("aria-disabled");
+      }
+    });
+
+    it("reads its buttons and headings in the simpler wording", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+      // A pattern rather than an exact name: the hinted chit's accessible name also carries the
+      // "Suggested" badge, which is a feature — a screen reader should hear the mark.
+      expect(screen.getByRole("button", { name: /Throw the dice/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Roll the dice/ })).not.toBeInTheDocument();
+      expect(screen.getByText("What you can do")).toBeInTheDocument();
+      expect(screen.getByText("What everyone has")).toBeInTheDocument();
+    });
+
+    it("shows whose turn it is with a piece and a name, prominently", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+
+      const banner = screen.getByTestId("turn-banner");
+      expect(banner.dataset.kids).toBe("true");
+      expect(within(banner).getByTestId("turn-banner-name")).toHaveTextContent("Ruti");
+      // The piece, not only the name: the channel a pre-reader is actually using.
+      expect(banner.querySelector("svg path")).not.toBeNull();
+    });
+
+    it("opens the hint and marks the move it points at (MON-605)", async () => {
+      openGameUrl("g1");
+      renderApp(kidsGame([END_TURN, ROLL]));
+      await screen.findByTestId("board-grid");
+
+      expect(screen.getByTestId("hint-panel").dataset.prominent).toBe("true");
+      expect(screen.getByTestId("hint-reason")).toHaveTextContent("Every turn starts with a roll");
+      // The mark lands on the chit the ranking chose, which is the roll rather than the first
+      // command the engine happened to list.
+      const marked = document.querySelectorAll('[data-hinted="true"]');
+      expect(marked).toHaveLength(1);
+      expect(marked[0]?.getAttribute("data-command-kind")).toBe("roll_dice");
+    });
+
+    it("keeps the hint folded and unmarked under the full rules", async () => {
+      openGameUrl("g1");
+      renderApp(gameEdge(gameView({}, [END_TURN, ROLL])));
+      await screen.findByTestId("board-grid");
+
+      const panel = screen.getByTestId("hint-panel");
+      expect(panel.dataset.prominent).toBe("false");
+      expect(panel).not.toHaveAttribute("open");
+      expect(document.querySelectorAll('[data-hinted="true"]')).toHaveLength(0);
+      // Available, though — that is the difference between quieter and absent.
+      expect(screen.getByText("Show a hint")).toBeInTheDocument();
+    });
+
+    it("still mounts exactly the two live regions the Announcer owns", async () => {
+      // The hint speaks, which is the newest way a third region could arrive (GAP D1/G-54).
+      openGameUrl("g1");
+      const { container } = renderApp(kidsGame());
+      await screen.findByTestId("board-grid");
+      expect(container.querySelectorAll("[aria-live]")).toHaveLength(2);
+      expect(container.querySelectorAll('[aria-live="polite"]')).toHaveLength(1);
+    });
   });
 
   /**

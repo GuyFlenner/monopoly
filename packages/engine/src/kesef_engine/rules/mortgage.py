@@ -49,7 +49,7 @@ def handle_mortgage(state: GameState, command: MortgageProperty) -> tuple[GameSt
     state, paid = move_cash(
         state, source="bank", dest=command.player, amount=tile.mortgage or 0, reason=CashReason.MORTGAGE
     )
-    return state, (*paid, MortgageChanged(tile=command.tile, mortgaged=True))
+    return state, (*paid, MortgageChanged(player=command.player, tile=command.tile, mortgaged=True))
 
 
 def handle_unmortgage(state: GameState, command: UnmortgageProperty) -> tuple[GameState, tuple[Event, ...]]:
@@ -58,4 +58,4 @@ def handle_unmortgage(state: GameState, command: UnmortgageProperty) -> tuple[Ga
     state, paid = move_cash(
         state, source=command.player, dest="bank", amount=unmortgage_cost(tile), reason=CashReason.UNMORTGAGE
     )
-    return state, (*paid, MortgageChanged(tile=command.tile, mortgaged=False))
+    return state, (*paid, MortgageChanged(player=command.player, tile=command.tile, mortgaged=False))
