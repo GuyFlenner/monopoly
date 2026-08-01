@@ -56,9 +56,12 @@
  * mounting a second copy and duplicating every id in the document.
  */
 
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
+// The file, not `@/animation` — one presentational leaf rather than the barrel, for the reason
+// `board/Tile.tsx` states: the barrel re-exports the hook, and the hook reaches `@/game`.
+import { Pulse } from "@/animation/Beat";
 import type { BoardView, GroupHoldings, PlayerView, TileView } from "@/api";
 import {
   HOTEL_LEVEL,
@@ -99,6 +102,30 @@ export interface PlayerDossierProps {
    * happens in a dossier list instead.
    */
   readonly onSelectSquare?: ((tile: number) => void) | undefined;
+  /**
+   * The tighter presentation the compare tray needs (MON-702).
+   *
+   * A *presentation* prop and nothing more: the same card, the same figures, the same deed list,
+   * with less padding and two columns of figures instead of four so that three of them fit side by
+   * side on a laptop. There is no second component and no forked copy — MON-702 asks for a
+   * `compact` prop rather than a `CompactPlayerDossier` precisely because the second one would
+   * drift, and the figure that drifted would be net worth.
+   */
+  readonly compact?: boolean | undefined;
+  /**
+   * Controls belonging to whatever is showing this card — the compare tray's pin toggle.
+   *
+   * A slot rather than an `onPin` callback, so that this component learns nothing about pinning and
+   * stays silent: the pin button owns its own `aria-pressed`, its own label and its own
+   * announcement (see `CompareTray.tsx`). Nothing here speaks, which is still true.
+   */
+  readonly actions?: ReactNode;
+  /**
+   * The animation queue's cash beat for this seat (MON-701). A bump pulses the figure.
+   *
+   * Presentation only. `player.cash` is rendered at its projected value whatever this is.
+   */
+  readonly cashPulse?: number | undefined;
 }
 
 /** Every band a square can carry, in board travel order: the colour sets, then the two kinds. */
@@ -332,19 +359,26 @@ function Figure({
   label,
   value,
   testId,
+  pulse,
 }: {
   readonly label: string;
   readonly value: number;
   readonly testId: string;
+  /** The animation queue's beat, when this figure is one that moves (MON-701). */
+  readonly pulse?: number | undefined;
 }): React.JSX.Element {
   return (
     <div className="flex flex-col">
       <span className="text-[0.625rem] font-semibold tracking-[0.12em] uppercase opacity-65">
         {label}
       </span>
-      <span data-testid={testId} dir="ltr" className="text-base font-bold tabular-nums">
-        {value}
-      </span>
+      {/* The value is inside the flourish, not produced by it: `<Pulse>` with no beat is a bare
+          wrapper, and the number is the projection's either way. */}
+      <Pulse nonce={pulse}>
+        <span data-testid={testId} dir="ltr" className="text-base font-bold tabular-nums">
+          {value}
+        </span>
+      </Pulse>
     </div>
   );
 }
@@ -356,6 +390,9 @@ export function PlayerDossier({
   properties,
   isCurrent = false,
   onSelectSquare,
+  compact = false,
+  actions,
+  cashPulse,
 }: PlayerDossierProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
 
@@ -426,9 +463,11 @@ export function PlayerDossier({
       data-testid="player-dossier"
       data-player={player.id}
       data-current={isCurrent}
+      data-compact={compact}
       aria-label={t("dossier.title", { name: player.name })}
       className={[
-        "bg-tile text-ink border-hairline flex min-w-0 flex-col gap-3 rounded-2xl border p-3",
+        "bg-tile text-ink border-hairline flex min-w-0 flex-col rounded-2xl border",
+        compact ? "gap-2 p-2" : "gap-3 p-3",
         "shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]",
         isCurrent ? "ring-2 ring-current/30" : "",
         player.bankrupt ? "opacity-70 saturate-50" : "",
@@ -437,8 +476,14 @@ export function PlayerDossier({
         .join(" ")}
     >
       <header className="flex items-center gap-3">
-        {seat !== undefined && <Token seat={seat} size={TOKEN_PX.heading} isCurrent={isCurrent} />}
-        <div className="flex min-w-0 flex-col">
+        {seat !== undefined && (
+          <Token
+            seat={seat}
+            size={compact ? TOKEN_PX.panel : TOKEN_PX.heading}
+            isCurrent={isCurrent}
+          />
+        )}
+        <div className="flex min-w-0 flex-1 flex-col">
           <h2 className="truncate text-base font-bold">{player.name}</h2>
           <p className="flex flex-wrap items-center gap-2 text-[0.625rem] font-semibold tracking-[0.1em] uppercase opacity-70">
             {seat !== undefined && <span>{t("dossier.seat", { seat })}</span>}
@@ -447,10 +492,20 @@ export function PlayerDossier({
             {player.bankrupt && <span data-testid="dossier-bankrupt">{t("label.bankrupt")}</span>}
           </p>
         </div>
+        {/* The owner's controls, at the inline end of the header. A slot, so this card holds no
+            opinion about what pinning is (MON-702). */}
+        {actions !== undefined && <div className="flex shrink-0 items-center">{actions}</div>}
       </header>
 
-      <div className="border-current/15 grid grid-cols-2 gap-3 border-y py-2 sm:grid-cols-4">
-        <Figure label={t("label.cash")} value={player.cash} testId="dossier-cash" />
+      <div
+        className={`border-current/15 grid grid-cols-2 gap-3 border-y py-2 ${compact ? "" : "sm:grid-cols-4"}`}
+      >
+        <Figure
+          label={t("label.cash")}
+          value={player.cash}
+          testId="dossier-cash"
+          pulse={cashPulse}
+        />
         <Figure label={t("label.net_worth")} value={player.net_worth} testId="dossier-net-worth" />
         <Figure
           label={t("label.properties")}

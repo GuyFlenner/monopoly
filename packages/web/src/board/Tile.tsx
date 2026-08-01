@@ -33,6 +33,9 @@
  * Enter (§5.5 forbids hover-only reveals, and a tooltip is one).
  */
 
+// The file, not `@/animation` — one presentational leaf rather than the barrel, which is what keeps
+// this out of a cycle: `animation/index.ts` re-exports the hook, and the hook reaches `@/game`.
+import { Pop } from "@/animation/Beat";
 import { bandFill, patternDomId, tokenForSeat, type TileThemeKey } from "@/theme";
 
 import type { TileRotation } from "./geometry";
@@ -69,6 +72,13 @@ export interface TileProps {
   readonly description: string;
   /** Translated `+N` for a collapsed token cluster. */
   readonly overflowLabel: (hidden: number) => string;
+  /**
+   * The animation queue's beat for this square (MON-701). A bump pops the houses.
+   *
+   * Presentation only, and `houses` is drawn from the projection whatever this is: a square with
+   * three houses shows three houses at the first paint, with or without a beat.
+   */
+  readonly popNonce?: number | undefined;
   /** `true` once the board is wide enough for a 44 px target; see `geometry.ts`. */
   readonly interactive: boolean;
   /** The roving tab stop, or the active descendant when the board is too narrow to rove. */
@@ -142,6 +152,7 @@ export function Tile({
   name,
   description,
   overflowLabel,
+  popNonce,
   interactive,
   isActive,
   domId,
@@ -190,7 +201,11 @@ export function Tile({
           <span className="text-[13cqw] leading-none font-semibold uppercase">{name}</span>
 
           <span className="flex flex-col items-center gap-px">
-            <Development houses={houses} />
+            {/* The marks are already correct; the beat only decides whether they arrive with a
+                flourish (MON-701). `<Pop>` with no beat is a bare wrapper. */}
+            <Pop nonce={popNonce}>
+              <Development houses={houses} />
+            </Pop>
             {mortgaged && (
               // A glyph rather than a word: at 29 px there is room for one character. The word is
               // in the square's accessible name and in its detail sheet.

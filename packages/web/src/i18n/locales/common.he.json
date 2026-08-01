@@ -14,13 +14,15 @@
     "phase_auction": "התחילה מכירה פומבית.",
     "phase_debt_settlement": "יש לסלק חוב לפני שהמשחק ממשיך.",
     "phase_trade_review": "עסקה ממתינה לתשובה.",
+    "pinned": "{{name}} — הצמדה להשוואה.",
     "rent_charged": "תשלום שכר דירה של {{amount}}: {{payer}} אל {{owner}}.",
     "tile_hotel": ", עם מלון",
     "tile_houses": ", עם {{houses}} בתים",
     "tile_mortgaged": ", ממושכן",
     "tile_occupants": ". עומדים כאן: {{names}}.",
     "tile_one_house": ", עם בית אחד",
-    "turn": "התור של {{name}}."
+    "turn": "התור של {{name}}.",
+    "unpinned": "{{name}} — ביטול ההצמדה."
   },
   "action": {
     "build_house": "בנה בית",
@@ -153,15 +155,16 @@
   "dossier": {
     "all_players": "הנכסים של כולם",
     "bot": "מחשב",
-    "compare": "השווה שחקנים",
+    "compare": "השוואת שחקנים",
     "complete_set": "סדרה שלמה",
     "empty": "אין נכסים עדיין",
     "other_holdings": "רכבות ומפעלים",
-    "pin": "הצמד זה לזה",
+    "pin": "הצמדה להשוואה",
+    "pin_limit": "אפשר להשוות עד {{max}} שחקנים בבת אחת.",
     "seat": "מושב {{seat}}",
     "set_progress": "{{owned}} מתוך {{total}}",
     "title": "הנכסים של {{name}}",
-    "unpin": "בטל הצמדה"
+    "unpin": "ביטול הצמדה"
   },
   "engine": {
     "local": {
@@ -390,6 +393,10 @@
     "unknown_tile": "משבצת על הלוח",
     "unmortgaged": "{{tile}}: פדיון המשכנתא על ידי {{name}}."
   },
+  "motion": {
+    "nothing_moving": "אין תנועה כרגע",
+    "skip_now": "סיום האנימציה"
+  },
   "panel": {
     "close": "סגור",
     "go_back": "לא, חזרה"
@@ -406,6 +413,24 @@
       "with_hotel": "יש כאן מלון, שגובה את שכר הדירה הגבוה ביותר.",
       "with_houses": "שכר הדירה עולה עם כל בית — יש כאן {{houses}}."
     }
+  },
+  "replay": {
+    "back": "אחורה",
+    "board_label": "הלוח, כפי שהאירועים מתארים אותו",
+    "controls": "פקדי השחזור",
+    "empty": "אין עדיין אירועים לעבור עליהם במשחק הזה.",
+    "first": "התחלה",
+    "forward": "קדימה",
+    "last": "סוף",
+    "nothing_yet": "עדיין לא קרה דבר. אפשר להתקדם כדי לראות את המשחק מתפתח.",
+    "open": "צפייה בשחזור",
+    "position": "אירוע {{position}} מתוך {{total}}",
+    "seats": "השחקנים, כפי שהאירועים מתארים אותם",
+    "slider": "מיקום במשחק",
+    "square": "משבצת",
+    "throw": "הטלה {{first}} ו-{{second}} — {{total}} בסך הכול",
+    "title": "שחזור המשחק",
+    "unstated": "טרם נאמר"
   },
   "ruleset": {
     "auctions_enabled": "מכירות פומביות",

@@ -47,6 +47,7 @@ import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventNarration } from "@/a11y";
+import { FastForward, Pulse, SkipMotionButton, useAnimationQueue } from "@/animation";
 import type { Command, PlayerView, RentQuote } from "@/api";
 import {
   Board,
@@ -56,12 +57,14 @@ import {
   SkipAnimationsToggle,
   Token,
   TOKEN_PX,
+  type BoardMotion,
   type Translate,
 } from "@/board";
 import { useCopy } from "@/i18n/copy";
 import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
+import { CompareTray, PinToggle } from "@/panels/CompareTray";
 import { EventLog } from "@/panels/EventLog";
 import { noteLines } from "@/panels/EventLogLines";
 import { HintPanel, RentExplanation } from "@/panels/HintPanel";
@@ -70,6 +73,7 @@ import { PlayerDossier } from "@/panels/PlayerDossier";
 import { ErrorState, LoadingState } from "@/panels/States";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
+import { ReplayButton } from "@/replay";
 import { MuteToggle, useSoundCues } from "@/sound";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "@/theme";
 
@@ -135,6 +139,10 @@ function Chrome({
           {/* Saving is available at any point in a game, including while the first view is still in
               flight — the file comes from the server's state, not from this screen's copy of it. */}
           <SaveGameButton />
+          {/* The replay (MON-705), beside the save button because both are "what happened", not "what
+              now". It fetches its own copy of the event log and renders over this screen without
+              touching it, so watching turn three mid-game leaves the live board exactly where it is. */}
+          <ReplayButton />
           <button
             type="button"
             onClick={onLeave}
@@ -154,11 +162,14 @@ function TurnSummary({
   players,
   currentId,
   turnNumber,
+  cashPulse,
   t,
 }: {
   readonly players: readonly PlayerView[];
   readonly currentId: number;
   readonly turnNumber: number;
+  /** The animation queue's cash beat for the acting seat (MON-701). Presentation only. */
+  readonly cashPulse?: number | undefined;
   /** The screen's translate, so the well's wording matches the column beside it. */
   readonly t: Translate;
 }): React.JSX.Element {
@@ -176,9 +187,12 @@ function TurnSummary({
       </p>
       <p className="flex items-baseline gap-2 text-xs">
         <span className="opacity-80">{t("label.cash")}</span>
-        <span dir="ltr" className="font-bold tabular-nums">
-          {current?.cash ?? 0}
-        </span>
+        {/* The figure is the projection's; the beat only decides whether it arrives with a swell. */}
+        <Pulse nonce={cashPulse}>
+          <span dir="ltr" className="font-bold tabular-nums">
+            {current?.cash ?? 0}
+          </span>
+        </Pulse>
       </p>
     </div>
   );
@@ -247,6 +261,18 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   // The same wire, to the speaker (MON-706). Called here for the same reason and from the same feed,
   // so a cue and a sentence describe the same event exactly once each.
   useSoundCues();
+  /*
+    And the same wire to the board's motion (MON-701). Third subscriber, same feed, same rule: one
+    event produces one settle, one sentence and one click.
+
+    What comes back is an **override on presentation** and is never read to decide anything. Note
+    what is *not* below: no `motion.playing &&` around the action bar, no `disabled` while a piece is
+    travelling, no `await` before a command. The bar renders `legalCommands` the moment they arrive
+    and `dispatch` posts immediately, so a player can act through any animation — which is
+    MON-701's "nothing blocks input, ever", and it holds structurally rather than by care because
+    there is nowhere in this file for a wait to be added.
+  */
+  const motion = useAnimationQueue();
 
   const playersHeadingId = useId();
 
@@ -260,6 +286,24 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
   /** A trade offer this seat has read and put down. UI-local: the frame is still live. */
   const [dismissedTrade, setDismissedTrade] = useState<string | null>(null);
+
+  /**
+   * The two overrides the board takes, as one stable object.
+   *
+   * Memoised on the two maps rather than rebuilt per render, because `<Board>` keys its occupant
+   * grouping off this identity — a fresh object every render would recompute forty squares' worth of
+   * grouping for a keystroke in the trade panel.
+   */
+  const boardMotion = useMemo<BoardMotion>(
+    () => ({
+      positionOf: (playerId: number) => motion.tokens.get(playerId),
+      popNonce: (tile: number) => motion.buildings.get(tile),
+    }),
+    [motion.tokens, motion.buildings],
+  );
+
+  /** The cash beat for one seat. A lookup, handed to whichever card is showing that seat. */
+  const cashPulse = useCallback((playerId: number) => motion.cash.get(playerId), [motion.cash]);
 
   /**
    * What the rule set in force means for the screen (MON-604).
@@ -429,24 +473,47 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             t={translate}
           />
 
-          <Board
-            board={board}
-            state={state}
-            actionsRegionId={ACTIONS_REGION_ID}
-            onOpenTile={selectTile}
-          >
-            {/* The 9 x 9 interior well, which `Board` takes `children` for. */}
-            <div className="flex flex-col items-center gap-2">
-              <TurnSummary
-                players={state.players}
-                currentId={state.current_player_id}
-                turnNumber={state.turn_number}
-                t={translate}
-              />
-              {/* The switch lives in the chrome, so the tray does not draw a second one. */}
-              <DiceTray dice={state.dice} withSkipToggle={false} />
-            </div>
-          </Board>
+          {/*
+            Impatience is an instruction (MON-701). Any click or keypress inside this wrapper
+            fast-forwards the timeline, in the capture phase and without swallowing the gesture — so
+            the click that opened a square also finished the flourish, and the piece is on its true
+            square by the time the sheet describing it appears. `<FastForward>` adds no role and no
+            tab stop; the real affordance is the button below it.
+          */}
+          <FastForward onSkip={motion.skip}>
+            <Board
+              board={board}
+              state={state}
+              motion={boardMotion}
+              actionsRegionId={ACTIONS_REGION_ID}
+              onOpenTile={selectTile}
+            >
+              {/* The 9 x 9 interior well, which `Board` takes `children` for. */}
+              <div className="flex flex-col items-center gap-2">
+                <TurnSummary
+                  players={state.players}
+                  currentId={state.current_player_id}
+                  turnNumber={state.turn_number}
+                  cashPulse={cashPulse(state.current_player_id)}
+                  t={translate}
+                />
+                {/*
+                  The switch lives in the chrome, so the tray does not draw a second one. The settle
+                  comes from the event stream rather than from a change in `state.dice`, which is
+                  what makes two identical consecutive rolls tumble twice.
+                */}
+                <DiceTray dice={state.dice} withSkipToggle={false} settleNonce={motion.dice} />
+              </div>
+            </Board>
+          </FastForward>
+
+          {/*
+            The visible skip. A different thing from the chrome's `<SkipAnimationsToggle>`: that one
+            is a remembered preference, this one is "catch up, now". It stays put and reports itself
+            unavailable rather than vanishing, so pressing it never drops the keyboard focus into the
+            void mid-turn — see `SkipMotionButton.tsx`.
+          */}
+          <SkipMotionButton playing={motion.playing} onSkip={motion.skip} className="self-center" />
 
           {squareNote !== null && (
             <div className="bg-tile text-ink border-hairline flex flex-col gap-1 rounded-xl border p-3 text-sm">
@@ -546,6 +613,11 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                 );
               })}
             </div>
+            {/*
+              The pin toggle rides in the dossier's `actions` slot, so pinning is reachable from the
+              surface that is already reachable for any player at any time (spec §5.2, MON-406/702).
+              The card itself learns nothing about comparing — see `CompareTray.tsx`.
+            */}
             <PlayerDossier
               player={shownPlayer}
               players={state.players}
@@ -553,12 +625,28 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
               properties={state.properties}
               isCurrent={shownPlayer.id === state.current_player_id}
               onSelectSquare={selectTile}
+              cashPulse={cashPulse(shownPlayer.id)}
+              actions={<PinToggle playerId={shownPlayer.id} name={shownPlayer.name} />}
             />
           </section>
 
           <EventLog events={events} players={state.players} board={board} />
         </aside>
       </div>
+
+      {/*
+        The compare tray (MON-702), below both columns rather than inside the 22 rem aside: three
+        cards side by side want the page's whole inline size, and the scroll that handles a narrower
+        screen belongs to the tray's own rail. It renders nothing at all until something is pinned.
+      */}
+      <CompareTray
+        players={state.players}
+        board={board}
+        properties={state.properties}
+        currentPlayerId={state.current_player_id}
+        onSelectSquare={selectTile}
+        cashPulse={cashPulse}
+      />
 
       {/*
         An auction is a phase, so the panel has no `onClose`: `ModalDialog` narrates

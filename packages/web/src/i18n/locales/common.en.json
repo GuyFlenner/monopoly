@@ -20,7 +20,9 @@
     "animations_on": "Animations on.",
     "animations_off": "Animations off.",
     "sound_on": "Sound on.",
-    "sound_off": "Sound off."
+    "sound_off": "Sound off.",
+    "pinned": "{{name}} pinned for comparison.",
+    "unpinned": "{{name}} no longer pinned."
   },
   "action": {
     "roll_dice": "Roll the dice",
@@ -155,6 +157,7 @@
     "compare": "Compare players",
     "pin": "Pin side by side",
     "unpin": "Unpin",
+    "pin_limit": "Up to {{max}} players can be compared at once.",
     "complete_set": "Complete set",
     "set_progress": "{{owned}} of {{total}}",
     "empty": "No properties yet",
@@ -387,6 +390,10 @@
     "game_ended": "{{name}} wins — {{reason}}.",
     "game_ended_no_winner": "The game is over — {{reason}}."
   },
+  "motion": {
+    "skip_now": "Finish the animation",
+    "nothing_moving": "Nothing is moving"
+  },
   "panel": {
     "close": "Close",
     "go_back": "No, go back"
@@ -403,6 +410,24 @@
       "with_hotel": "There is a hotel here, which charges the top rent.",
       "with_houses": "Rent goes up with each house: {{houses}} here."
     }
+  },
+  "replay": {
+    "back": "Back",
+    "board_label": "The board, as the events describe it",
+    "controls": "Replay controls",
+    "empty": "This game has no events to step through yet.",
+    "first": "First",
+    "forward": "Forward",
+    "last": "Last",
+    "nothing_yet": "Nothing has happened yet. Step forward to watch the game unfold.",
+    "open": "Watch the replay",
+    "position": "Event {{position}} of {{total}}",
+    "seats": "The players, as the events describe them",
+    "slider": "Position in the game",
+    "square": "Square",
+    "throw": "Rolled {{first}} and {{second}} — {{total}} in all",
+    "title": "Replay",
+    "unstated": "not said yet"
   },
   "ruleset": {
     "name": "Rule set",

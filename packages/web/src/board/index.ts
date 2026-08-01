@@ -12,7 +12,7 @@
  */
 
 export { Board } from "./Board";
-export type { BoardProps } from "./Board";
+export type { BoardMotion, BoardProps } from "./Board";
 
 export { DiceTray, SkipAnimationsToggle, TUMBLE_MS } from "./DiceTray";
 export type { DiceTrayProps, SkipAnimationsToggleProps } from "./DiceTray";
