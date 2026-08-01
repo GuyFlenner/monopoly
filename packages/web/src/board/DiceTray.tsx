@@ -157,12 +157,25 @@ export interface DiceTrayProps {
   readonly tumbleMs?: number;
   /** Render the skip switch alongside the dice. Off if a settings bar owns it instead. */
   readonly withSkipToggle?: boolean;
+  /**
+   * The animation queue's dice beat (MON-701), when a screen has one.
+   *
+   * It replaces the signature heuristic below, and it is strictly better: the beat is bumped by a
+   * `dice_rolled` **event**, so two identical consecutive rolls tumble twice and a refetch that
+   * changes nothing tumbles not at all — the contract gap the note under `signature` records
+   * (`DiceView` carries no `roll_seq`), closed from the event stream rather than by adding a field.
+   *
+   * It cannot gate anything: the faces, the total and the doubles flag are rendered from `DiceView`
+   * whatever this is (GAP G-F2).
+   */
+  readonly settleNonce?: number | undefined;
 }
 
 export function DiceTray({
   dice,
   tumbleMs = TUMBLE_MS,
   withSkipToggle = true,
+  settleNonce,
 }: DiceTrayProps): React.JSX.Element {
   const { t } = useTranslation();
   const { durationMs } = useMotionPreference();
@@ -185,6 +198,9 @@ export function DiceTray({
   }, [signature]);
 
   const duration = durationMs(tumbleMs);
+  // The queue's beat when there is one, the signature heuristic when there is not, so a tray
+  // rendered outside a live game — a test, the setup screen's preview — still tumbles.
+  const settle = settleNonce ?? nonce;
 
   return (
     <div className="flex flex-col items-center gap-2" data-testid="dice-tray">
@@ -197,8 +213,8 @@ export function DiceTray({
       ) : (
         <>
           <span className="flex items-center gap-3">
-            <Die value={dice.first} nonce={nonce} durationMs={duration} delayMs={0} />
-            <Die value={dice.second} nonce={nonce} durationMs={duration} delayMs={70} />
+            <Die value={dice.first} nonce={settle} durationMs={duration} delayMs={0} />
+            <Die value={dice.second} nonce={settle} durationMs={duration} delayMs={70} />
           </span>
 
           <p className="text-on-table flex flex-col items-center gap-1 text-sm">

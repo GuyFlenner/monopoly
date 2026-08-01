@@ -85,9 +85,30 @@ const ARROW_DIRECTION: Readonly<Record<string, ScreenDirection>> = {
   ArrowRight: "right",
 };
 
+/**
+ * Presentation lag, and nothing else (MON-701).
+ *
+ * Two overrides, both with a fallback in the projection, so a board handed no motion at all draws
+ * exactly what it drew before this existed. `positionOf` returning `undefined` for a player means
+ * "that piece is not mid-journey, use `player.position`" — which is what makes a skipped animation
+ * land on the truth without this component or the animation queue computing a square (see
+ * `animation/queue.ts`'s idle contract).
+ *
+ * Neither field may ever be consulted for anything but where to draw a mark. There is no branch
+ * below that reads a position to decide what a square costs, who owns it, or what is legal.
+ */
+export interface BoardMotion {
+  /** Where a piece is being *drawn*, when that lags its true position. */
+  readonly positionOf?: ((playerId: number) => number | undefined) | undefined;
+  /** A beat per square, bumped when its buildings should pop. */
+  readonly popNonce?: ((tile: number) => number | undefined) | undefined;
+}
+
 export interface BoardProps {
   readonly board: BoardView;
   readonly state: GameStateView;
+  /** The animation queue's overrides. Omitted, every piece is drawn at its projected position. */
+  readonly motion?: BoardMotion | undefined;
   /**
    * Opens a square's detail sheet. The board decides *which* square, never what the sheet says —
    * a detail panel that explained rent would be rule logic outside the engine.
@@ -106,6 +127,7 @@ function cellDomId(index: number): string {
 export function Board({
   board,
   state,
+  motion,
   onOpenTile,
   actionsRegionId = "kesef-actions",
   children,
@@ -133,12 +155,16 @@ export function Board({
       if (player.bankrupt || seat === undefined) {
         continue;
       }
-      const standing = byTile.get(player.position) ?? [];
+      // Where the piece is *drawn*: the animation queue's square while it is travelling, and the
+      // projection's own the rest of the time. `player.position` is the fallback rather than the
+      // input, so the truth is what shows whenever nothing is in flight (MON-701).
+      const drawnAt = motion?.positionOf?.(player.id) ?? player.position;
+      const standing = byTile.get(drawnAt) ?? [];
       standing.push({ seat, name: player.name, isCurrent: player.id === state.current_player_id });
-      byTile.set(player.position, standing);
+      byTile.set(drawnAt, standing);
     }
     return byTile;
-  }, [state.players, state.current_player_id]);
+  }, [state.players, state.current_player_id, motion]);
 
   // i18next's `t` narrowed to the two arguments `describeTile` uses, so that the description
   // builder can stay pure and be tested against a fake that echoes its own key.
@@ -391,6 +417,7 @@ export function Board({
                           translate,
                         )}
                         overflowLabel={overflowLabel}
+                        popNonce={motion?.popNonce?.(placement.index)}
                         interactive={interactive}
                         isActive={placement.index === active}
                         domId={cellDomId(placement.index)}

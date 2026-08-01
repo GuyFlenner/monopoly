@@ -1,0 +1,72 @@
+/*
+ * The two keyframes MON-701 needs and Tailwind cannot say.
+ *
+ * Both are `scale` and `opacity` only. A `translateX` would need mirroring under `dir="rtl"` and is
+ * refused by Stylelint for that reason (`.stylelintrc.json`), so the animation that feels most like
+ * a physical object is also the one with no inline axis to get backwards. Token *travel* is not here
+ * at all: a piece moves by being drawn on a different square of the grid, which is a re-render
+ * rather than a transform, and therefore mirrors for free.
+ *
+ * `--kesef-motion-ms` is set in JS, per element, from `useReducedMotion()` and the player's own
+ * "skip animations" switch — the contract `board.css` established. Zero is a real value: a `0ms`
+ * animation still starts, still ends, and still fires `animationend` on the next frame, so a
+ * skipped flourish takes the same code path as a played one instead of a second, untested one
+ * (GAP G-F2/G-F3). The global `prefers-reduced-motion` block in `index.css` is a floor underneath
+ * this, not a substitute — `!important` on `animation-duration` cannot help a duration JS chooses.
+ */
+
+/* A figure that just changed. A swell and a settle, no colour flash: a colour would be a second
+ * channel saying something the sign of the number already says. */
+@keyframes kesef-pulse {
+  0% {
+    scale: 1;
+  }
+
+  40% {
+    scale: 1.18;
+  }
+
+  100% {
+    scale: 1;
+  }
+}
+
+/*
+ * `inline-block` is load-bearing rather than cosmetic: `scale` does not apply to a non-replaced
+ * inline box, so without it the pulse is silently a no-op — the kind of bug that looks like a
+ * missing animation and is actually a missing display type.
+ */
+.kesef-pulse {
+  display: inline-block;
+  animation-name: kesef-pulse;
+  animation-duration: var(--kesef-motion-ms, 0ms);
+  animation-timing-function: cubic-bezier(0.3, 1.4, 0.5, 1);
+  animation-iteration-count: 1;
+}
+
+/* A house arriving. It grows into place from nothing, which is what a hand putting one down looks
+ * like — and reads the same in reverse for a demolition, where the mark is on its way out. */
+@keyframes kesef-pop {
+  0% {
+    scale: 0.4;
+    opacity: 0.35;
+  }
+
+  60% {
+    scale: 1.25;
+    opacity: 1;
+  }
+
+  100% {
+    scale: 1;
+    opacity: 1;
+  }
+}
+
+.kesef-pop {
+  display: inline-block;
+  animation-name: kesef-pop;
+  animation-duration: var(--kesef-motion-ms, 0ms);
+  animation-timing-function: cubic-bezier(0.28, 0.9, 0.3, 1);
+  animation-iteration-count: 1;
+}

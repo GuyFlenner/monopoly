@@ -14,13 +14,15 @@
     "phase_auction": "התחילה מכירה פומבית.",
     "phase_debt_settlement": "יש לסלק חוב לפני שהמשחק ממשיך.",
     "phase_trade_review": "עסקה ממתינה לתשובה.",
+    "pinned": "{{name}} — הצמדה להשוואה.",
     "rent_charged": "תשלום שכר דירה של {{amount}}: {{payer}} אל {{owner}}.",
     "tile_hotel": ", עם מלון",
     "tile_houses": ", עם {{houses}} בתים",
     "tile_mortgaged": ", ממושכן",
     "tile_occupants": ". עומדים כאן: {{names}}.",
     "tile_one_house": ", עם בית אחד",
-    "turn": "התור של {{name}}."
+    "turn": "התור של {{name}}.",
+    "unpinned": "{{name}} — ביטול ההצמדה."
   },
   "action": {
     "build_house": "בנה בית",
@@ -153,15 +155,16 @@
   "dossier": {
     "all_players": "הנכסים של כולם",
     "bot": "מחשב",
-    "compare": "השווה שחקנים",
+    "compare": "השוואת שחקנים",
     "complete_set": "סדרה שלמה",
     "empty": "אין נכסים עדיין",
     "other_holdings": "רכבות ומפעלים",
-    "pin": "הצמד זה לזה",
+    "pin": "הצמדה להשוואה",
+    "pin_limit": "אפשר להשוות עד {{max}} שחקנים בבת אחת.",
     "seat": "מושב {{seat}}",
     "set_progress": "{{owned}} מתוך {{total}}",
     "title": "הנכסים של {{name}}",
-    "unpin": "בטל הצמדה"
+    "unpin": "ביטול הצמדה"
   },
   "error": {
     "already_mortgaged": "המשבצת הזו כבר ממושכנת.",
@@ -377,6 +380,10 @@
     "turn_started": "תור {{turn}} · {{name}}",
     "unknown_tile": "משבצת על הלוח",
     "unmortgaged": "{{tile}}: פדיון המשכנתא על ידי {{name}}."
+  },
+  "motion": {
+    "nothing_moving": "אין תנועה כרגע",
+    "skip_now": "סיום האנימציה"
   },
   "panel": {
     "close": "סגור",
