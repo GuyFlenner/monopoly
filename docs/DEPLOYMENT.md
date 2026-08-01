@@ -7,33 +7,37 @@ has to stay private.
 
 ---
 
-## 1. Turn it on
+## 1. Turn it on (one time, by hand — and it genuinely cannot be automated)
 
-**The workflow does it.** `actions/configure-pages` runs with `enablement: true`, so the first
-deploy switches Pages on and sets its source to *GitHub Actions* by itself. Push to `main`, or run
-**Actions → Deploy to GitHub Pages → Run workflow**; the live URL appears on the run and is
-`https://<owner>.github.io/<repo>/`.
+1. **Settings → Pages → Build and deployment → Source: `GitHub Actions`.**
+2. Push to `main`, or run **Actions → Deploy to GitHub Pages → Run workflow**.
+3. The live URL appears on the workflow run, and is `https://<owner>.github.io/<repo>/`.
 
-This is a correction, not a convenience. The first run after MON-805 merged did everything right —
-built both wheels, played a real turn in a real browser against real Pyodide at the real base path —
-and then failed on `configure-pages`, because `GET /repos/{owner}/{repo}/pages` was a 404 and the
-step had been told not to enable anything. A one-line settings dependency is a poor gate for a
-deploy that had already proved itself.
+Step 1 is a click, and it was worth establishing that no amount of workflow configuration replaces
+it. `actions/configure-pages` accepts `enablement: true`, which is meant to create the site on
+first use; tried on this repository, the API refused the workflow's own credentials:
 
-What the workflow can and cannot do is worth being precise about, since "a workflow that enables
-publishing" sounds alarming: `pages: write` lets it set this repository's **Pages build source** to
-the workflow that is already running. It cannot change repository visibility, and it does not make a
-private repository's code public. If the repository is private, Pages stays a paid feature — the
-free routes are in [§5](#5-if-the-repository-must-stay-private).
+```
+Get Pages site failed.    Error: Not Found
+Create Pages site failed. Error: Resource not accessible by integration
+```
 
-If you would rather hold the switch yourself, set `enablement: false` in
-`.github/workflows/deploy-pages.yml` and flip **Settings → Pages → Build and deployment → Source:
-`GitHub Actions`** by hand instead. Until Pages is on either way, `actions/deploy-pages` fails with
-*"Get Pages site failed"*.
+Creating a Pages site requires repository-administration rights. The default `GITHUB_TOKEN` does not
+carry them, however many `permissions:` the workflow declares — `pages: write` is enough to *deploy*
+to a site that exists, not to bring one into being. The only alternatives are an owner's click or a
+stored PAT with admin scope, and an admin-scoped token committed to CI is a much larger thing to own
+than one checkbox.
 
-> **A private repository needs GitHub Pro.** Pages on a private repo is a paid feature. If that is
-> not the plan, see [§5](#5-if-the-repository-must-stay-private) — there are three free routes and
-> all of them keep the source private.
+So the failure mode is worth recognising rather than debugging twice: on a repository where Pages has
+never been switched on, this workflow builds everything correctly, smoke-tests the artifact in a real
+browser, and *then* fails on `configure-pages` with *"Get Pages site failed"*. That is the checkbox,
+not the build. Every run after the switch finds the site and passes.
+
+> **A private repository needs GitHub Pro.** Pages on a private repo is a paid feature — and note
+> that this is about the *site*, not the code: nothing in this workflow can change repository
+> visibility. If Pro is not the plan, see [§5](#5-if-the-repository-must-stay-private) — three free
+> routes, all of which keep the source private.
+
 
 ---
 
