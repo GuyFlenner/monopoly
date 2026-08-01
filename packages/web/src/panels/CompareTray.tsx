@@ -189,8 +189,8 @@ export function CompareTray({
         the named region, and a second one with the same name is two landmarks for one tray. The
         suppression below is `EventLog`'s, for the identical reason and with the identical shape.
       */}
-      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex */}
       <div
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
         tabIndex={0}
         data-testid="compare-tray-rail"
         className="flex items-start gap-3 overflow-x-auto overflow-y-visible pb-2"
