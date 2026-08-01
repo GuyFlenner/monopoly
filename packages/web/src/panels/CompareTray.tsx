@@ -171,10 +171,15 @@ export function CompareTray({
       data-pinned={cards.length}
       className="flex min-w-0 flex-col gap-2"
     >
-      <h2
-        id={headingId}
-        className="text-on-table text-xs font-semibold tracking-[0.16em] uppercase opacity-80"
-      >
+      {/*
+        Inherited ink, not `text-on-table`. `--color-on-table` is the near-white for text painted
+        *directly on the felt* — the board's interior well, the auction's bidder rail, both of which
+        sit on a `bg-table` box. The tray sits on the page, which has no felt behind it, so that
+        colour would be a near-white heading on a light background: a contrast failure invisible to
+        anyone reading the class name and obvious to anyone looking at the screen. The aside's own
+        section heading is the pattern this follows.
+      */}
+      <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">
         {t("dossier.compare")}
       </h2>
 
