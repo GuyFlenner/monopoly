@@ -76,7 +76,7 @@ from dataclasses import dataclass
 
 import structlog
 
-from kesef_engine.bots import EasyBot, NormalBot
+from kesef_engine.bots import EasyBot, HardBot, NormalBot
 from kesef_engine.bots.base import Bot, BotLevel
 from kesef_engine.commands import Command
 from kesef_engine.events import Event, TradeProposed, TurnStarted
@@ -87,13 +87,22 @@ from kesef_engine.state import GameState
 
 log = structlog.get_logger(__name__)
 
-_BOTS: dict[BotLevel, Bot] = {BotLevel.EASY: EasyBot(), BotLevel.NORMAL: NormalBot()}
+_BOTS: dict[BotLevel, Bot] = {
+    BotLevel.EASY: EasyBot(),
+    BotLevel.NORMAL: NormalBot(),
+    BotLevel.HARD: HardBot(),
+}
 """One instance per level, shared across every game.
 
 Safe because a bot holds no state — that is a promise of the `Bot` protocol, and `test_bot_easy.py`
-pins it. `hard` joins this table at MON-603; a level with no entry is treated as "no bot drives it",
-which leaves the seat waiting rather than crashing a game that a newer client seated with a level this
-server does not implement.
+pins it. The hard bot spends a bounded rollout budget per move and keeps its counters inside the call
+(`kesef_engine.bots.hard.search`), so sharing one instance across concurrent games is safe for the same
+reason as the other two.
+
+**Every level in `BotLevel` now has an entry**, as of MON-603, and `test_bot_driving.py` asserts that
+rather than trusting it. The `.get` below still returns `None` for a missing level, because "a level
+this server cannot drive leaves the seat waiting" is a better failure than a crashed game if a future
+level is added to the enum before its bot exists.
 """
 
 
