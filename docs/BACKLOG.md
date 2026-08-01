@@ -648,8 +648,17 @@ command) depends on this item and is still open — the setup screen already off
 - Random among legal commands, but always buys what it can afford.
 - Deterministic from `state.rng.fork(...)` — never a global RNG.
 
-### MON-602 — Normal bot 🚧 **BLOCKED on a protocol decision**
+### MON-602 — Normal bot ✅ **DONE**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-601
+
+**Delivered 2026-07-30 (PR #18), by option 1 — ADR-009.** A bot may return a constructed
+`ProposeTrade`, validated by `is_legal`/`apply` like anybody's draft; drivers ration it to one
+proposal per seat per turn (a stateless bot re-proposing into an unchanged position would loop
+forever — the guard is verified non-vacuous: stubbing it loops 40k commands on seed 3). Final
+contest: **74/100 wins, 0 draws, 0 capped** (was 69/12), turns max 501→206 — games end because
+rent gets big, not because the clock ran out. The contest is asserted in the suite, not reported
+in prose. The server drives `normal` seats. The section below records the blocked state and the
+three options as they stood, for the decision history.
 
 **Progress 2026-07-29.** The harness (`packages/engine/tests/tournament.py`) and the bot
 (`bots/normal.py`) are written. Measured over the stated 100 games:
@@ -700,8 +709,17 @@ standard to keep.
   challenger; the harness caps games at 500 turns scored by net worth, with ≤ 5 capped games
   allowed — a bot that cannot close out a game is itself a failure.
 
-### MON-603 — Hard bot
+### MON-603 — Hard bot ✅ **DONE**
 **Tier**: Fable · **Size**: L · **Depends on**: MON-602
+
+**Delivered 2026-08-01 (PR #24).** `HardBot` subclasses `NormalBot` via three named seams; adds a
+threat-scaled reserve, denial bids priced into willingness-to-pay, rent-priced trade scepticism,
+and short rollouts (`ROLLOUTS_PER_MOVE=6`, `MAX_APPLY_CALLS_PER_MOVE=78`, asserted on counters;
+wall-clock reported, never asserted). Contests: **80/100 vs normal, 89/100 vs easy, 0 capped**.
+An ablation pins that the search matters (heuristics-only drops to 15/30). Rollout randomness
+forks `state.rng` per (fingerprint, candidate, sample) — the dice stream itself is asserted
+untouched. Contests run under the `slow` marker in the nightly lane; the empty-lane tolerance is
+removed.
 
 - Heuristics plus short Monte-Carlo rollouts on cloned states.
 - Wins ≥ 60/100 against the normal bot **and** ≥ 60/100 against the easy bot (transitivity is
@@ -710,15 +728,31 @@ standard to keep.
   counters; wall-clock is a reported metric, never a pass/fail assertion (the canonical flaky
   test, G-F30). The suite runs under a `slow` marker in the nightly job, not the PR gate.
 
-### MON-604 — Kids Mode in the UI
+### MON-604 — Kids Mode in the UI ✅ **DONE**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-405
+
+**Delivered 2026-07-31 (PR #23).** `game/presentation.ts` draws the line: reading a ruleset flag
+to decide whether to *draw* is presentation; what may be *sent* stays the engine's. Auction and
+mortgage affordances were already command-driven (absent, not disabled) — the one real defect was
+a confirm sentence promising an auction that Kids Mode disables, now flag-selected in both
+locales. One `[data-comfort="kids"]` rule raises every target 44→56 px; `useCopy` prefers
+`kids.*` twins (13, both locales, infinitive Hebrew — gender-free); `TurnBanner` gives a
+pre-reader shape+colour+icon+name. A live auction interrupt still mounts its panel — hiding a
+phase the engine is in would strand the table.
 
 - Auction and mortgage affordances **absent, not disabled** — an unreachable button is
   clutter to a child.
 - Larger targets, simpler language, a visible turn indicator a pre-reader can follow.
 
-### MON-605 — Hints
+### MON-605 — Hints ✅ **DONE**
 **Tier**: Opus · **Size**: M · **Depends on**: MON-604
+
+**Delivered 2026-07-31 (PR #23).** `panels/hints.ts` ranks the 17 command kinds by a static,
+compile-time-covered preference (never picks between accept/decline — that's strategy);
+`suggest` returns the very object from `legal_commands` so the ActionBar marks it by identity.
+`HintPanel` has deliberately no button — a shortcut would bypass MON-412's terminal-command
+confirm. Rent maths folds out from `RentQuote`'s own figures under MON-420's `rent.note.*`
+sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhere.
 
 - Ranks the legal commands and highlights one, with a reason from the catalogue.
 - Explains rent maths on demand using `rent.note.*` — in both languages.
@@ -728,27 +762,57 @@ standard to keep.
 
 ## E7 — Polish · M7
 
-| ID | Item | Tier | Size |
-|---|---|---|---|
-| MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L |
-| MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M |
-| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M |
-| MON-704 | Save / load to a file — `GameState` already serializes, so this is UI plus a schema-version check | Sonnet | S |
-| MON-705 | Replay viewer: step through a recorded game's events | Opus | M |
-| MON-706 | Sound cues (dice, cash, purchase, jail) with a mute that persists | Sonnet | S |
-| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M |
-| MON-708 | Empty, loading and error states for every screen | Sonnet | S |
+| ID | Item | Tier | Size | Status |
+|---|---|---|---|---|
+| MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L | 🔄 in review (PR #27) |
+| MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M | 🔄 in review (PR #27) |
+| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | open — runs last, over the final UI; `axe-core` + `src/test/axe.ts` landed with MON-708 |
+| MON-704 | Save / load to a file — `GameState` already serializes, so this is UI plus a schema-version check | Sonnet | S | ✅ PR #22 — `POST /games/load` validates `SCHEMA_VERSION` as a keyed 422; load reachable even from error frames, since a save carries its own board |
+| MON-705 | Replay viewer: step through a recorded game's events | Opus | M | 🔄 in review (PR #26) — pure client accumulator that copies only facts events assert |
+| MON-706 | Sound cues (dice, cash, purchase, jail) with a mute that persists | Sonnet | S | ✅ PR #22 — Web Audio synth, one subscription beside the Announcer's; `rent_charged` deliberately un-cued (its `cash_changed` twin already sounds) |
+| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | mostly landed incrementally (27+ specs, both locales, RTL geometry, kids, trade); MON-703's pass closes it |
+| MON-708 | Empty, loading and error states for every screen | Sonnet | S | ✅ PR #22 — one `EmptyState`/`LoadingState`/`ErrorState` set; added the missing retry on a game screen's failed first fetch |
 
 ---
 
 ## E8 — Release · M8
 
-| ID | Item | Tier | Size |
-|---|---|---|---|
-| MON-801 | README with a real gameplay GIF in both languages | Sonnet | S |
-| MON-802 | Create the public GitHub repo and push — **human runs this**; the guard blocks agents from repo visibility changes | human | S |
-| MON-803 | Optional deploy: static web + server on a free tier, or a single container | Opus | M |
-| MON-804 | `CONTRIBUTING.md` and issue templates | Sonnet | S |
+| ID | Item | Tier | Size | Status |
+|---|---|---|---|---|
+| MON-801 | README with a real gameplay GIF in both languages | Sonnet | S | ✅ PR #20 — `README.md` + `README.he.md`, real captured gameplay GIFs per locale (245/254 KB, inter-frame transparency to pass the 500 KB hook honestly) |
+| MON-802 | Create the public GitHub repo and push — **human runs this**; the guard blocks agents from repo visibility changes | human | S | ✅ — `GuyFlenner/monopoly`, public, everything flows through PRs |
+| MON-803 | Optional deploy: static web + server on a free tier, or a single container | Opus | M | superseded by MON-805 — the owner made online play a requirement, and the serverless static form won |
+| MON-804 | `CONTRIBUTING.md` and issue templates | Sonnet | S | ✅ PR #20 — bug template leads with seed + command list, because games are reproducible by design |
+
+### MON-805 — Online play at a public URL (GitHub Pages, engine in-browser) 🔄 **in review (PR #25)**
+**Tier**: Fable design / Opus build · **Size**: L · **Depends on**: everything playable · *(added
+2026-07-30 — owner requirement: play from a URL with GitHub hosting the source, no IDE, no local
+run; keeping the repo private must stay possible)*
+
+- The engine and the server's pure modules (sessions, schemas, bots — none import FastAPI) run
+  in the browser via Pyodide; `kesef_server/browser.py` is the transport for a browser with no
+  server, kept honest by a parity test against the HTTP routes.
+- The web client plugs a local transport into `ApiClient`'s injectable `fetch`/`createSocket` —
+  the UI cannot tell which transport it is on, and still holds zero rules.
+- `VITE_ENGINE=local` selects it; wheels are built in CI and installed by micropip;
+  `.github/workflows/deploy-pages.yml` publishes to GitHub Pages (owner enables Pages once:
+  Settings → Pages → Source: GitHub Actions).
+- **Private-repo option** (owner asked): GitHub Pro unlocks private-repo Pages; or CI pushes the
+  built site to a separate public deploy repo; or Cloudflare Pages / Netlify / Vercel build from
+  a private repo — all free. `docs/DEPLOYMENT.md` walks through each.
+
+### MON-806 — One bot driver per game at a time ✅ **DONE**
+**Tier**: Fable · **Size**: S · *(found 2026-07-30 by MON-801's capture rig, fixed same day, PR #21)*
+
+Every command queued `_advance_bots` as a background task, so two quick commands gave one game
+two drivers, and the read-one-step-write loop raced its twin: same position read twice, same
+move computed twice, same events appended twice — reproduced over pure HTTP, 14 repeated
+signatures in a 62-event log. `Session.advance_lock` serializes drivers (the lock lives on the
+session because its lifetime *is* the game's); the latecomer re-reads a finished position and
+leaves. A skip-if-running flag would have been cheaper and wrong — the running driver may have
+already decided "nothing to do" from the position *before* the command that queued the second
+task. Both regression tests fail on the unfixed code; the race test needs a 1 ms think delay
+because a coroutine that never yields cannot race.
 
 ---
 
@@ -758,6 +822,12 @@ Each was found by a component that then had to work around it. Every workaround 
 a passive-voice sentence, a translation at the render boundary, or a client-side diff — i.e.
 a place where the UI is doing something the engine or the projection should do. **Tier**:
 Opus unless noted · **Size**: S each unless noted.
+
+> **Status 2026-07-31: every row below is ✅ DONE.** MON-416 and MON-422 closed in M4's
+> follow-up session; the remaining eight (413/414/415/417/418/419/420/421) landed together in
+> PR #19, each fix deleting the workaround that had reported it. The one golden shift
+> (MON-414's `player` on `mortgage_changed`) was proven to be exactly 24 lines before the
+> official regeneration — the discipline held.
 
 | ID | Gap | Found by | Fix |
 |---|---|---|---|
