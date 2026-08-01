@@ -70,6 +70,7 @@ import { PlayerDossier } from "@/panels/PlayerDossier";
 import { ErrorState, LoadingState } from "@/panels/States";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
+import { ReplayButton } from "@/replay";
 import { MuteToggle, useSoundCues } from "@/sound";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "@/theme";
 
@@ -135,6 +136,10 @@ function Chrome({
           {/* Saving is available at any point in a game, including while the first view is still in
               flight — the file comes from the server's state, not from this screen's copy of it. */}
           <SaveGameButton />
+          {/* The replay (MON-705), beside the save button because both are "what happened", not "what
+              now". It fetches its own copy of the event log and renders over this screen without
+              touching it, so watching turn three mid-game leaves the live board exactly where it is. */}
+          <ReplayButton />
           <button
             type="button"
             onClick={onLeave}

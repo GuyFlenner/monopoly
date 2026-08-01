@@ -392,6 +392,24 @@
       "with_houses": "Rent goes up with each house: {{houses}} here."
     }
   },
+  "replay": {
+    "back": "Back",
+    "board_label": "The board, as the events describe it",
+    "controls": "Replay controls",
+    "empty": "This game has no events to step through yet.",
+    "first": "First",
+    "forward": "Forward",
+    "last": "Last",
+    "nothing_yet": "Nothing has happened yet. Step forward to watch the game unfold.",
+    "open": "Watch the replay",
+    "position": "Event {{position}} of {{total}}",
+    "seats": "The players, as the events describe them",
+    "slider": "Position in the game",
+    "square": "Square",
+    "throw": "Rolled {{first}} and {{second}} — {{total}} in all",
+    "title": "Replay",
+    "unstated": "not said yet"
+  },
   "ruleset": {
     "name": "Rule set",
     "starting_cash": "Starting cash",
