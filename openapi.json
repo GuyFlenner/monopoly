@@ -64,7 +64,7 @@
           "meta"
         ],
         "summary": "List Rulesets",
-        "description": "Both rulesets, fully expanded, so the UI can show what Kids Mode actually changes.",
+        "description": "Both rulesets, expanded and labelled, so the UI can show what Kids Mode actually changes.\n\nReturns ``RulesetView`` rather than the raw ``Ruleset`` since MON-417 (G-36): each setting\narrives with its ``label_key`` and a ``differs_from_universal`` the engine decided, which is\nwhat deleted the setup screen's client-side diff and its hand-kept label map.",
         "operationId": "list_rulesets_rulesets_get",
         "responses": {
           "200": {
@@ -73,7 +73,7 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/Ruleset"
+                    "$ref": "#/components/schemas/RulesetView"
                   },
                   "type": "array",
                   "title": "Response List Rulesets Rulesets Get"
@@ -113,7 +113,7 @@
           "game"
         ],
         "summary": "Create Game",
-        "description": "Start a game and return the opening view.",
+        "description": "Start a game and return the opening view. Any bot moves stream in behind it.",
         "operationId": "create_game_games_post",
         "requestBody": {
           "content": {
@@ -465,7 +465,7 @@
           "game"
         ],
         "summary": "Submit Command",
-        "description": "Apply one command. The only way a game changes.\n\n``async`` on purpose: it puts the handler on the event loop, so appending to a live\nWebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from\na thread-pool worker.",
+        "description": "Apply one command, then let the bots answer it. The only way a game changes.\n\n``async`` on purpose: it puts the handler on the event loop, so appending to a live\nWebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from\na thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,\nand a handler off the loop could not yield to let those pushes drain.",
         "operationId": "submit_command_games__game_id__commands_post",
         "parameters": [
           {
@@ -1133,6 +1133,10 @@
           "ownable_count": {
             "type": "integer",
             "title": "Ownable Count"
+          },
+          "catalogue_ready": {
+            "type": "boolean",
+            "title": "Catalogue Ready"
           }
         },
         "type": "object",
@@ -1140,7 +1144,8 @@
           "id",
           "name_key",
           "tile_count",
-          "ownable_count"
+          "ownable_count",
+          "catalogue_ready"
         ],
         "title": "BoardSummary",
         "description": "Board metadata for the new-game screen. Names arrive as keys; the UI translates."
@@ -1162,6 +1167,10 @@
             "type": "array",
             "title": "Tiles"
           },
+          "catalogue_ready": {
+            "type": "boolean",
+            "title": "Catalogue Ready"
+          },
           "go_to_jail_target": {
             "type": "integer",
             "title": "Go To Jail Target"
@@ -1172,6 +1181,7 @@
           "id",
           "name_key",
           "tiles",
+          "catalogue_ready",
           "go_to_jail_target"
         ],
         "title": "BoardView",
@@ -1236,13 +1246,22 @@
           "delta": {
             "type": "integer",
             "title": "Delta"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "house",
+              "hotel"
+            ],
+            "title": "Level"
           }
         },
         "type": "object",
         "required": [
           "tile",
           "houses",
-          "delta"
+          "delta",
+          "level"
         ],
         "title": "BuildingChanged"
       },
@@ -2381,6 +2400,21 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Hotels Remaining"
+          },
+          "rent_quotes": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RentQuote"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Rent Quotes",
+            "default": []
           }
         },
         "type": "object",
@@ -2593,7 +2627,7 @@
           "mortgaged_count"
         ],
         "title": "GroupHoldings",
-        "description": "One colour group as one player holds it (G-31/G-32).\n\nEvery number is a copy or an engine call: ``complete`` is\n``state.owns_whole_group(...)``, not ``owned == total``, because \"may this player\nbuild\" is the engine's answer to give. ``houses`` sums ``PropertyState.houses`` with\nthe engine's own semantics, in which 5 means a hotel."
+        "description": "One colour group as one player holds it (G-31/G-32) — a verbatim copy since MON-421.\n\nEvery number used to be \"a copy or an engine call\", and three of the six were the second kind\nonly in the sense that they were arithmetic *beside* an engine call: ``owned``, ``houses`` and\n``mortgaged_count`` were computed here from ``state.properties``, which made this the third\ncopy of the ``properties[i].owner == player`` predicate while ``complete`` came from the\nengine. Half a row from the rules and half from a loop next to them is how the two halves end\nup able to disagree.\n\n``kesef_engine.state.GroupHoldings`` now answers all six, and this is the wire twin of it —\ndeclared rather than re-exported for the reason the module docstring gives: a view is a copy\nwith an explicit, greppable shape, and ``test_projection.py`` checks the field-by-field parity\nmechanically."
       },
       "LeftJail": {
         "properties": {
@@ -2795,6 +2829,10 @@
             "title": "Type",
             "default": "mortgage_changed"
           },
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
           "tile": {
             "type": "integer",
             "title": "Tile"
@@ -2806,6 +2844,7 @@
         },
         "type": "object",
         "required": [
+          "player",
           "tile",
           "mortgaged"
         ],
@@ -2845,8 +2884,6 @@
               "$ref": "#/components/schemas/SeatConfig"
             },
             "type": "array",
-            "maxItems": 6,
-            "minItems": 2,
             "title": "Seats"
           },
           "board_id": {
@@ -3384,16 +3421,6 @@
       },
       "RentCharged": {
         "properties": {
-          "type": {
-            "type": "string",
-            "const": "rent_charged",
-            "title": "Type",
-            "default": "rent_charged"
-          },
-          "payer": {
-            "type": "integer",
-            "title": "Payer"
-          },
           "owner": {
             "type": "integer",
             "title": "Owner"
@@ -3410,7 +3437,113 @@
           "base_rent": {
             "type": "integer",
             "minimum": 0.0,
-            "title": "Base Rent"
+            "title": "Base Rent",
+            "default": 0
+          },
+          "houses": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Houses",
+            "default": 0
+          },
+          "multiplier": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Multiplier",
+            "default": 1
+          },
+          "dice_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dice Total"
+          },
+          "group": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ColorGroup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note_keys": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Note Keys",
+            "default": []
+          },
+          "note_params": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Note Params"
+          },
+          "type": {
+            "type": "string",
+            "const": "rent_charged",
+            "title": "Type",
+            "default": "rent_charged"
+          },
+          "payer": {
+            "type": "integer",
+            "title": "Payer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "owner",
+          "tile",
+          "amount",
+          "payer"
+        ],
+        "title": "RentCharged",
+        "description": "Narration for a rent payment. The money itself moves in ``CashChanged``.\n\nEverything needed to *explain* the figure is here, because \"every rent figure can be\nexplained, not merely charged\" is a product gate and the explanation must survive in\nthe log after the board has changed underneath it.\n\nThe explanation is inherited rather than restated: see :class:`RentQuote`."
+      },
+      "RentQuote": {
+        "properties": {
+          "owner": {
+            "type": "integer",
+            "title": "Owner"
+          },
+          "tile": {
+            "type": "integer",
+            "title": "Tile"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "base_rent": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Base Rent",
+            "default": 0
           },
           "houses": {
             "type": "integer",
@@ -3471,14 +3604,11 @@
         },
         "type": "object",
         "required": [
-          "payer",
           "owner",
-          "tile",
-          "amount",
-          "base_rent"
+          "tile"
         ],
-        "title": "RentCharged",
-        "description": "Narration for a rent payment. The money itself moves in ``CashChanged``.\n\nEverything needed to *explain* the figure is here, because \"every rent figure can be\nexplained, not merely charged\" is a product gate and the explanation must survive in\nthe log after the board has changed underneath it."
+        "title": "RentQuote",
+        "description": "What a square charges, before anybody has landed on it (MON-420).\n\n``RentCharged`` is this shape plus *who paid*, and that is enforced structurally: the event\ninherits from here. Before MON-420 the multipliers lived only inside\n``rules.rent._property_rent``, so the \"explain this rent\" affordance on the board and in the\ndossier had nothing to render and the UI's only options were to say nothing or to re-derive\nthe tier ladder in TypeScript. One shape means the sentence a player reads *before* deciding\nis assembled from the same ``rent.note.*`` keys as the one they read in the log afterwards.\n\n**A utility quote carries no amount.** Its rent is a multiple of a throw that has not\nhappened, so ``amount`` and ``dice_total`` are both ``None`` and ``multiplier`` carries the\nfigure the throw will be multiplied by — which is what ``rent.note.utility_quote`` says. An\ninvented amount (the last roll's, or the average) would be a number the engine cannot stand\nbehind, and is exactly the sort of plausible fiction the log's self-containment rule exists\nto prevent."
       },
       "RespondToTrade": {
         "properties": {
@@ -3573,6 +3703,157 @@
         ],
         "title": "RollForJail",
         "description": "Attempt to roll doubles to leave jail."
+      },
+      "RuleAbsentValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "absent",
+            "title": "Kind",
+            "default": "absent"
+          }
+        },
+        "type": "object",
+        "title": "RuleAbsentValue",
+        "description": "No value at all — ``target_duration_minutes`` under the universal rules.\n\nIts own case rather than a nullable number, because \"no target length\" and \"a target length of\nzero\" are different sentences and the model allows both."
+      },
+      "RuleFlagValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "flag",
+            "title": "Kind",
+            "default": "flag"
+          },
+          "on": {
+            "type": "boolean",
+            "title": "On"
+          }
+        },
+        "type": "object",
+        "required": [
+          "on"
+        ],
+        "title": "RuleFlagValue"
+      },
+      "RuleFlagView": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "label_key": {
+            "type": "string",
+            "title": "Label Key"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RuleFlagValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleNumberValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleNumberListValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleAbsentValue"
+              }
+            ],
+            "title": "Value",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "absent": "#/components/schemas/RuleAbsentValue",
+                "flag": "#/components/schemas/RuleFlagValue",
+                "number": "#/components/schemas/RuleNumberValue",
+                "numbers": "#/components/schemas/RuleNumberListValue"
+              }
+            }
+          },
+          "universal_value": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RuleFlagValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleNumberValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleNumberListValue"
+              },
+              {
+                "$ref": "#/components/schemas/RuleAbsentValue"
+              }
+            ],
+            "title": "Universal Value",
+            "discriminator": {
+              "propertyName": "kind",
+              "mapping": {
+                "absent": "#/components/schemas/RuleAbsentValue",
+                "flag": "#/components/schemas/RuleFlagValue",
+                "number": "#/components/schemas/RuleNumberValue",
+                "numbers": "#/components/schemas/RuleNumberListValue"
+              }
+            }
+          },
+          "differs_from_universal": {
+            "type": "boolean",
+            "title": "Differs From Universal"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "label_key",
+          "value",
+          "universal_value",
+          "differs_from_universal"
+        ],
+        "title": "RuleFlagView",
+        "description": "One setting, named, valued, and marked if this rule set changes it."
+      },
+      "RuleNumberListValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "numbers",
+            "title": "Kind",
+            "default": "numbers"
+          },
+          "values": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "values"
+        ],
+        "title": "RuleNumberListValue"
+      },
+      "RuleNumberValue": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "number",
+            "title": "Kind",
+            "default": "number"
+          },
+          "value": {
+            "type": "integer",
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "RuleNumberValue"
       },
       "Ruleset": {
         "properties": {
@@ -3697,6 +3978,36 @@
           "kids"
         ],
         "title": "RulesetName"
+      },
+      "RulesetView": {
+        "properties": {
+          "name": {
+            "$ref": "#/components/schemas/RulesetName"
+          },
+          "label_key": {
+            "type": "string",
+            "title": "Label Key"
+          },
+          "ruleset": {
+            "$ref": "#/components/schemas/Ruleset"
+          },
+          "flags": {
+            "items": {
+              "$ref": "#/components/schemas/RuleFlagView"
+            },
+            "type": "array",
+            "title": "Flags"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label_key",
+          "ruleset",
+          "flags"
+        ],
+        "title": "RulesetView",
+        "description": "A rule set as a setup screen needs it: identified, labelled, and explained.\n\n``ruleset`` still ships whole, because the *game* screen reads flags off it\n(``ruleset.jail_fine``, ``ruleset.simplified_trades``) and that is a copy, not a diff."
       },
       "SeatConfig": {
         "properties": {

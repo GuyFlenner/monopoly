@@ -10,3 +10,9 @@ src/api/generated.ts
 # Playwright run output, not authored files.
 test-results
 playwright-report
+
+# MON-805: the Pyodide wheels and their manifest are build artifacts. The deploy workflow writes
+# them straight into the site and `.gitignore` keeps them out of the repository, but they sit under
+# `public/` while a local build is being checked — where prettier would otherwise report the
+# generated manifest as unformatted and fail a gate over a file nobody wrote.
+public/wheels

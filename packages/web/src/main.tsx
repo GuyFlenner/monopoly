@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { StrictMode } from "react";
+import { StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import { initI18n } from "./i18n";
+import { isLocalEngineBuild } from "./local/mode";
 import "./index.css";
 
 const container = document.getElementById("root");
@@ -38,10 +39,31 @@ async function bootstrap(): Promise<void> {
 
   root.render(
     <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <App />
-      </QueryClientProvider>
+      <QueryClientProvider client={queryClient}>{await shell()}</QueryClientProvider>
     </StrictMode>,
+  );
+}
+
+/**
+ * The app, and in the local build the gate that loads a rules engine for it first (MON-805).
+ *
+ * `import("./local")` is dynamic, so Rollup emits the whole local transport as its own chunk (~9 kB)
+ * and a build talking to the HTTP server never requests it — the branch is false, so the fetch never
+ * happens, and nothing is preloaded either. The multi-megabyte part, Pyodide itself, is a level
+ * further out still: `engine.ts` imports it from a CDN by URL at run time, so it is not in any chunk.
+ *
+ * `./local/mode` is the one thing imported statically here, and it exists precisely so that asking
+ * which build this is does not drag in what it answers about.
+ */
+async function shell(): Promise<ReactNode> {
+  if (!isLocalEngineBuild()) {
+    return <App />;
+  }
+  const { LocalEngineGate, startLocalEngine } = await import("./local");
+  return (
+    <LocalEngineGate start={startLocalEngine}>
+      {(client) => <App client={client} />}
+    </LocalEngineGate>
   );
 }
 

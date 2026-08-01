@@ -16,8 +16,6 @@ ones starlette raises before any route is reached — ``api._http_exception_hand
 
 from __future__ import annotations
 
-from fastapi import status
-
 UNPROCESSABLE = 422
 """Spelled as a number, like ``test_api.py``: starlette has renamed this constant twice
 already (``HTTP_422_UNPROCESSABLE_ENTITY`` -> ``HTTP_422_UNPROCESSABLE_CONTENT``), and a
@@ -25,6 +23,17 @@ status code is not the sort of thing that needs a name to be readable."""
 
 CONTENT_TOO_LARGE = 413
 """Renamed for the same reason. See ``UNPROCESSABLE``."""
+
+NOT_FOUND = 404
+CONFLICT = 409
+SERVICE_UNAVAILABLE = 503
+"""The other three statuses this module answers with.
+
+Spelled as numbers, and ``fastapi.status`` deliberately *not* imported, because this module is
+on the import path of :mod:`kesef_server.browser` — the same handlers running inside a browser
+with no server at all (MON-805). One ``from fastapi import status`` here would drag a web
+framework, and therefore starlette and anyio, into a Pyodide build that never serves a request.
+The names above are the whole benefit that import bought."""
 
 MAX_REFLECTED_CHARS = 64
 """Ceiling on any caller-supplied string echoed back in ``params``.
@@ -62,17 +71,17 @@ class ApiError(Exception):
 
 
 def game_not_found(game_id: str) -> ApiError:
-    return ApiError(status.HTTP_404_NOT_FOUND, "error.game_not_found", game_id=_reflected(game_id))
+    return ApiError(NOT_FOUND, "error.game_not_found", game_id=_reflected(game_id))
 
 
 def game_already_exists(game_id: str) -> ApiError:
     """409 rather than an overwrite: the store is keyed by ``game_id``, so accepting a
     duplicate would end whatever game is already under that key."""
-    return ApiError(status.HTTP_409_CONFLICT, "error.game_already_exists", game_id=_reflected(game_id))
+    return ApiError(CONFLICT, "error.game_already_exists", game_id=_reflected(game_id))
 
 
 def server_at_capacity(limit: int) -> ApiError:
-    return ApiError(status.HTTP_503_SERVICE_UNAVAILABLE, "error.server_at_capacity", limit=limit)
+    return ApiError(SERVICE_UNAVAILABLE, "error.server_at_capacity", limit=limit)
 
 
 def malformed_request(fields: str) -> ApiError:
