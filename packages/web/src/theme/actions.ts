@@ -31,6 +31,32 @@
  * `tone` gives a button its colour role. It is deliberately *not* the signal that an action is
  * dangerous — the class is, and the class drives a confirm step rather than a shade of red,
  * because a shade of red is exactly what a protan player cannot see.
+ *
+ * ## `zone` — which half of the bar a command is filed under
+ *
+ * Two values, `flow` and `portfolio`, added for MON-UX1 (`docs/UX_ACTION_PROMINENCE.md`). The
+ * problem it solves is that `legality.py` sorts `legal_commands` by `command.kind`, which is a
+ * string — so "the engine's order" is *alphabetical*, and `mortgage_property` is offered above
+ * `roll_dice` in `AWAITING_ROLL` because `m` precedes `r`. That is right for the engine and
+ * meaningless to a child.
+ *
+ * `flow` is "the game is waiting for an answer to this": roll, end, buy, bid, answer an offer, get
+ * out of jail, give up. `portfolio` is "this is estate management, and it will still be there in a
+ * minute": build, sell, mortgage, redeem, offer a trade.
+ *
+ * Three things it is **not**:
+ *
+ * - It is not a rank. Two buckets, not seventeen. Ordering *within* a zone stays the engine's, and
+ *   `hints.ts`'s seventeen-entry `HINT_ORDER` is deliberately not reused — it answers "which single
+ *   decision is in front of you", and it disagrees here on purpose (`declare_bankruptcy` sorts last
+ *   there and is `flow` here, because in `DEBT_SETTLEMENT` it is one of the two answers the game is
+ *   waiting for). See the doc, §3.3.
+ * - It is not a legality check, and it is not read to decide whether to render anything. It decides
+ *   *where* a chit goes. A wrong value moves a button; it cannot remove one.
+ * - It is not `_portfolio_gate`. That the two lists coincide is the vocabulary agreeing with itself:
+ *   the engine opens exactly these kinds in `PORTFOLIO_PHASES` because they are the estate ones, and
+ *   the UI files exactly these under "your properties" for the same reading. Nothing here consults a
+ *   phase, an actor or a figure.
  */
 
 import type { ActionIconName, ModifierIconName } from "./icons";
@@ -82,6 +108,17 @@ export type NoUnlistedCommandKind = AssertNever<
 export type ActionTone = "primary" | "neutral" | "caution" | "danger";
 export type ActionClass = "reversible" | "consequential" | "terminal";
 
+/**
+ * Which half of the action bar a command belongs to. See the module docstring.
+ *
+ * `flow` first, `portfolio` second — `ZONE_ORDER` below is the one place that order is written down,
+ * so the bar reads it rather than restating it.
+ */
+export type ActionZone = "flow" | "portfolio";
+
+/** The zones in the order the bar lays them out. Flow first: it is what the game is waiting for. */
+export const ZONE_ORDER = ["flow", "portfolio"] as const satisfies readonly ActionZone[];
+
 export interface ActionTheme {
   /** The subject glyph. */
   readonly icon: ActionIconName;
@@ -90,6 +127,8 @@ export interface ActionTheme {
   readonly tone: ActionTone;
   /** How much it costs to be wrong. `terminal` ⇒ a confirm step, see `requiresConfirmation`. */
   readonly class: ActionClass;
+  /** Where the bar files it: turn flow, or estate management. Placement only — see the docstring. */
+  readonly zone: ActionZone;
 }
 
 /**
@@ -98,26 +137,78 @@ export interface ActionTheme {
  * moment somebody widens the key type.
  */
 export const ACTION_THEME: Readonly<Record<CommandKind, ActionTheme>> = {
-  roll_dice: { icon: "die", tone: "primary", class: "consequential" },
-  end_turn: { icon: "cycle", tone: "neutral", class: "consequential" },
-  buy_property: { icon: "tag", tone: "primary", class: "consequential" },
+  roll_dice: { icon: "die", tone: "primary", class: "consequential", zone: "flow" },
+  end_turn: { icon: "cycle", tone: "neutral", class: "consequential", zone: "flow" },
+  buy_property: { icon: "tag", tone: "primary", class: "consequential", zone: "flow" },
   // Terminal: declining sends the tile to auction, where anyone can take it for less.
-  decline_purchase: { icon: "tag", modifier: "cross", tone: "caution", class: "terminal" },
-  place_bid: { icon: "paddle", tone: "primary", class: "consequential" },
+  decline_purchase: {
+    icon: "tag",
+    modifier: "cross",
+    tone: "caution",
+    class: "terminal",
+    zone: "flow",
+  },
+  place_bid: { icon: "paddle", tone: "primary", class: "consequential", zone: "flow" },
   // Terminal: a withdrawal is final for this lot — there is no re-entry.
-  withdraw_from_auction: { icon: "paddle", modifier: "cross", tone: "caution", class: "terminal" },
-  build_house: { icon: "house", modifier: "plus", tone: "primary", class: "consequential" },
-  sell_house: { icon: "house", modifier: "minus", tone: "caution", class: "consequential" },
-  mortgage_property: { icon: "deed", modifier: "minus", tone: "caution", class: "consequential" },
-  unmortgage_property: { icon: "deed", modifier: "plus", tone: "primary", class: "consequential" },
-  propose_trade: { icon: "swap", tone: "primary", class: "reversible" },
-  respond_to_trade: { icon: "bubble", modifier: "check", tone: "primary", class: "consequential" },
-  cancel_trade: { icon: "bubble", modifier: "cross", tone: "neutral", class: "reversible" },
-  pay_jail_fine: { icon: "coin", tone: "neutral", class: "consequential" },
-  use_jail_card: { icon: "card", tone: "primary", class: "consequential" },
-  roll_for_jail: { icon: "jailDie", tone: "neutral", class: "consequential" },
-  // Terminal in the fullest sense: the player leaves the game.
-  declare_bankruptcy: { icon: "flag", tone: "danger", class: "terminal" },
+  withdraw_from_auction: {
+    icon: "paddle",
+    modifier: "cross",
+    tone: "caution",
+    class: "terminal",
+    zone: "flow",
+  },
+  build_house: {
+    icon: "house",
+    modifier: "plus",
+    tone: "primary",
+    class: "consequential",
+    zone: "portfolio",
+  },
+  sell_house: {
+    icon: "house",
+    modifier: "minus",
+    tone: "caution",
+    class: "consequential",
+    zone: "portfolio",
+  },
+  mortgage_property: {
+    icon: "deed",
+    modifier: "minus",
+    tone: "caution",
+    class: "consequential",
+    zone: "portfolio",
+  },
+  unmortgage_property: {
+    icon: "deed",
+    modifier: "plus",
+    tone: "primary",
+    class: "consequential",
+    zone: "portfolio",
+  },
+  propose_trade: { icon: "swap", tone: "primary", class: "reversible", zone: "portfolio" },
+  // `flow`, not `portfolio`: an offer is on the table and the table is waiting for this seat. The
+  // proposer's own `cancel_trade` is the same frame from the other side, so it is `flow` too.
+  respond_to_trade: {
+    icon: "bubble",
+    modifier: "check",
+    tone: "primary",
+    class: "consequential",
+    zone: "flow",
+  },
+  cancel_trade: {
+    icon: "bubble",
+    modifier: "cross",
+    tone: "neutral",
+    class: "reversible",
+    zone: "flow",
+  },
+  pay_jail_fine: { icon: "coin", tone: "neutral", class: "consequential", zone: "flow" },
+  use_jail_card: { icon: "card", tone: "primary", class: "consequential", zone: "flow" },
+  roll_for_jail: { icon: "jailDie", tone: "neutral", class: "consequential", zone: "flow" },
+  // Terminal in the fullest sense: the player leaves the game. `flow` all the same: in
+  // `DEBT_SETTLEMENT` it is one of the two answers the game is waiting for, and folding it away
+  // behind "your properties" would hide the way out of the phase.
+  declare_bankruptcy: { icon: "flag", tone: "danger", class: "terminal", zone: "flow" },
 };
 
 /**
@@ -134,6 +225,21 @@ export function requiresConfirmation(kind: CommandKind): boolean {
 /** The three terminal kinds, derived rather than restated. */
 export const TERMINAL_COMMANDS: ReadonlySet<CommandKind> = new Set(
   COMMAND_KINDS.filter((kind) => ACTION_THEME[kind].class === "terminal"),
+);
+
+/**
+ * Which zone a command is filed under. Placement, never legality — see the module docstring.
+ *
+ * A function rather than a second table, for the same reason `requiresConfirmation` is: one answer,
+ * one place, and nothing to drift.
+ */
+export function zoneOf(kind: CommandKind): ActionZone {
+  return ACTION_THEME[kind].zone;
+}
+
+/** The estate kinds, derived rather than restated. Exported for the tests and the doc. */
+export const PORTFOLIO_COMMANDS: ReadonlySet<CommandKind> = new Set(
+  COMMAND_KINDS.filter((kind) => zoneOf(kind) === "portfolio"),
 );
 
 export interface ToneColors {

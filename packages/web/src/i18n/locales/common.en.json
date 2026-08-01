@@ -48,7 +48,13 @@
   "actionbar": {
     "label": "Moves",
     "none": "No moves right now.",
-    "choose_square": "Choose a square"
+    "choose_square": "Choose a square",
+    "zone": {
+      "flow": "Waiting on you",
+      "portfolio": "Your properties",
+      "moves_one": "{{count}} move",
+      "moves_other": "{{count}} moves"
+    }
   },
   "app": {
     "title": "Kesef Street",
@@ -164,6 +170,7 @@
     "seat": "Seat {{seat}}",
     "bot": "Bot",
     "other_holdings": "Railroads and utilities",
+    "unstarted_sets": "Sets with no properties",
     "all_players": "Everyone's properties"
   },
   "engine": {
@@ -307,7 +314,11 @@
     "actionbar": {
       "label": "What you can do",
       "none": "Nothing to do yet.",
-      "choose_square": "Which square?"
+      "choose_square": "Which square?",
+      "zone": {
+        "flow": "Do this now",
+        "portfolio": "Your houses and streets"
+      }
     },
     "dossier": {
       "all_players": "What everyone has"
