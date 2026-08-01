@@ -39,13 +39,23 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
     }
   });
 
-  await page.goto("/");
+  // `"./"`, not `"/"`. Playwright resolves this with `new URL(url, baseURL)`, and a leading slash
+  // replaces the whole path — so `goto("/")` against a `baseURL` of `…:4173/monopoly/` asks for the
+  // server root and gets nothing. That is precisely the class of mistake this surface exists to
+  // catch, and it caught it in its own spec first: everything passed at base `/` and the page was
+  // blank at `/monopoly/`, which is the base GitHub Pages actually serves a project site under.
+  await page.goto("./");
 
-  // The loading state is a real screen, not a blank page: a few megabytes of interpreter takes long
-  // enough that a white rectangle reads as a broken deployment.
-  await expect(page.getByText(/פייתון|Python/)).toBeVisible();
+  // The loading screen is **not** asserted here, and that is deliberate rather than an oversight.
+  // It is a transient: on a cold CDN cache it is up for twenty seconds, and on a warm one the setup
+  // screen has replaced it before Playwright can look — an assertion that passes or fails on how
+  // recently somebody else ran this is worse than no assertion. That screen has its own test, over a
+  // controllable loader, in `src/local/localTransport.test.tsx`. What *this* surface is for is the
+  // part no fake can answer: whether the real interpreter, the real wheels and the real relative
+  // URLs produce a game.
 
-  // The app opens in Hebrew. English first, because the assertions below are written in it.
+  // The app opens in Hebrew. English first, because the assertions below are written in it. The long
+  // timeout is the engine's load: until it answers `/boards`, there is no setup screen to click.
   await page.locator('label:has(input[name$="-locale"][value="en"])').click({ timeout: 240_000 });
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
 
@@ -55,7 +65,15 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
   const names = page.getByLabel("Name");
   await names.nth(0).fill("Ruti");
   await names.nth(1).fill("Dan");
-  await page.getByLabel("Seed").fill("424242");
+
+  // The seed lives in a collapsed section, so it is filled only when it is on screen — the same
+  // guard `e2e/helpers.ts` uses, and for the same reason. This spec does not depend on the deal:
+  // it asserts that a turn *happened*, not which square it landed on.
+  const seed = page.getByLabel("Seed");
+  if (await seed.isVisible()) {
+    await seed.fill("424242");
+  }
+
   await page.getByRole("button", { name: "Start the game" }).click();
 
   const board = page.getByTestId("board-grid");

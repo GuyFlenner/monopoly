@@ -51,7 +51,13 @@ export default defineConfig({
   webServer: {
     command: `npx vite preview --host ${HOST} --port ${String(PORT)} --strictPort`,
     url: `http://${HOST}:${String(PORT)}${BASE_PATH}`,
-    reuseExistingServer: !isCI,
+    // Never reused, unlike `playwright.config.ts`, and the reason is this surface's whole subject.
+    // A leftover `vite preview` serving a *differently based* build answers 200 at this URL — vite
+    // falls back to `index.html` — so Playwright adopts it, the page asks for `/monopoly/assets/…`
+    // against a server rooted at `/`, and every asset 404s into a blank page. That cost half an
+    // hour once. A developer with a server already up pays four seconds; a developer debugging a
+    // blank page pays much more.
+    reuseExistingServer: false,
     stdout: "pipe",
     stderr: "pipe",
     timeout: 120_000,
