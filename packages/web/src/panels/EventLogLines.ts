@@ -19,7 +19,9 @@
  *    The records that remain are all for enums the *event's own shape* carries. There used to be
  *    one more — `GROUP_KEYS`, mapping `ColorGroup` for the single `note_params` value that was an
  *    enum — and it is gone: the engine sends `group_key: "group.light_blue"` now, so nothing here
- *    knows what a colour group is (MON-415). See {@link resolveNoteParams}.
+ *    knows what a colour group is (MON-415). See {@link resolveNoteParams}. That is still true after
+ *    board-scoped group names: the *board* renames a group in its own catalogue, and `groupLabel`
+ *    resolves it, so this file gained a `boardId` on its context and no knowledge of any group.
  * 3. **Every number comes off the event.** `RentCharged` carries `amount`, `base_rent`,
  *    `houses`, `multiplier`, `dice_total` and its own `note_keys`/`note_params` precisely so a
  *    turn-3 line does not render turn-20 state (G-36). Nothing here reads current state, and
@@ -28,6 +30,9 @@
  */
 
 import type { EventOfType, GameEvent, GameEventType, LoggedEvent } from "@/api";
+// The module rather than the `@/i18n` barrel: that barrel pulls in i18next and every catalogue, and
+// this file is a pure table whose test asserts on keys. `groupNames` imports nothing at all.
+import { groupLabel, type GroupNameScope } from "@/i18n/groupNames";
 
 /** A translated-string or numeric parameter. Never an enum value — see the header. */
 export type LineParams = Readonly<Record<string, string | number>>;
@@ -66,12 +71,15 @@ export interface LogLine {
  * Both are lookups into data the server already sent — a seat's name out of `state.players`,
  * a tile's name key out of `board.tiles`. Neither derives anything.
  */
-export interface LineContext {
+export interface LineContext extends GroupNameScope {
   readonly playerName: (playerId: number) => string;
   readonly tileName: (tileIndex: number) => string;
   /**
    * Translate a catalogue key. Handed in rather than imported so this file stays pure and a
    * test can assert on keys instead of on English.
+   *
+   * Declared by {@link GroupNameScope}, along with the `boardId` and `exists` that let a board name
+   * its own colour groups — see {@link resolveNoteParams}.
    */
   readonly translate: (key: string, params?: LineParams) => string;
 }
@@ -180,15 +188,20 @@ const KEY_SUFFIX = "_key";
  * Exported because the "explain this rent" affordance renders the same notes from a `RentQuote`
  * (MON-420) and must resolve them the same way — two resolvers is how the log and the board would
  * end up explaining one figure differently.
+ *
+ * Every key goes through `groupLabel`, which is what makes `rent.note.full_group_doubled` say
+ * "one player owns the whole Tel Aviv set" on the Israeli board. Note that this still knows nothing
+ * about colour groups: `groupLabel` is total over keys and only board-scopes the ones a board can
+ * rename, so `deck_key` and every future `*_key` resolve exactly as before.
  */
 export function resolveNoteParams(
   raw: Readonly<Record<string, string | number>> | undefined,
-  context: Pick<LineContext, "translate">,
+  scope: GroupNameScope,
 ): LineParams {
   const params: Record<string, string | number> = {};
   for (const [name, value] of Object.entries(raw ?? {})) {
     if (name.endsWith(KEY_SUFFIX) && typeof value === "string") {
-      params[name.slice(0, -KEY_SUFFIX.length)] = context.translate(value);
+      params[name.slice(0, -KEY_SUFFIX.length)] = groupLabel(scope, value);
     } else {
       params[name] = value;
     }
@@ -548,9 +561,9 @@ function rentNotes(event: EventOfType<"rent_charged">, context: LineContext): re
 export function noteLines(
   noteKeys: readonly string[],
   noteParams: Readonly<Record<string, string | number>> | undefined,
-  context: Pick<LineContext, "translate">,
+  scope: GroupNameScope,
 ): readonly LogLine[] {
-  const params = resolveNoteParams(noteParams, context);
+  const params = resolveNoteParams(noteParams, scope);
   return noteKeys.map((key) => ({
     key,
     params,

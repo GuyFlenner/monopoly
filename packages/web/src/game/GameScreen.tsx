@@ -61,6 +61,7 @@ import {
   type Translate,
 } from "@/board";
 import { useCopy } from "@/i18n/copy";
+import type { GroupNameScope } from "@/i18n/groupNames";
 import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
@@ -216,14 +217,23 @@ function TurnSummary({
  */
 function SquareRent({
   quote,
-  t,
+  scope,
   kids,
 }: {
   readonly quote: RentQuote;
-  readonly t: Translate;
+  /**
+   * The screen's translate plus the board a group's name may come from.
+   *
+   * A scope rather than a bare `t` because `rent.note.full_group_doubled` interpolates a group, and
+   * on the Israeli board a group is a city — "the whole Tel Aviv set", not "the whole dark blue
+   * set". `noteLines` routes every `*_key` param through `groupLabel`, and this is what it needs to
+   * do it (`i18n/groupNames.ts`).
+   */
+  readonly scope: GroupNameScope;
   /** Unfold the "why this much?" breakdown by default. `presentation.kids` (MON-605). */
   readonly kids: boolean;
 }): React.JSX.Element {
+  const t = scope.translate;
   return (
     <span data-testid="square-rent" className="flex flex-col gap-1">
       <span className="flex flex-wrap items-baseline gap-x-2">
@@ -235,7 +245,7 @@ function SquareRent({
             {quote.amount}
           </span>
         )}
-        {noteLines(quote.note_keys, quote.note_params, { translate: t }).map((note) => (
+        {noteLines(quote.note_keys, quote.note_params, scope).map((note) => (
           <span key={note.key} className="text-xs opacity-75">
             {t(note.key, note.params)}
           </span>
@@ -347,6 +357,19 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
    * of which labels have been simplified (MON-604, `i18n/copy.ts`).
    */
   const translate: Translate = useCopy(presentation.kids);
+
+  /**
+   * The screen's translate plus the board whose catalogue may name a colour group.
+   *
+   * On the Israeli board each colour group is a city and its squares are streets in it, so the band
+   * is "תל אביב" and not "כחול כהה". Built once here and handed to everything below that prints a
+   * group's name, so no two panels on this screen can disagree about what a group is called — see
+   * `i18n/groupNames.ts`.
+   */
+  const groupScope = useMemo<GroupNameScope>(
+    () => ({ boardId: board?.id, translate, exists: i18n.exists.bind(i18n) }),
+    [board?.id, translate, i18n],
+  );
 
   const tileName = useCallback(
     (index: number) => {
@@ -529,7 +552,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                 so there is no branch here about what any of those mean.
               */}
               {squareQuote !== null && squareQuote !== undefined && (
-                <SquareRent quote={squareQuote} t={translate} kids={presentation.kids} />
+                <SquareRent quote={squareQuote} scope={groupScope} kids={presentation.kids} />
               )}
             </div>
           )}
