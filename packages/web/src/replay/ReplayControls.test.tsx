@@ -67,7 +67,7 @@ function mount(options: { readonly total: number; readonly start: number }): HTM
 }
 
 function positionText(): string {
-  return screen.getByTestId("replay-position").textContent ?? "";
+  return screen.getByTestId("replay-position").textContent;
 }
 
 function button(step: "first" | "back" | "forward" | "last"): HTMLElement {
@@ -75,7 +75,11 @@ function button(step: "first" | "back" | "forward" | "last"): HTMLElement {
 }
 
 function slider(): HTMLInputElement {
-  return screen.getByTestId("replay-slider") as HTMLInputElement;
+  const found = screen.getByTestId("replay-slider");
+  if (!(found instanceof HTMLInputElement)) {
+    throw new TypeError("the scrub bar should be an input");
+  }
+  return found;
 }
 
 afterEach(async () => {
@@ -125,7 +129,7 @@ describe("stepping", () => {
     expect(positionText()).toBe("Event 0 of 5");
   });
 
-  it("follows the slider", async () => {
+  it("follows the slider", () => {
     mount({ total: 5, start: 0 });
     // A drag arrives as a change on the input, not as typing. `fireEvent.change` is the spelling
     // that goes through React's value tracker; setting `.value` by hand does not.
@@ -135,19 +139,39 @@ describe("stepping", () => {
 });
 
 describe("the bounds", () => {
-  it("offers nothing to go back to at the start", () => {
+  it("marks the two directions that lead nowhere at the start", () => {
     mount({ total: 5, start: 0 });
-    expect(button("first")).toBeDisabled();
-    expect(button("back")).toBeDisabled();
-    expect(button("forward")).toBeEnabled();
-    expect(button("last")).toBeEnabled();
+    expect(button("first")).toHaveAttribute("aria-disabled", "true");
+    expect(button("back")).toHaveAttribute("aria-disabled", "true");
+    expect(button("forward")).toHaveAttribute("aria-disabled", "false");
+    expect(button("last")).toHaveAttribute("aria-disabled", "false");
   });
 
-  it("offers nothing to go forward to at the end", () => {
+  it("marks them at the end too", () => {
     mount({ total: 5, start: 5 });
-    expect(button("forward")).toBeDisabled();
-    expect(button("last")).toBeDisabled();
-    expect(button("back")).toBeEnabled();
+    expect(button("forward")).toHaveAttribute("aria-disabled", "true");
+    expect(button("last")).toHaveAttribute("aria-disabled", "true");
+    expect(button("back")).toHaveAttribute("aria-disabled", "false");
+  });
+
+  it("keeps an unavailable button focusable, so a keyboard walk does not stop at either end", async () => {
+    // `disabled` would drop focus onto `<body>` the instant the button being used became
+    // unavailable — the arrow keys then do nothing at all, which the e2e spec caught.
+    mount({ total: 5, start: 3 });
+    button("first").focus();
+    await userEvent.keyboard("{Home}");
+    expect(positionText()).toBe("Event 0 of 5");
+    expect(button("first")).toHaveFocus();
+    // …and the walk carries on from there.
+    await userEvent.keyboard("{ArrowRight}");
+    expect(positionText()).toBe("Event 1 of 5");
+  });
+
+  it("does nothing when an unavailable button is clicked anyway", async () => {
+    mount({ total: 5, start: 0 });
+    await userEvent.click(button("back"));
+    expect(positionText()).toBe("Event 0 of 5");
+    expect(announced).toEqual([]);
   });
 
   it("clamps a keystroke that would walk off the end", async () => {

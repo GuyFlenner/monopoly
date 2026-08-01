@@ -104,7 +104,11 @@ export function ReplayControls({
       }
       onSeek(bounded);
       if (speak) {
-        announce({ politeness: "polite", key: "replay.position", params: { position: bounded, total } });
+        announce({
+          politeness: "polite",
+          key: "replay.position",
+          params: { position: bounded, total },
+        });
       }
     },
     [announce, onSeek, position, total],
@@ -163,21 +167,34 @@ export function ReplayControls({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {STEPS.map((step) => (
-          <button
-            key={step.key}
-            type="button"
-            data-testid={`replay-${step.key}`}
-            disabled={!step.enabled(position, total)}
-            onClick={() => {
-              seek(step.to(position, total), true);
-            }}
-            onKeyDown={onKeyDown}
-            className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-50"
-          >
-            {t(step.labelKey)}
-          </button>
-        ))}
+        {STEPS.map((step) => {
+          const available = step.enabled(position, total);
+          return (
+            <button
+              key={step.key}
+              type="button"
+              data-testid={`replay-${step.key}`}
+              /*
+                `aria-disabled`, not `disabled`, and this is a correctness fix rather than a
+                preference. A `disabled` button is removed from the tab order *while focused*, so
+                pressing "First" — or Home, from any of these — dropped focus onto `<body>` the moment
+                the button it was on became unavailable, and the next arrow key went nowhere. The
+                keyboard walk simply stopped at either end of the log, which the Playwright spec is
+                what caught. `aria-disabled` says "unavailable" to a screen reader, keeps the control
+                focusable, and the handler below is a no-op anyway: `seek` returns early when the
+                position would not change, so the state cannot move even if the click lands.
+              */
+              aria-disabled={!available}
+              onClick={() => {
+                seek(step.to(position, total), true);
+              }}
+              onKeyDown={onKeyDown}
+              className={`target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold ${available ? "" : "opacity-50"}`}
+            >
+              {t(step.labelKey)}
+            </button>
+          );
+        })}
       </div>
 
       {/*

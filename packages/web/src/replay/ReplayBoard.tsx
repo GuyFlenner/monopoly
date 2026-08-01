@@ -81,7 +81,8 @@ export function ReplayBoard({ board, players, facts }: ReplayBoardProps): React.
   const tileName = useTileName(board);
 
   const playerName = useCallback(
-    (playerId: number) => players.find((player) => player.id === playerId)?.name ?? t("label.player"),
+    (playerId: number) =>
+      players.find((player) => player.id === playerId)?.name ?? t("label.player"),
     [players, t],
   );
 
