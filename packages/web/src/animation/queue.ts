@@ -87,6 +87,18 @@ export class MotionQueue {
 
   private queued: TimelineStep[] = [];
   private active: Active | null = null;
+  /**
+   * When the step before the active one ended, or `null` at the head of a timeline.
+   *
+   * The next step starts *there* rather than at `now`, and that is a correctness matter rather than a
+   * tidiness one. Starting each step at the moment it happened to be noticed means a clock that jumps
+   * — a backgrounded tab whose timers were throttled, a machine that slept, a queue advanced once
+   * after a long stall — replays the whole remaining timeline at full length from the jump, so the
+   * backlog *stretches* instead of draining and the board falls further behind the longer it is
+   * ignored. Carrying the overrun forward means one late `advance` catches all the way up, which is
+   * also what makes a zero-duration timeline drain in a single call.
+   */
+  private endedAt: number | null = null;
 
   private readonly tokens = new Map<number, number>();
   private readonly cash = new Map<number, number>();
@@ -136,7 +148,30 @@ export class MotionQueue {
     if (totalMs(this.queued) > this.budgetMs) {
       this.queued = [...compress(this.queued, this.durations)];
     }
+    this.hold();
     this.advance(now);
+  }
+
+  /**
+   * Keep a piece where it was last seen until its own walk starts.
+   *
+   * Without this the board teleports and then walks back. The projection is committed *before* its
+   * events reach the feed, so by the time a timeline is pushed `player.position` is already the
+   * destination — and a piece with no override is drawn from the projection. A roll therefore played
+   * as: dice settle with the piece already on square 5, then a walk that snapped it back to square 1
+   * and crossed the four squares it had visibly skipped. Seeding the override with the *origin* of
+   * each player's first pending move means the piece simply waits, which is what a watcher expects
+   * and what makes the settle read as happening before the move.
+   *
+   * An override already in place is left alone: that is a walk in flight, and its current square is
+   * more recent than any pending step's origin.
+   */
+  private hold(): void {
+    for (const step of this.queued) {
+      if (step.kind === "token_move" && !this.tokens.has(step.player)) {
+        this.tokens.set(step.player, step.from);
+      }
+    }
   }
 
   /**
@@ -152,17 +187,24 @@ export class MotionQueue {
       if (this.active === null) {
         const next = this.queued.shift();
         if (next === undefined) {
-          // Nothing left. Drop the overrides so every piece is drawn from the projection again.
+          // Nothing left. Drop the overrides so every piece is drawn from the projection again, and
+          // forget the clock so the next batch starts when it arrives rather than in the past.
           this.tokens.clear();
+          this.endedAt = null;
           return;
         }
-        this.active = { step: next, startedAt: now };
+        // Where the previous step ended, never later than now. See the note on `endedAt`.
+        this.active = {
+          step: next,
+          startedAt: this.endedAt === null ? now : Math.min(this.endedAt, now),
+        };
         this.begin(next);
       }
       const { step, startedAt } = this.active;
       const elapsed = now - startedAt;
       if (elapsed >= step.durationMs) {
         this.finish(step);
+        this.endedAt = startedAt + step.durationMs;
         this.active = null;
         continue;
       }
@@ -209,6 +251,7 @@ export class MotionQueue {
   skip(): void {
     this.queued = [];
     this.active = null;
+    this.endedAt = null;
     this.tokens.clear();
   }
 
