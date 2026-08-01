@@ -35,6 +35,19 @@ export interface EventLogProps {
   readonly board: BoardView | undefined;
   /** How many rows to keep in the DOM. The newest ones win. */
   readonly maxEntries?: number;
+  /**
+   * The heading key, and therefore this region's accessible name (MON-703).
+   *
+   * Defaults to `log.title` — "What's happened" — which is what the ledger beside the board is called.
+   * The replay viewer renders this same component over a slice of a *different* log, and two regions
+   * called "What's happened" on one page is `landmark-unique`: a landmark list with two identical
+   * entries cannot be navigated, and the one a player wanted was a coin toss. So the replay passes
+   * `replay.history` and the two names stay distinct, which is also the more honest label — the log in
+   * the panel is the history *up to the slider*, not what has happened.
+   *
+   * A key rather than a string, because a component in this package never receives prose.
+   */
+  readonly titleKey?: string;
 }
 
 /**
@@ -50,6 +63,7 @@ export function EventLog({
   players,
   board,
   maxEntries = DEFAULT_MAX_ENTRIES,
+  titleKey = "log.title",
 }: EventLogProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const headingId = useId();
@@ -90,7 +104,7 @@ export function EventLog({
         id={headingId}
         className="border-b border-dashed border-current/20 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] opacity-70"
       >
-        {t("log.title")}
+        {t(titleKey)}
       </h2>
 
       {/*

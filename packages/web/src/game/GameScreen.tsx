@@ -424,10 +424,18 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   if (state === undefined || board === undefined || shownPlayer === undefined) {
     return (
       <Chrome onLeave={onLeave}>
-        {status.error === undefined ? (
-          <LoadingState testId="game-loading" />
-        ) : (
-          /*
+        {/*
+          The `<main>` is MON-703's finding. These two placeholders are the whole content of the
+          screen while a game is loading or has failed to load, and they sat as bare children of the
+          chrome — outside every landmark, which axe reports as `region`. The board's own `<main>`
+          below is the same landmark for the same reason; there is only ever one of them on screen,
+          because this branch returns.
+        */}
+        <main>
+          {status.error === undefined ? (
+            <LoadingState testId="game-loading" />
+          ) : (
+            /*
             With a retry, since MON-708. Until now the only way out of a failed first fetch was
             "New game", which *abandons* the game the URL is pointing at — a dead end that looks like
             a decision.
@@ -437,29 +445,40 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             than a player is: a 404 can be a fetch that raced a session being created, and the server
             is a great deal better placed to answer twice than this screen is to guess once.
           */
-          <ErrorState error={status.error} onRetry={refetch} testId="game-error" />
-        )}
+            <ErrorState error={status.error} onRetry={refetch} testId="game-error" />
+          )}
+        </main>
       </Chrome>
     );
   }
 
   return (
     <Chrome onLeave={onLeave} comfort={presentation.kids ? KIDS_COMFORT : undefined}>
-      {connectionKey !== null && (
-        <p data-testid="connection-note" className="text-sm opacity-80">
-          {t(connectionKey)}
-        </p>
-      )}
-
-      {/*
-        A failure with the board already on screen gets **no retry**, deliberately. What failed here
-        is a command — a rejected move — and the retry for a rejected move is making a different one,
-        which is the action bar. A "Try again" that re-posts a 422 would say the same thing twice.
-      */}
-      {status.error !== undefined && <ErrorState error={status.error} />}
-
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <main className="flex min-w-0 flex-col gap-3">
+          {/*
+            The connection note and the command failure moved *inside* `<main>` in MON-703. They were
+            bare children of the chrome, which put the only two sentences a player gets about a
+            dropped socket or a refused move outside every landmark — axe's `region` rule, and a
+            screen-reader user navigating by landmark would never reach them. They belong to the game
+            rather than to the chrome, so `<main>` is where they go; `<aside>` has to stay a sibling
+            of `<main>` (a complementary landmark nested in another landmark is its own axe finding),
+            which is why the pair moved into the column rather than the grid moving into a `<main>`.
+          */}
+          {connectionKey !== null && (
+            <p data-testid="connection-note" className="text-sm opacity-80">
+              {t(connectionKey)}
+            </p>
+          )}
+
+          {/*
+            A failure with the board already on screen gets **no retry**, deliberately. What failed
+            here is a command — a rejected move — and the retry for a rejected move is making a
+            different one, which is the action bar. A "Try again" that re-posts a 422 would say the
+            same thing twice.
+          */}
+          {status.error !== undefined && <ErrorState error={status.error} />}
+
           {/*
             Whose turn it is, at a size a pre-reader can follow across the room (MON-604). Above the
             board rather than inside it: the interior well is a ledger, and the answer to "is it me?"

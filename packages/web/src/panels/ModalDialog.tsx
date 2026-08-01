@@ -156,7 +156,19 @@ export function ModalDialog({
         onKeyDown={onKeyDown}
         className="flex max-h-full w-full max-w-3xl flex-col overflow-hidden rounded-3xl border-2 border-hairline bg-tile text-ink shadow-2xl"
       >
-        <header className="flex items-start gap-3 border-b-2 border-hairline/30 p-4 sm:p-5">
+        {/*
+          A `<div>`, not a `<header>` — MON-703's audit finding.
+
+          `<header>` maps to the **banner** landmark unless it is inside sectioning content, and a
+          `div[role="dialog"]` is not sectioning content. So this title bar was a second banner on
+          every screen that opened a panel (`landmark-no-duplicate-banner`), and inside the chrome's
+          own `<header>` — where `<ReplayButton>` lives — it was a banner nested in a banner
+          (`landmark-banner-is-top-level`). A dialog's title bar is not the page's banner: the
+          heading below is already the dialog's accessible name through `aria-labelledby`, which is
+          what a screen reader announces on open, and the landmark added nothing but noise to the
+          landmark list. Same reasoning for the footer.
+        */}
+        <div className="flex items-start gap-3 border-b-2 border-hairline/30 p-4 sm:p-5">
           <div className="grow">
             <h2 id={titleId} className="text-2xl leading-tight font-bold">
               {title}
@@ -176,14 +188,16 @@ export function ModalDialog({
               <span className="sr-only">{t("panel.close")}</span>
             </button>
           )}
-        </header>
+        </div>
 
         <div className="grow overflow-y-auto p-4 sm:p-5">{children}</div>
 
         {footer !== undefined && (
-          <footer className="flex flex-wrap items-center justify-end gap-3 border-t-2 border-hairline/30 p-4 sm:p-5">
+          /* A `<div>` for the same reason as the title bar above: `<footer>` here would map to the
+           **contentinfo** landmark, and a dialog's action row is not the page's footer. */
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t-2 border-hairline/30 p-4 sm:p-5">
             {footer}
-          </footer>
+          </div>
         )}
       </div>
     </div>

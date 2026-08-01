@@ -95,8 +95,11 @@ test.describe("the replay viewer", () => {
     await page.getByTestId("replay-slider").fill(String(Math.floor(total / 2)));
     await expect(position).toHaveText(`Event ${String(Math.floor(total / 2))} of ${String(total)}`);
 
+    // "History up to here", not "What's happened": the replay renders the game screen's own
+    // `<EventLog>` under its own heading key, because two regions with one name is `landmark-unique`
+    // and a landmark list with two identical entries cannot be navigated (MON-703).
     const historyLines = dialog
-      .getByRole("region", { name: "What's happened" })
+      .getByRole("region", { name: "History up to here" })
       .getByRole("listitem");
     await expect(historyLines.first()).toBeVisible();
     const midwayCount = await historyLines.count();
