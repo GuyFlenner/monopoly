@@ -56,6 +56,8 @@ export {
 } from "./patterns";
 
 export {
+  BUILDING_MARK,
+  BUILDING_MARK_CSS_VAR,
   COMFORT_ATTRIBUTE,
   FOCUS_CSS_VAR,
   FOCUS_RING,

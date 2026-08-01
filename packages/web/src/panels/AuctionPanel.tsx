@@ -202,6 +202,7 @@ export function AuctionPanel({
             {canWithdraw && (
               <button
                 type="button"
+                data-testid="auction-withdraw"
                 onClick={() => {
                   // Terminal, so it is never sent on one press. The predicate is the theme's, so
                   // this panel cannot drift from the ActionBar about what is final.
@@ -219,6 +220,7 @@ export function AuctionPanel({
             )}
             <button
               type="button"
+              data-testid="auction-place-bid"
               disabled={!canBid}
               onClick={askToBid}
               className="target flex items-center gap-2 rounded-2xl border-2 border-hairline bg-ink px-5 text-lg font-bold text-tile disabled:opacity-40"
@@ -483,6 +485,7 @@ function ConfirmStrip({
       <button
         ref={ref}
         type="button"
+        data-testid="auction-confirm"
         onClick={onConfirm}
         className="target flex items-center gap-2 rounded-2xl border-2 border-hairline bg-ink px-4 font-bold text-tile"
       >

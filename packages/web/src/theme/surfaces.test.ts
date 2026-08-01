@@ -4,6 +4,8 @@ import { URL as NodeURL, fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  BUILDING_MARK,
+  BUILDING_MARK_CSS_VAR,
   COMFORT_ATTRIBUTE,
   FOCUS_CSS_VAR,
   FOCUS_RING,
@@ -85,11 +87,27 @@ describe("index.css and surfaces.ts agree", () => {
     }
   });
 
+  it("ships both building marks, and does not vary them by theme (MON-703)", () => {
+    // These were literals in `board.css` and `panels.css` and named nowhere in TypeScript, so the
+    // contrast suite had never measured them. Declared in `@theme` and *not* in the dark block:
+    // theme-invariant, like a colour band, because it is the keyline around a pip that carries its
+    // edge rather than the fill.
+    for (const [slot, property] of Object.entries(BUILDING_MARK_CSS_VAR)) {
+      expect(declaredValue(themeBlock(), property), `${property} is not declared in @theme`).toBe(
+        BUILDING_MARK[slot as keyof typeof BUILDING_MARK],
+      );
+      expect(declaredValue(darkBlock(), property), `${property} must not vary by theme`).toBeNull();
+    }
+  });
+
   it("authors every surface as #rrggbb, in both files", () => {
     for (const surfaces of Object.values(SURFACES)) {
       for (const value of Object.values(surfaces)) {
         expect(value).toMatch(/^#[0-9a-f]{6}$/);
       }
+    }
+    for (const value of Object.values(BUILDING_MARK)) {
+      expect(value).toMatch(/^#[0-9a-f]{6}$/);
     }
     // oklch() in the stylesheet would be a value the contrast test cannot parse — and the old
     // stylesheet used it, which is part of why nothing was ever measured.

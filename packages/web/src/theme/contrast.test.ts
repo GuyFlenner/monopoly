@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { URL as NodeURL, fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import { ACTION_TONE } from "./actions";
@@ -10,7 +13,7 @@ import {
   toGrey,
 } from "./contrast";
 import { TILE_THEME, TILE_THEME_KEYS } from "./groups";
-import { FOCUS_RING, SURFACES, THEMES, type ThemeName } from "./surfaces";
+import { BUILDING_MARK, FOCUS_RING, SURFACES, THEMES, type ThemeName } from "./surfaces";
 import { TOKEN_IDENTITY } from "./tokens";
 
 /**
@@ -132,6 +135,72 @@ describe.each([...THEMES])("seat tokens — %s theme", (theme: ThemeName) => {
   });
 });
 
+describe.each([...THEMES])("building marks — %s theme (MON-703)", (theme: ThemeName) => {
+  const surface = SURFACES[theme];
+
+  it.each(Object.entries(BUILDING_MARK))(
+    "%s is visible as a region on a card face with hue removed",
+    (_name, color) => {
+      // A pip is a painted area on a deed row and on a board square, so the claim is the band's
+      // claim: visible as a region at all, in the channel a colourblind player has. Its *edge* is the
+      // keyline, gated at 3:1 above.
+      expect(greyDistance(color, surface.tile)).toBeGreaterThanOrEqual(GREY_SEPARATION);
+    },
+  );
+
+  /*
+    There is deliberately **no** gate against the felt.
+
+    The first draft of this file had one and it failed: the light theme's felt is a mid green
+    (`#33754f`) and a house is a mid green, one greyscale step apart. That is not a defect, because a
+    pip is never drawn on the felt — it sits inside a board square or on a deed row, and both of those
+    are card faces, which is the pair gated above. Gating the felt would have forced a colour change to
+    fix a situation that does not occur, which is the failure mode `surfaces.ts` was written against:
+    a ratio quoted without naming the surface it is measured on. The felt readings are *reported* in
+    the measured table at the end of this file instead, where a reviewer can see them.
+  */
+});
+
+describe("building marks are told apart by shape, not by hue (MON-703)", () => {
+  it("records that the two collide in grey, which is why the shapes differ", () => {
+    // The assertion is the *collision*, deliberately. A mid green and a mid red are close in the
+    // greyscale channel, so hue is not a channel a colourblind player has here — and the separation is
+    // geometric: `.kesef-house` is a square and `.kesef-hotel` is a block roughly twice as wide, in
+    // both `board.css` and `panels.css`. Asserting the collision means that re-tinting one of them to
+    // "improve contrast" fails this test rather than silently removing the only channel that works.
+    expect(greyDistance(BUILDING_MARK.house, BUILDING_MARK.hotel)).toBeLessThan(GREY_SEPARATION);
+  });
+
+  // Both stylesheets that draw a pip, with the class names each uses. A board square's marks and a
+  // deed row's marks are separate rules on purpose — a square sizes in `cqw` against its own
+  // container and a list row cannot — so the shape claim has to be checked in both places.
+  it.each([
+    { path: "src/board/board.css", house: "kesef-house", hotel: "kesef-hotel" },
+    { path: "src/panels/panels.css", house: "kesef-deed-house", hotel: "kesef-deed-hotel" },
+  ])(
+    "$path draws the hotel wider than the house and rims both with the keyline",
+    ({ path, house, hotel }) => {
+      const css = readFileSync(
+        fileURLToPath(new NodeURL(`../../${path}`, import.meta.url)),
+        "utf8",
+      );
+      const widthOf = (selector: string): number => {
+        const rule = new RegExp(`\\.${selector}\\s*\\{([\\s\\S]*?)\\}`).exec(css)?.[1] ?? "";
+        expect(rule, `${path} has no .${selector} rule`).not.toBe("");
+        expect(rule, `.${selector} is not rimmed with the keyline`).toContain(
+          "var(--color-hairline)",
+        );
+        // Logical property only — `inline-size` is the width in Hebrew too (CLAUDE.md rule 4).
+        const size = /inline-size:\s*([\d.]+)rem/.exec(rule)?.[1];
+        expect(size, `.${selector} has no rem inline-size`).toBeDefined();
+        return Number(size);
+      };
+      // The shape channel, as a number: a hotel is wider, so five houses never read as four.
+      expect(widthOf(hotel)).toBeGreaterThan(widthOf(house) * 1.4);
+    },
+  );
+});
+
 describe.each([...THEMES])("action tones — %s theme", (theme: ThemeName) => {
   const surface = SURFACES[theme];
   const tones = ACTION_TONE[theme];
@@ -241,6 +310,14 @@ describe("the measured table", () => {
             `  onFill/fill ${ratio(colors.onFill, colors.fill).toFixed(2).padStart(5)}`,
         );
       }
+      for (const [name, color] of Object.entries(BUILDING_MARK)) {
+        // Both surfaces, so the felt figure the gate above deliberately omits is still on the record.
+        lines.push(
+          `  mark ${name.padEnd(9)} grey Δtile ${String(greyDistance(color, surface.tile)).padStart(3)}` +
+            `  grey Δtable ${String(greyDistance(color, surface.table)).padStart(3)} (reported;` +
+            ` a pip is only drawn on a card face)`,
+        );
+      }
     }
     const report = lines.join("\n");
     console.info(report);
@@ -260,6 +337,11 @@ describe("the measured table", () => {
     }
     for (const tone of ["primary", "neutral", "caution", "danger"] as const) {
       expect(report, `tone ${tone} is not in the table`).toContain(`tone ${tone.padEnd(8)}`);
+    }
+    for (const name of Object.keys(BUILDING_MARK)) {
+      expect(report, `building mark ${name} is not in the table`).toContain(
+        `mark ${name.padEnd(9)}`,
+      );
     }
   });
 

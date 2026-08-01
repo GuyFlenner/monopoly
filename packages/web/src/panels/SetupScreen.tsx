@@ -41,6 +41,7 @@ import {
   type RuleValue,
   type SeatConfig,
 } from "@/api";
+import { SCREEN_HEADING_ATTRIBUTE } from "@/a11y";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import { Icon } from "@/theme";
 
@@ -199,7 +200,20 @@ export function SetupScreen({
   // Form state, not a rule: a seat with a blank name is an unfinished form. Everything the
   // *engine* decides — two to six players, no shared names — is decided by the engine.
   const hasBlankName = seats.some((seat) => seat.name.trim() === "");
-  const canSubmit = !hasBlankName && chosenBoardId !== null && !isSubmitting;
+  /*
+    Whether the form *can* be posted, and deliberately not "and it is not already posting" (MON-703).
+
+    `isSubmitting` used to be part of this, and it made the start button drop the keyboard: pressing it
+    disabled it, a disabled element cannot hold focus, and the browser's answer to that is `<body>` —
+    from where Tab starts again at the top of the page. `e2e/keyboard.spec.ts` found it on the one
+    press every player makes. Re-entry is guarded inside `submit` instead, which is where "already in
+    flight" is actually known and where guarding it costs nobody their place on the page. The button's
+    *label* still changes, so a player can see the difference.
+
+    The remaining condition is validation — a seat with no name, or no board — which no press of this
+    button can cause, so it can never take focus away from a player who is on it.
+  */
+  const canSubmit = !hasBlankName && chosenBoardId !== null;
 
   function updateSeat(id: number, change: Partial<SeatDraft>): void {
     setSeats((current) => current.map((seat) => (seat.id === id ? { ...seat, ...change } : seat)));
@@ -207,7 +221,7 @@ export function SetupScreen({
 
   async function submit(event: React.SyntheticEvent): Promise<void> {
     event.preventDefault();
-    if (chosenBoardId === null) {
+    if (chosenBoardId === null || isSubmitting) {
       return;
     }
     setSubmitting(true);
@@ -242,7 +256,15 @@ export function SetupScreen({
         className="flex w-full flex-col gap-6"
       >
         <header className="flex flex-col gap-1">
-          <h1 className="text-3xl font-bold tracking-tight">{t("setup.title")}</h1>
+          {/* `tabIndex={-1}` and the marker so leaving a game lands focus here rather than on
+              `<body>` — see `a11y/screenFocus.ts`. Never a tab stop. */}
+          <h1
+            {...{ [SCREEN_HEADING_ATTRIBUTE]: "" }}
+            tabIndex={-1}
+            className="text-3xl font-bold tracking-tight"
+          >
+            {t("setup.title")}
+          </h1>
           <p className="text-sm opacity-70">{t("app.tagline")}</p>
         </header>
 
@@ -251,7 +273,9 @@ export function SetupScreen({
           <legend className="pb-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
             {t("setup.seats")}
           </legend>
-          <ol className="flex flex-col gap-3">
+          {/* `data-testid` so the e2e helper can find a seat row without reading a translated label:
+              MON-707's smoke fills this form in Hebrew as well as in English. */}
+          <ol data-testid="setup-seats" className="flex flex-col gap-3">
             {seats.map((seat, index) => (
               <SeatCard
                 key={seat.id}

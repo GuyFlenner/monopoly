@@ -115,15 +115,23 @@ describe("SaveGameButton", () => {
     expect(JSON.parse(harness.offered[0]?.json ?? "null")).toEqual(SAVE);
   });
 
-  it("says it is saving while the request is out", async () => {
-    // A disabled button with a changed label, rather than nothing: the request goes to a server that
-    // may be slow, and a second click would download the same file twice.
-    mount("hang");
+  it("says it is saving while the request is out, without dropping the keyboard", async () => {
+    // A changed label and `aria-disabled`, rather than `disabled` — MON-703. A disabled element cannot
+    // hold focus, so `disabled={saving}` handed the keyboard to `<body>` on the one press this button
+    // exists for. The double-download it guarded against is guarded inside `download` instead, which
+    // is asserted below rather than assumed.
+    const harness = mount("hang");
 
     await userEvent.click(saveButton());
 
     const saving = await screen.findByRole("button", { name: "Saving…" });
-    expect(saving).toBeDisabled();
+    expect(saving).toHaveAttribute("aria-disabled", "true");
+    expect(saving, "the button that was pressed still holds focus").toHaveFocus();
+
+    // And a second press while the first is still out sends no second request.
+    const before = harness.requests.length;
+    await userEvent.click(saving);
+    expect(harness.requests.length, "a second press re-sent the save").toBe(before);
   });
 
   it("renders the server's key when the game has gone, and keeps the button", async () => {

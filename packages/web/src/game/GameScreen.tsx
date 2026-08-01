@@ -46,7 +46,7 @@
 import { useCallback, useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { useEventNarration } from "@/a11y";
+import { SCREEN_HEADING_ATTRIBUTE, useEventNarration } from "@/a11y";
 import { FastForward, Pulse, SkipMotionButton, useAnimationQueue } from "@/animation";
 import type { Command, PlayerView, RentQuote } from "@/api";
 import {
@@ -121,7 +121,15 @@ function Chrome({
       className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-2 text-start sm:p-4"
     >
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold tracking-tight">{t("app.title")}</h1>
+        {/* `tabIndex={-1}` and the marker so the shell can land focus here when the setup screen is
+            replaced by this one — see `a11y/screenFocus.ts`. Never a tab stop. */}
+        <h1
+          {...{ [SCREEN_HEADING_ATTRIBUTE]: "" }}
+          tabIndex={-1}
+          className="text-2xl font-bold tracking-tight"
+        >
+          {t("app.title")}
+        </h1>
         <div className="flex flex-wrap items-center gap-2">
           {/* The dice tray's copy of this switch is off; the setting lives in the chrome so it is
               reachable without hunting for the board's interior. The store behind it is

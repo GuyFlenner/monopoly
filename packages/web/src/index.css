@@ -32,6 +32,14 @@
   --color-ink: #1f1b16; /* ink for text on a card face */
   --color-hairline: #1c1712; /* the keyline drawn around every painted area */
 
+  /* The two building marks, theme-invariant like a colour band (MON-703). They were literals in
+   * board.css and panels.css and in no TypeScript module, so nothing measured them; now
+   * `surfaces.ts` names them and `contrast.test.ts` measures them. Told apart by *shape* rather
+   * than by hue — a house is a small square, a hotel a block twice as wide — which is asserted
+   * there, because the two collide in greyscale on purpose. */
+  --color-house: #1f7a3d;
+  --color-hotel: #b3271f;
+
   /* Two concentric focus rings, theme-invariant. See the proof in surfaces.ts: for any
    * surface luminance, at least one of these clears 3:1, so the ring is visible on the felt,
    * on a card, on a yellow band and on a dark blue one. */

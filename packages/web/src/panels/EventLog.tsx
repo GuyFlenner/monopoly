@@ -146,7 +146,17 @@ function Entry({
   readonly exists: Exists;
 }): React.JSX.Element {
   return (
-    <li className="flex items-start gap-3 border-s-2 border-dashed border-current/20 py-2 ps-3">
+    /*
+      `data-log-key` is the same affordance a chit's `data-command-kind` is, and it exists for the
+      same reason (MON-707): the *sentence* on this row is translated, so a test that reads it can
+      only be written in one language, and the smoke MON-707 asks for has to pass in two. The key is
+      the line's identity and the catalogue is what turns it into prose — so an e2e spec can assert
+      that rent was charged in Hebrew without teaching a Playwright file any Hebrew.
+    */
+    <li
+      data-log-key={line.key}
+      className="flex items-start gap-3 border-s-2 border-dashed border-current/20 py-2 ps-3"
+    >
       <span
         aria-hidden="true"
         className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-current/10 text-xs"
@@ -179,7 +189,10 @@ function Entry({
 function TurnMarker({ line }: { readonly line: LogLine }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <li className="flex items-center gap-3 py-3">
+    // `data-log-key` here as well as on an ordinary row: a turn boundary is a line in the log like any
+    // other, and a test counting "did that command produce anything" must not miss the one event
+    // whose whole purpose is to say the turn changed hands.
+    <li data-log-key={line.key} className="flex items-center gap-3 py-3">
       <span className="h-px flex-1 bg-current/25" />
       <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] opacity-80">
         {t(line.key, line.params)}

@@ -526,3 +526,61 @@ describe("Kids Mode wording and the hint mark", () => {
     }
   });
 });
+
+/**
+ * The keyboard, after a press that takes the pressed button away (MON-703).
+ *
+ * This bar is rebuilt from `legal_commands` after every command — that is the ADR-005 design — so
+ * pressing Roll removes the roll chit. It used to take the focus with it: `document.activeElement`
+ * became `<body>`, and from there Tab starts again at the top of the page. Found by
+ * `e2e/keyboard.spec.ts`; asserted here as well, because this is the component that owns the repair and
+ * a browser test is a slow place to notice it has been removed.
+ */
+describe("focus after a press that removes the chit", () => {
+  const roll: Command = { kind: "roll_dice", player: 0 };
+  const endTurn: Command = { kind: "end_turn", player: 0, elapsed_seconds: null };
+
+  function bar(commands: readonly Command[]) {
+    return <ActionBar commands={commands} onCommand={vi.fn()} board={BOARD} jailFine={50} />;
+  }
+
+  it("lands in the bar rather than on the body when the pressed chit unmounts", async () => {
+    const { rerender } = render(bar([roll, endTurn]));
+    const chit = screen.getByRole("button", { name: /Roll the dice/ });
+    chit.focus();
+    await userEvent.click(chit);
+
+    // The engine’s answer arrives and the roll is no longer legal, so React removes the button that
+    // was pressed. This is the exact commit that used to strand the keyboard.
+    rerender(bar([endTurn]));
+
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement?.id, "focus did not land on the bar").toBe("kesef-actions");
+  });
+
+  it("leaves focus alone when the press did not remove anything", async () => {
+    // A command can stay legal — rolling doubles leaves `roll_dice` on the bar — and in that case the
+    // player is still standing on the button they pressed. Moving them to the container would be a
+    // regression dressed as a fix.
+    const { rerender } = render(bar([roll, endTurn]));
+    const chit = screen.getByRole("button", { name: /Roll the dice/ });
+    chit.focus();
+    await userEvent.click(chit);
+
+    rerender(bar([roll, endTurn]));
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /Roll the dice/ }));
+  });
+
+  it("never moves focus for a command set that changed on its own", () => {
+    // The guard that keeps this from being a focus thief: the repair is armed by an *activation*. A
+    // rebuild caused by somebody else’s turn arriving over the socket must not pull this player’s
+    // keyboard into the bar.
+    const { rerender } = render(bar([roll]));
+    expect(document.activeElement).toBe(document.body);
+
+    rerender(bar([endTurn]));
+
+    expect(document.activeElement).toBe(document.body);
+  });
+});

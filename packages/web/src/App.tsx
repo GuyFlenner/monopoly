@@ -31,7 +31,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Announcer, AnnouncerProvider } from "./a11y";
+import { Announcer, AnnouncerProvider, SCREEN_HEADING_ATTRIBUTE, useScreenFocus } from "./a11y";
 import {
   ApiClient,
   type ApiError,
@@ -105,6 +105,16 @@ export function App({ client }: AppProps = {}): React.JSX.Element {
   // screen's radio group and the game chrome's switch — and a copy in this component is how the
   // one that did not fire ends up displaying a language the page is no longer in.
   const [locale, switchLocale] = useLocale();
+
+  /*
+    Where the keyboard goes when the screen swaps (MON-703).
+
+    Called here because this is the component that *knows* the screen changed — the id in the URL is
+    the whole of the routing, so `gameId` is the screen. See `a11y/screenFocus.ts` for the defect: a
+    swap unmounts a whole screen, the focused button goes with it, and the browser drops focus to
+    `<body>`, from where Tab starts again at the top of the page.
+  */
+  useScreenFocus(gameId ?? "setup");
 
   return (
     <AnnouncerProvider>
@@ -273,7 +283,15 @@ function Frame({ children }: { readonly children: React.ReactNode }): React.JSX.
   const { t } = useTranslation();
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 text-start sm:p-6">
-      <h1 className="text-3xl font-bold tracking-tight">{t("app.title")}</h1>
+      {/* `tabIndex={-1}` and the marker so a screen change can land focus here — see
+          `a11y/screenFocus.ts`. Focusable programmatically, never a tab stop. */}
+      <h1
+        {...{ [SCREEN_HEADING_ATTRIBUTE]: "" }}
+        tabIndex={-1}
+        className="text-3xl font-bold tracking-tight"
+      >
+        {t("app.title")}
+      </h1>
       {children}
     </main>
   );

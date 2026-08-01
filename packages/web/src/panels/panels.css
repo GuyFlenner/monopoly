@@ -185,7 +185,7 @@
   inline-size: 0.4rem;
   border: 1px solid var(--color-hairline);
   border-radius: 1px;
-  background-color: #1f7a3d;
+  background-color: var(--color-house);
 }
 
 .kesef-deed-hotel {
@@ -194,7 +194,7 @@
   inline-size: 0.8rem;
   border: 1px solid var(--color-hairline);
   border-radius: 1px;
-  background-color: #b3271f;
+  background-color: var(--color-hotel);
 }
 
 /* The mortgage overprint: a dashed rim, as a stamp across a deed. */

@@ -482,6 +482,50 @@ export function ActionBar({
   const headingId = useId();
   const [pending, setPending] = useState<Command | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
+  /** The bar's own box, so a press that removes the chit has somewhere to put the keyboard. */
+  const region = useRef<HTMLElement | null>(null);
+  /** Armed by an activation, spent by a repair. See the effect below. */
+  const pressed = useRef(false);
+
+  /*
+    Where the keyboard goes when the chit that was pressed stops existing (MON-703).
+
+    This bar is **rebuilt from `legal_commands` after every command**, and that is the design: a button
+    exists because the engine offered the command, so rolling the dice takes the roll chit away. The
+    consequence nobody had accounted for is that it takes the *focus* with it — a keyboard player pressed
+    Roll and was handed back to `<body>`, from where Tab starts again at the language switch, and a
+    screen-reader user was told nothing at all because nothing had focus to announce. Two components in
+    this package already carry a comment about the same class of bug (`SkipMotionButton`,
+    `ModalDialog`); `e2e/keyboard.spec.ts` is what found this one.
+
+    The landing place is the bar's own `<section>`, which is already focusable for the board's
+    "skip to actions" link. A *container* rather than another chit, deliberately: dropping focus onto a
+    live button means the next Enter — from a six-year-old who is still pressing — sends a move nobody
+    chose. Tab from here continues into the bar in order.
+
+    Three guards keep it from ever taking focus somebody wanted:
+
+    - `pressed` is only armed by an activation, so an event arriving over the socket on somebody else's
+      turn never moves this player's focus.
+    - It repairs only when focus has *actually* been lost — still on the chit, or moved on deliberately,
+      and this does nothing.
+    - It is spent only by a repair, so an intermediate re-render that happens to leave focus intact
+      cannot disarm the flag before the render that removes the chit.
+
+    A dialog opened by the same command still wins: `<ModalDialog>` is mounted later in the tree, so its
+    own focus effect runs after this one.
+  */
+  useEffect(() => {
+    if (!pressed.current) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active !== null && active !== document.body && document.body.contains(active)) {
+      return;
+    }
+    pressed.current = false;
+    region.current?.focus();
+  }, [commands]);
 
   // Every label and heading in the bar goes through the kids-aware resolver, which is `t` verbatim
   // outside a kids game. It changes what a button *says* and never which buttons exist.
@@ -544,6 +588,8 @@ export function ActionBar({
         setPending(command);
         return;
       }
+      // Arm the focus repair before posting: this is the press that may remove `from` from the document.
+      pressed.current = true;
       onCommand(command);
     },
     [onCommand],
@@ -562,6 +608,8 @@ export function ActionBar({
     const command = pending;
     setPending(null);
     trigger.current = null;
+    // Same reason as in `activate`, and more acutely: the confirm strip unmounts as well as the chit.
+    pressed.current = true;
     onCommand(command);
   }, [pending, onCommand]);
 
@@ -571,6 +619,7 @@ export function ActionBar({
     // `tabIndex={-1}` so `Board`'s "skip to actions" link moves focus here rather than only
     // scrolling: a fragment link cannot focus a target that is not focusable.
     <section
+      ref={region}
       id={id}
       tabIndex={-1}
       aria-labelledby={headingId}
