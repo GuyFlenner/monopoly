@@ -222,4 +222,20 @@ worth restating so a future reader does not mistake them for gaps:
 | `e2e/smoke.spec.ts` | 4 | MON-707's full chain, per locale |
 | `e2e/persistence.spec.ts` | 5 | the save file is real; the mute survives a reload; D1's current behaviour |
 
-**Totals after this branch**: 63 Vitest files / 1083 tests, 48 Playwright tests.
+**Totals after this branch**, with `origin/main` merged in (MON-805's local engine, MON-503's group
+names): **68 Vitest files / 1178 tests, 48 Playwright tests**, the latter run twice end to end against
+the real stack — uvicorn plus Vite — rather than once.
+
+## 7. One overlap to reconcile at merge time
+
+MON-710 lands the building marks **again**, and better: it replaces the two coloured blocks with
+house and hotel *silhouettes*, moves the fills from `theme/surfaces.ts` to `theme/buildings.ts`, and
+gates them on the non-text floor against the card face plus greyscale separation *from each other*.
+That supersedes §3's building-mark paragraph, which describes the marks this audit rescued into the
+theme — the rescue is what made the measurement possible, and MON-710 is what the measurement then
+asked for.
+
+Both branches touch `theme/contrast.test.ts` and `theme/index.ts`, so whichever merges second needs a
+reconciliation rather than an automatic merge: keep `BUILDING_FILL` and the silhouettes, drop
+`BUILDING_MARK` and `--color-house` / `--color-hotel`. Noted here rather than left to a merge conflict
+to explain, because the two changes agree about everything except which module owns the colour.

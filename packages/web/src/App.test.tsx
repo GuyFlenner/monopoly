@@ -27,6 +27,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Command, GameView, RentQuote } from "./api";
+// Straight from the fixtures rather than through the harness: the Israeli-board rent test builds a
+// board of its own — forty remapped `name_key`s — which is a fixture concern and not one the shared
+// app harness should learn.
+import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
 import {
   BOARDS,
@@ -42,7 +46,7 @@ import {
   sockets,
   UNNAMED_BOARD,
 } from "./test/appHarness";
-import { KIDS_RULESET } from "./test/fixtures";
+import { KIDS_RULESET, makeView } from "./test/fixtures";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };

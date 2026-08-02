@@ -83,6 +83,20 @@ async function expectFocusVisible(page: Page, because: string): Promise<void> {
   expect(state.ring, `${because}: no focus ring is painted`).not.toMatch(/^none 0px \/ none$/);
 }
 
+/** Thrown when a modal took the keyboard while walking to something behind it. Not a failure. */
+class DialogInterrupted extends Error {}
+
+/** Is a modal holding the keyboard, with the thing we are walking to outside it? */
+async function dialogHasTheKeyboard(page: Page, selector: string): Promise<boolean> {
+  return page.evaluate((s) => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog === null) {
+      return false;
+    }
+    return [...document.querySelectorAll(s)].every((node) => !dialog.contains(node));
+  }, selector);
+}
+
 /**
  * Press Tab until the focused element matches `selector`.
  *
@@ -95,6 +109,25 @@ async function tabTo(page: Page, selector: string, because = selector): Promise<
     if (await page.evaluate((s) => document.activeElement?.matches(s) ?? false, selector)) {
       await expectFocusVisible(page, `on reaching ${because}`);
       return presses;
+    }
+    /*
+      A modal that opened *since* the caller last looked.
+
+      The caller checks for a dialog before it reads the bar, and that is not enough on its own: a bot
+      declining a purchase opens an auction at whatever moment the server gets to it, which can be in
+      the middle of this walk. From then on `ModalDialog` traps Tab — correctly — and every remaining
+      press cycles inside the overlay while the chit behind it stays `:visible`, focusable and
+      genuinely unreachable. Pressing on to the budget turns a product working as designed into a
+      hundred and sixty presses and a misleading failure. So the walk gives up *immediately* and says
+      which kind of giving-up it is, and the turn loop deals with the dialog on its next pass.
+
+      Only a dialog the target is not inside counts: tabbing to the withdraw button of the auction
+      that is on screen is the normal case, not an interruption.
+    */
+    if (await dialogHasTheKeyboard(page, selector)) {
+      throw new DialogInterrupted(
+        `${because} is behind a modal that opened during the walk; focus is on ${await focusedDescription(page)}`,
+      );
     }
     await page.keyboard.press("Tab");
   }
@@ -260,8 +293,13 @@ test("plays a stretch of a game with nothing but the keyboard", async ({ page })
     try {
       await tabToAndPress(page, selector, `the ${wanted} chit`);
     } catch (cause) {
-      // Only a chit that is *still there* and still unreachable is a failure. One that has gone is the
-      // bar having moved on under a stale read, which is the product working.
+      // Two ways this is the product working rather than failing: a modal took the keyboard while we
+      // were walking (the next pass handles it), or the chit has gone, which is the bar having moved
+      // on under a stale read. Anything else — a chit still on screen and still unreachable — is the
+      // bug this spec exists to catch.
+      if (cause instanceof DialogInterrupted) {
+        continue;
+      }
       if ((await page.locator(selector).count()) > 0) {
         throw cause;
       }
