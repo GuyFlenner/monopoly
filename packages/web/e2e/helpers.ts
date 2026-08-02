@@ -192,7 +192,20 @@ export function quietMoves(page: Page): Locator {
 export async function answerAnyAuction(page: Page): Promise<boolean> {
   for (const testId of ["auction-withdraw", "auction-place-bid"]) {
     const control = page.getByTestId(testId);
-    if ((await control.count()) === 0 || (await control.isDisabled())) {
+    if ((await control.count()) === 0) {
+      continue;
+    }
+    /*
+      `isDisabled` with an explicit timeout, and treating a timeout as "disabled".
+
+      Without the timeout this line **hangs**: `isDisabled()` defaults to waiting indefinitely for the
+      element, and an auction footer re-renders between the `count()` above and this call whenever
+      another seat bids — so the locator that existed a millisecond ago does not, and the wait never
+      ends. It cost two ninety-second timeouts in the MON-707 suite before it was understood, and it is
+      the sort of thing that only shows up under load, which is the worst way to find it.
+    */
+    const unavailable = await control.isDisabled({ timeout: 1_000 }).catch(() => true);
+    if (unavailable) {
       continue;
     }
     // Both presses are given a **short** timeout and allowed to miss. These controls are only up while

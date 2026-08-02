@@ -197,15 +197,39 @@ test("plays a stretch of a game with nothing but the keyboard", async ({ page })
   for (let move = 0; move < 30; move += 1) {
     if ((await turnNumber(page)) >= 4 && purchases > 0) break;
 
-    // An auction takes the bar away behind an unclosable panel. Answer it by keyboard too.
-    if ((await page.getByTestId("auction-withdraw").count()) > 0) {
-      await tabToAndPress(
-        page,
-        '[data-testid="auction-withdraw"]',
-        "the auction's withdraw button",
-      );
-      if ((await page.getByTestId("auction-confirm").count()) > 0) {
-        await tabToAndPress(page, '[data-testid="auction-confirm"]', "the withdrawal confirmation");
+    /*
+      A modal takes the whole keyboard, so it is dealt with **before the bar is even read**.
+
+      This is the shape of a flake that took three suite runs to understand, and the product was right
+      both times. A bot that declines a purchase opens an auction, `ModalDialog` traps Tab inside it —
+      which is the contract §5.5 asks for — and the action bar behind the overlay is still `:visible` to
+      Playwright, because an overlay does not collapse a box. So a loop that read the bar first would
+      pick a chit that is genuinely on screen, genuinely focusable, and genuinely unreachable, and then
+      press Tab a hundred and sixty times inside a dialog. The failure message said exactly that
+      (“not reachable; matches: […tabIndex 0, hidden false]”), which is why the diagnostic is worth
+      its lines.
+
+      Withdrawing is the way out when it is this seat's turn to bid; when it is not, the only correct
+      thing to do is wait for the other seat, which is a condition rather than a sleep.
+    */
+    const dialog = page.getByRole("dialog");
+    if ((await dialog.count()) > 0) {
+      const withdraw = page.getByTestId("auction-withdraw");
+      if ((await withdraw.count()) > 0) {
+        await tabToAndPress(
+          page,
+          '[data-testid="auction-withdraw"]',
+          "the auction's withdraw button",
+        );
+        if ((await page.getByTestId("auction-confirm").count()) > 0) {
+          await tabToAndPress(
+            page,
+            '[data-testid="auction-confirm"]',
+            "the withdrawal confirmation",
+          );
+        }
+      } else {
+        await dialog.waitFor({ state: "detached", timeout: 20_000 }).catch(() => undefined);
       }
       continue;
     }

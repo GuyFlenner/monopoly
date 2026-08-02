@@ -85,6 +85,24 @@ export default defineConfig({
       // `uv run` from the repository root, two levels up from this package.
       command: `uv run uvicorn kesef_server.api:app --host ${HOST} --port ${String(API_PORT)}`,
       cwd: "../..",
+      /*
+       * A bigger session cap for the test server, and this is a correctness matter rather than tuning
+       * (MON-707).
+       *
+       * `Settings.max_sessions` defaults to **50** and `session_ttl_minutes` to **240**, so nothing a
+       * suite creates is reclaimed while the suite is running. Every `startGame` takes a slot, and this
+       * directory is past forty of them — so the suite was one spec away from filling the store, at
+       * which point `POST /games` starts answering `error.server_at_capacity` and *every remaining test
+       * fails on a missing board*. It is not hypothetical: it happened while MON-707 was being written,
+       * against a dev server that had been reused across several runs, and the failure looks exactly
+       * like a broken setup screen.
+       *
+       * Raised here rather than in `config.py`, because 50 is the right default for a process serving
+       * families and the wrong one for a test run that starts a fresh game per assertion. `env` rather
+       * than a `VAR=value` prefix on the command, because that prefix is POSIX shell syntax and this
+       * config also runs on Windows.
+       */
+      env: { KESEF_MAX_SESSIONS: "400" },
       url: `http://${HOST}:${String(API_PORT)}/boards`,
       reuseExistingServer: !isCI,
       stdout: "pipe",

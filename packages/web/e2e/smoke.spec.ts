@@ -203,16 +203,32 @@ for (const locale of ["en", "he"] as const) {
     await press(page, "roll_dice");
     await press(page, "end_turn");
 
-    // The bot plays itself: its throw arrives over the event socket with nothing pressed in between.
-    // Waiting on the log rather than on a duration is what keeps that deterministic — the moves land
-    // when they land (MON-304 streams them rather than making the human wait).
+    /*
+      The bot plays itself: its throw arrives over the event socket with nothing pressed in between.
+      Waiting on the log rather than on a duration is what keeps that deterministic — the moves land when
+      they land, because MON-304 streams them rather than making the human wait.
+
+      The timeout is raised past the suite's ten seconds on purpose. `bot_think_seconds` defaults to 0.6
+      and a bot's turn is several commands, so a hand-off is *seconds* of real product behaviour and not
+      a wait to be shortened. The condition is still a condition.
+    */
+    const patiently = { timeout: 30_000 };
     await expect
-      .poll(() => botThrows.count(), { message: "the bot never took its turn" })
+      .poll(() => botThrows.count(), { ...patiently, message: "the bot never took its turn" })
       .toBeGreaterThan(0);
-    // And the turn came back, so the seat changed hands twice.
+    /*
+      And the turn came back. **Two** turns on, not one, and that is the assertion rather than a
+      tolerance: `turn_number` counts turns, so the bot's own turn is `turnBefore + 1` and Ruti's next is
+      `turnBefore + 2`. A `> turnBefore` poll is satisfied while the bot is *still playing*, and the
+      banner check below then reads "Dan" and fails — which is what it did, intermittently, until the
+      condition said what it meant.
+    */
     await expect
-      .poll(() => turnNumber(page), { message: "the bot never handed the turn back" })
-      .toBeGreaterThan(turnBefore);
+      .poll(() => turnNumber(page), {
+        ...patiently,
+        message: "the bot never handed the turn back",
+      })
+      .toBeGreaterThanOrEqual(turnBefore + 2);
     await expect(page.getByTestId("turn-banner")).toContainText("Ruti");
   });
 }
