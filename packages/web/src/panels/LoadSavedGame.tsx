@@ -99,7 +99,11 @@ export function LoadSavedGame({ onLoad }: LoadSavedGameProps): React.JSX.Element
       </label>
       <p className="text-xs opacity-70">{t("save.load_hint")}</p>
       {loading && <LoadingState messageKey="save.loading" />}
-      {failure !== null && <ErrorState error={failure} headingKey="save.load_failed" />}
+      {/* `testId` so an e2e spec can read this refusal in a language it does not speak — the other
+          three states in the product already carry one (`setup-error`, `game-error`, `replay-error`). */}
+      {failure !== null && (
+        <ErrorState error={failure} headingKey="save.load_failed" testId="load-save-error" />
+      )}
     </section>
   );
 }

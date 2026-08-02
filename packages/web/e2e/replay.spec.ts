@@ -13,59 +13,12 @@
  * one is not written at all.
  */
 
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { startGame } from "./helpers";
-
-/**
- * The moves this helper is willing to make: roll, take the square, end the turn, and the two ways out
- * of jail.
- *
- * Deliberately a *subset* of what the bar offers. It **buys** rather than declining, because
- * declining sends the square to auction under the universal rules and an auction is an unclosable
- * phase this helper has no business steering; and it never touches "Give up", for the obvious reason.
- * Every click is still a button the engine offered — the helper decides nothing about legality, it
- * only prefers the quiet path through a game.
- */
-const QUIET_MOVES = /^(Roll the dice|Buy this square|End turn|Roll for doubles|Pay \d+ bail)/;
-
-/**
- * Play until the game has reached `throughTurn`, to lay down a log worth walking.
- *
- * Written as "click the first quiet move, then look again" rather than as a fixed sequence per turn,
- * because the bar is **rebuilt from `legal_commands` after every command**: a locator resolved before
- * a round trip points at a node React has since replaced, and a fixed script also assumes which
- * decisions a seeded game will present. The click is given a short timeout and a chit that vanishes
- * underneath it is not a failure — the loop re-reads the bar and carries on.
- */
-async function playTurns(page: Page, throughTurn: number): Promise<void> {
-  // The flourish off first. A chit under a running animation is a *moving* element and Playwright
-  // refuses to click one — which is the product keeping its promise (everything is skippable) rather
-  // than a flake to retry around.
-  const skip = page.getByTestId("skip-animations").first();
-  if ((await skip.getAttribute("aria-pressed")) !== "true") {
-    await skip.click();
-  }
-
-  const banner = page.getByTestId("turn-banner");
-  const moves = page.locator("#kesef-actions").getByRole("button", { name: QUIET_MOVES });
-
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const turn = Number(/\d+/.exec((await banner.textContent()) ?? "")?.[0] ?? "0");
-    if (turn >= throughTurn) {
-      return;
-    }
-    if ((await moves.count()) === 0) {
-      // The engine is asking for something outside the quiet subset (an auction, a trade). Nothing
-      // here should be answering that, so the log is as long as this helper can honestly make it.
-      return;
-    }
-    await moves
-      .first()
-      .click({ timeout: 5_000 })
-      .catch(() => undefined);
-  }
-}
+// `playTurns` moved to `helpers.ts` in MON-707, where the smoke needs the same quiet path — and where
+// it is driven by `data-command-kind` rather than by English button names, so one loop plays a game in
+// either language.
+import { playTurns, startGame } from "./helpers";
 
 test.describe("the replay viewer", () => {
   test("steps back through the server's own log", async ({ page }) => {
@@ -95,8 +48,11 @@ test.describe("the replay viewer", () => {
     await page.getByTestId("replay-slider").fill(String(Math.floor(total / 2)));
     await expect(position).toHaveText(`Event ${String(Math.floor(total / 2))} of ${String(total)}`);
 
+    // "History up to here", not "What's happened": the replay renders the game screen's own
+    // `<EventLog>` under its own heading key, because two regions with one name is `landmark-unique`
+    // and a landmark list with two identical entries cannot be navigated (MON-703).
     const historyLines = dialog
-      .getByRole("region", { name: "What's happened" })
+      .getByRole("region", { name: "History up to here" })
       .getByRole("listitem");
     await expect(historyLines.first()).toBeVisible();
     const midwayCount = await historyLines.count();

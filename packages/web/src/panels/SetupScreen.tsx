@@ -42,6 +42,7 @@ import {
   type RuleValue,
   type SeatConfig,
 } from "@/api";
+import { SCREEN_HEADING_ATTRIBUTE } from "@/a11y";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import { Icon } from "@/theme";
 
@@ -226,7 +227,20 @@ export function SetupScreen({
   // Form state, not a rule: a seat with a blank name is an unfinished form. Everything the
   // *engine* decides — two to six players, no shared names — is decided by the engine.
   const hasBlankName = seats.some((seat) => seat.name.trim() === "");
-  const canSubmit = !hasBlankName && chosenBoardId !== null && !isSubmitting;
+  /*
+    Whether the form *can* be posted, and deliberately not "and it is not already posting" (MON-703).
+
+    `isSubmitting` used to be part of this, and it made the start button drop the keyboard: pressing it
+    disabled it, a disabled element cannot hold focus, and the browser's answer to that is `<body>` —
+    from where Tab starts again at the top of the page. `e2e/keyboard.spec.ts` found it on the one
+    press every player makes. Re-entry is guarded inside `submit` instead, which is where "already in
+    flight" is actually known and where guarding it costs nobody their place on the page. The button's
+    *label* still changes, so a player can see the difference.
+
+    The remaining condition is validation — a seat with no name, or no board — which no press of this
+    button can cause, so it can never take focus away from a player who is on it.
+  */
+  const canSubmit = !hasBlankName && chosenBoardId !== null;
 
   function updateSeat(id: number, change: Partial<SeatDraft>): void {
     setSeats((current) => current.map((seat) => (seat.id === id ? { ...seat, ...change } : seat)));
@@ -234,7 +248,7 @@ export function SetupScreen({
 
   async function submit(event: React.SyntheticEvent): Promise<void> {
     event.preventDefault();
-    if (chosenBoardId === null) {
+    if (chosenBoardId === null || isSubmitting) {
       return;
     }
     setSubmitting(true);
@@ -254,216 +268,239 @@ export function SetupScreen({
   }
 
   return (
-    <form
-      onSubmit={(event) => {
-        void submit(event);
-      }}
-      className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 text-start sm:p-6"
-    >
-      <header className="flex flex-col gap-1">
-        <h1 className="text-3xl font-bold tracking-tight">{t("setup.title")}</h1>
-        <p className="text-sm opacity-70">{t("app.tagline")}</p>
-      </header>
+    /*
+      The `<main>` is MON-703's finding and it was the largest single one: this screen had **no
+      landmark at all**. An unnamed `<form>` is not a landmark, so every fieldset, legend and section
+      on the first screen a player meets sat outside the landmark structure — axe's `region` rule,
+      sixteen nodes of it. `App.tsx`'s `<Frame>` already wrapped this screen's *loading, empty and
+      error* states in a `<main>`, which is how the gap survived: the three states nobody looks at
+      were structured and the screen everybody starts on was not.
 
-      {/* --- Seats --- */}
-      <fieldset className="flex flex-col gap-3">
-        <legend className="pb-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
-          {t("setup.seats")}
-        </legend>
-        <ol className="flex flex-col gap-3">
-          {seats.map((seat, index) => (
-            <SeatCard
-              key={seat.id}
-              seat={seat}
-              index={index}
-              canRemove={seats.length > 1}
-              onChange={(change) => {
-                updateSeat(seat.id, change);
-              }}
-              onRemove={() => {
-                setSeats((current) => current.filter((candidate) => candidate.id !== seat.id));
-              }}
-            />
-          ))}
-        </ol>
-        {seats.length < MAX_SEAT_ROWS && (
-          <button
-            type="button"
-            onClick={() => {
-              setSeats((current) => [...current, seatDraft(nextSeatId)]);
-              setNextSeatId((current) => current + 1);
-            }}
-            className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
+      Wrapping rather than making the `<form>` itself the landmark, because the two elements answer
+      different questions — `<main>` is "where the content of this page is" and `<form>` is "these
+      controls submit together" — and a `<main>` that is also a form cannot gain a second form later.
+    */
+    <main className="mx-auto flex w-full max-w-3xl flex-col p-4 text-start sm:p-6">
+      <form
+        onSubmit={(event) => {
+          void submit(event);
+        }}
+        className="flex w-full flex-col gap-6"
+      >
+        <header className="flex flex-col gap-1">
+          {/* `tabIndex={-1}` and the marker so leaving a game lands focus here rather than on
+              `<body>` — see `a11y/screenFocus.ts`. Never a tab stop. */}
+          <h1
+            {...{ [SCREEN_HEADING_ATTRIBUTE]: "" }}
+            tabIndex={-1}
+            className="text-3xl font-bold tracking-tight"
           >
-            + {t("setup.add_player")}
-          </button>
-        )}
-      </fieldset>
+            {t("setup.title")}
+          </h1>
+          <p className="text-sm opacity-70">{t("app.tagline")}</p>
+        </header>
 
-      {/* --- The table --- */}
-      <fieldset className="flex flex-col gap-5 rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
-        <legend className="px-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
-          {t("setup.table")}
-        </legend>
+        {/* --- Seats --- */}
+        <fieldset className="flex flex-col gap-3">
+          <legend className="pb-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+            {t("setup.seats")}
+          </legend>
+          {/* `data-testid` so the e2e helper can find a seat row without reading a translated label:
+              MON-707's smoke fills this form in Hebrew as well as in English. */}
+          <ol data-testid="setup-seats" className="flex flex-col gap-3">
+            {seats.map((seat, index) => (
+              <SeatCard
+                key={seat.id}
+                seat={seat}
+                index={index}
+                canRemove={seats.length > 1}
+                onChange={(change) => {
+                  updateSeat(seat.id, change);
+                }}
+                onRemove={() => {
+                  setSeats((current) => current.filter((candidate) => candidate.id !== seat.id));
+                }}
+              />
+            ))}
+          </ol>
+          {seats.length < MAX_SEAT_ROWS && (
+            <button
+              type="button"
+              onClick={() => {
+                setSeats((current) => [...current, seatDraft(nextSeatId)]);
+                setNextSeatId((current) => current + 1);
+              }}
+              className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
+            >
+              + {t("setup.add_player")}
+            </button>
+          )}
+        </fieldset>
 
-        <Choice
-          name={`${formId}-board`}
-          label={t("setup.board")}
-          options={boards.map((board) => ({
-            value: board.id,
-            label: t(board.name_key),
-            hint: String(board.ownable_count),
-          }))}
-          value={chosenBoardId ?? ""}
-          onChange={setBoardId}
-        />
-
-        <Choice
-          name={`${formId}-ruleset`}
-          label={t("setup.ruleset")}
-          // `label_key` off the wire, rather than `` t(`setup.${ruleset.name}`) `` — the same
-          // reasoning as the flags: the server names the choice, the client renders the name.
-          options={rulesets.map((ruleset) => ({
-            value: ruleset.name,
-            label: t(ruleset.label_key),
-          }))}
-          value={rulesetName}
-          onChange={(value) => {
-            setRulesetName(value as RulesetView["name"]);
-          }}
-        />
-
-        {rulesetName !== UNIVERSAL && <RuleDiff differences={differences} />}
-
-        {/*
-          The house rules, in the flow rather than behind the advanced disclosure.
-
-          The seed hides because it is a developer's feature wearing a player's clothes. This is the
-          opposite: it is the setting a parent most wants and the one they cannot discover any other
-          way, since with auctions off there is no auction on screen to notice the absence of.
-        */}
-        {/*
-          Its own fieldset, and its own wording, because "Auctions" appears twice on this screen
-          otherwise and means two different things. `<RuleDiff>` above answers *what Kids Mode
-          changes about the rules*; this answers *what this table is doing tonight*, and it is the
-          one that wins — a kids game with the switch on has auctions, whatever the diff above says
-          Kids Mode does by itself. Labelling both of them `ruleset.auctions_enabled` put two
-          controls with one name on one form, which is a defect for a screen reader before it is one
-          for a test.
-        */}
-        <fieldset className="flex flex-col gap-2">
-          <legend className="pb-1 text-sm font-medium">{t("setup.house_rules")}</legend>
-          <p className="text-xs opacity-70">{t("setup.house_rules_note")}</p>
+        {/* --- The table --- */}
+        <fieldset className="flex flex-col gap-5 rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
+          <legend className="px-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+            {t("setup.table")}
+          </legend>
 
           <Choice
-            name={`${formId}-auctions`}
-            label={t("setup.auctions_here")}
-            options={[
-              { value: "off", label: t("ruleset.value.off") },
-              { value: "on", label: t("ruleset.value.on") },
-            ]}
-            value={auctionsEnabled ? "on" : "off"}
+            name={`${formId}-board`}
+            label={t("setup.board")}
+            options={boards.map((board) => ({
+              value: board.id,
+              label: t(board.name_key),
+              hint: String(board.ownable_count),
+            }))}
+            value={chosenBoardId ?? ""}
+            onChange={setBoardId}
+          />
+
+          <Choice
+            name={`${formId}-ruleset`}
+            label={t("setup.ruleset")}
+            // `label_key` off the wire, rather than `` t(`setup.${ruleset.name}`) `` — the same
+            // reasoning as the flags: the server names the choice, the client renders the name.
+            options={rulesets.map((ruleset) => ({
+              value: ruleset.name,
+              label: t(ruleset.label_key),
+            }))}
+            value={rulesetName}
             onChange={(value) => {
-              setAuctionsEnabled(value === "on");
+              setRulesetName(value as RulesetView["name"]);
+            }}
+          />
+
+          {rulesetName !== UNIVERSAL && <RuleDiff differences={differences} />}
+
+          {/*
+            The house rules, in the flow rather than behind the advanced disclosure.
+
+            The seed hides because it is a developer's feature wearing a player's clothes. This is
+            the opposite: it is the setting a parent most wants and the one they cannot discover any
+            other way, since with auctions off there is no auction on screen to notice the absence
+            of.
+
+            Its own fieldset and its own wording, because otherwise "Auctions" appears twice on this
+            screen meaning two different things. `<RuleDiff>` above answers *what Kids Mode changes
+            about the rules*; this answers *what this table is doing tonight*, and it is the one that
+            wins — a kids game with the switch on has auctions, whatever the diff says Kids Mode does
+            by itself. Two controls sharing `ruleset.auctions_enabled` as a name is a defect for a
+            screen reader before it is one for a test.
+          */}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="pb-1 text-sm font-medium">{t("setup.house_rules")}</legend>
+            <p className="text-xs opacity-70">{t("setup.house_rules_note")}</p>
+
+            <Choice
+              name={`${formId}-auctions`}
+              label={t("setup.auctions_here")}
+              options={[
+                { value: "off", label: t("ruleset.value.off") },
+                { value: "on", label: t("ruleset.value.on") },
+              ]}
+              value={auctionsEnabled ? "on" : "off"}
+              onChange={(value) => {
+                setAuctionsEnabled(value === "on");
+              }}
+            />
+
+            {/*
+              Only when there is an auction to have a floor for. A disabled control would be a second
+              way of saying what the switch above already says, and an always-visible one would ask a
+              parent to answer a question about a feature they have just turned off.
+            */}
+            {auctionsEnabled && (
+              <Choice
+                name={`${formId}-auction-minimum`}
+                label={t("ruleset.auction_minimum")}
+                options={AUCTION_MINIMUMS.map((candidate) => ({
+                  value: candidate,
+                  label: t(`auction_minimum.${candidate}`),
+                }))}
+                value={auctionMinimum}
+                onChange={(value) => {
+                  setAuctionMinimum(value as AuctionMinimum);
+                }}
+              />
+            )}
+          </fieldset>
+
+          <Choice
+            name={`${formId}-locale`}
+            label={t("setup.language")}
+            options={LOCALES.map((candidate) => ({
+              value: candidate,
+              label: LOCALE_LABEL[candidate],
+            }))}
+            value={locale}
+            onChange={(value) => {
+              onLocaleChange(value as Locale);
             }}
           />
 
           {/*
-            Only when there is an auction to have a floor for. A disabled control would be a second
-            way of saying what the switch above already says, and an always-visible one would ask a
-            parent to answer a question about a feature they have just turned off.
+            The seed is behind a disclosure, closed by default.
+
+            It is a real feature — the engine's RNG is seeded from an integer that is part of the
+            serialized state (ADR-002), so the same seed deals the same dice and the same card order,
+            which is what makes a game reproducible for a replay, a bug report, or an honest rematch.
+            But it is a *developer's* feature wearing a player's clothes: the owner's first question on
+            seeing the built form was "what is the seed option at the bottom", and a parent setting up a
+            game for a six-year-old will ask the same thing and then worry they have to fill it in.
+
+            Closed, it is one line of text nobody has to understand. Open, it is unchanged. That is
+            cheaper than removing it and much cheaper than explaining it in the main flow.
           */}
-          {auctionsEnabled && (
-            <Choice
-              name={`${formId}-auction-minimum`}
-              label={t("ruleset.auction_minimum")}
-              options={AUCTION_MINIMUMS.map((candidate) => ({
-                value: candidate,
-                label: t(`auction_minimum.${candidate}`),
-              }))}
-              value={auctionMinimum}
-              onChange={(value) => {
-                setAuctionMinimum(value as AuctionMinimum);
-              }}
-            />
-          )}
+          <details className="group flex flex-col gap-1">
+            <summary className="target -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium opacity-75 hover:opacity-100">
+              <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
+              <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
+              {t("setup.advanced")}
+            </summary>
+            <div className="mt-2 flex flex-col gap-1">
+              <label htmlFor={`${formId}-seed`} className="text-sm font-medium">
+                {t("setup.seed")}
+              </label>
+              <input
+                id={`${formId}-seed`}
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                dir="ltr"
+                value={seed}
+                onChange={(event) => {
+                  setSeed(event.target.value);
+                }}
+                aria-describedby={`${formId}-seed-hint`}
+                className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+              />
+              <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
+                {t("setup.seed_hint")}
+              </p>
+            </div>
+          </details>
         </fieldset>
 
-        <Choice
-          name={`${formId}-locale`}
-          label={t("setup.language")}
-          options={LOCALES.map((candidate) => ({
-            value: candidate,
-            label: LOCALE_LABEL[candidate],
-          }))}
-          value={locale}
-          onChange={(value) => {
-            onLocaleChange(value as Locale);
-          }}
-        />
+        {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
+
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="min-h-14 rounded-2xl bg-[oklch(45%_0.09_155)] px-6 text-lg font-bold text-[oklch(98%_0.01_95)] shadow-[0_3px_0_0_oklch(30%_0.07_155)] disabled:opacity-50 disabled:shadow-none"
+        >
+          {isSubmitting ? t("setup.starting") : t("setup.start")}
+        </button>
 
         {/*
-          The seed is behind a disclosure, closed by default.
-
-          It is a real feature — the engine's RNG is seeded from an integer that is part of the
-          serialized state (ADR-002), so the same seed deals the same dice and the same card order,
-          which is what makes a game reproducible for a replay, a bug report, or an honest rematch.
-          But it is a *developer's* feature wearing a player's clothes: the owner's first question on
-          seeing the built form was "what is the seed option at the bottom", and a parent setting up a
-          game for a six-year-old will ask the same thing and then worry they have to fill it in.
-
-          Closed, it is one line of text nobody has to understand. Open, it is unchanged. That is
-          cheaper than removing it and much cheaper than explaining it in the main flow.
+          Last on the page, and inside the form only for layout: the input is `type="file"`, so it
+          submits nothing and cannot be reached by Enter in a text box. Below the start button because
+          setting up a new game is what most people are here for and a save is the exception — but on
+          the same screen, because "where is my game from yesterday" must not require finding a menu.
         */}
-        <details className="group flex flex-col gap-1">
-          <summary className="target -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium opacity-75 hover:opacity-100">
-            <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
-            <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
-            {t("setup.advanced")}
-          </summary>
-          <div className="mt-2 flex flex-col gap-1">
-            <label htmlFor={`${formId}-seed`} className="text-sm font-medium">
-              {t("setup.seed")}
-            </label>
-            <input
-              id={`${formId}-seed`}
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={1}
-              dir="ltr"
-              value={seed}
-              onChange={(event) => {
-                setSeed(event.target.value);
-              }}
-              aria-describedby={`${formId}-seed-hint`}
-              className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
-            />
-            <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
-              {t("setup.seed_hint")}
-            </p>
-          </div>
-        </details>
-      </fieldset>
-
-      {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
-
-      <button
-        type="submit"
-        disabled={!canSubmit}
-        className="min-h-14 rounded-2xl bg-[oklch(45%_0.09_155)] px-6 text-lg font-bold text-[oklch(98%_0.01_95)] shadow-[0_3px_0_0_oklch(30%_0.07_155)] disabled:opacity-50 disabled:shadow-none"
-      >
-        {isSubmitting ? t("setup.starting") : t("setup.start")}
-      </button>
-
-      {/*
-        Last on the page, and inside the form only for layout: the input is `type="file"`, so it
-        submits nothing and cannot be reached by Enter in a text box. Below the start button because
-        setting up a new game is what most people are here for and a save is the exception — but on
-        the same screen, because "where is my game from yesterday" must not require finding a menu.
-      */}
-      {onLoad !== undefined && <LoadSavedGame onLoad={onLoad} />}
-    </form>
+        {onLoad !== undefined && <LoadSavedGame onLoad={onLoad} />}
+      </form>
+    </main>
   );
 }
 

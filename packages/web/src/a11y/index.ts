@@ -24,5 +24,6 @@ export type {
   Politeness,
 } from "./announcements";
 export { INTERRUPT_PHASE_KEYS, narrate } from "./narration";
+export { SCREEN_HEADING_ATTRIBUTE, useScreenFocus } from "./screenFocus";
 export type { NarrationContext } from "./narration";
 export { useEventNarration } from "./useEventNarration";
