@@ -93,6 +93,7 @@ import {
   TOKEN_PX,
   type PropertyProjection,
 } from "@/board";
+import { groupLabel, type GroupNameScope } from "@/i18n/groupNames";
 import { bandFill, GROUP_ORDER, Icon, patternDomId, TILE_THEME, type TileThemeKey } from "@/theme";
 
 import { EmptyState } from "./States";
@@ -290,17 +291,26 @@ function GroupRow({
   holdings,
   deeds,
   onSelectSquare,
-  t,
+  scope,
 }: {
   readonly themeKey: TileThemeKey;
   /** `undefined` for railroads and utilities, which the projection ships no roll-up for. */
   readonly holdings: GroupHoldings | undefined;
   readonly deeds: readonly Deed[];
   readonly onSelectSquare: ((tile: number) => void) | undefined;
-  readonly t: Translate;
+  /**
+   * The screen's translate plus the board whose catalogue may name this group.
+   *
+   * A scope rather than a bare `t` because the band's *name* is board-scoped: on the Israeli board
+   * each colour group is a city and the squares under it are its streets, so this row is headed
+   * "תל אביב" above Allenby and Dizengoff rather than "כחול כהה" (`i18n/groupNames.ts`). Every other
+   * string in the row is an ordinary lookup through `scope.translate`.
+   */
+  readonly scope: GroupNameScope;
 }): React.JSX.Element {
+  const t = scope.translate;
   const theme = TILE_THEME[themeKey];
-  const name = t(theme.nameKey);
+  const name = groupLabel(scope, theme.nameKey);
   const progress =
     holdings === undefined
       ? undefined
@@ -419,6 +429,21 @@ export function PlayerDossier({
   const { t, i18n } = useTranslation();
 
   const translate: Translate = (key, params) => t(key, params ?? {});
+
+  /**
+   * That translate plus the board whose catalogue may name a colour group.
+   *
+   * The card already takes the board for square names; a group's name comes from the same place for
+   * the same reason. On the Israeli board each colour group is a city, so the band above Allenby and
+   * Dizengoff reads "תל אביב" — and it must, because the deed names printed under it are streets in
+   * that city. `exists` is the guard that lets the classic board keep its colour names instead of
+   * throwing for a key it deliberately does not define (`i18n/groupNames.ts`).
+   */
+  const groupScope: GroupNameScope = {
+    boardId: board?.id,
+    translate,
+    exists: i18n.exists.bind(i18n),
+  };
 
   /**
    * The owned squares, filed under their band.
@@ -605,7 +630,7 @@ export function PlayerDossier({
               holdings={holdings}
               deeds={deedsByKey.get(holdings.group) ?? []}
               onSelectSquare={onSelectSquare}
-              t={translate}
+              scope={groupScope}
             />
           ))}
         </ul>
@@ -668,7 +693,7 @@ export function PlayerDossier({
                   holdings={undefined}
                   deeds={deedsByKey.get(key) ?? []}
                   onSelectSquare={onSelectSquare}
-                  t={translate}
+                  scope={groupScope}
                 />
               ))}
             </ul>

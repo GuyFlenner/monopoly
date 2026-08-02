@@ -211,6 +211,49 @@ describe("ordering and self-containment", () => {
     expect(text).not.toContain("group.");
   });
 
+  it("names the city, not the colour, when the rent note is about the Israeli board", () => {
+    /*
+      The doubling sentence is the site most likely to be missed, because the group reaches it as a
+      *param* rather than as a label a component chose: `rent.note.full_group_doubled` says "one
+      player owns the whole {{group}} set", and the engine fills `group_key` with `group.dark_blue`.
+      On the Israeli board that group is Tel Aviv, and a log reading "the whole dark blue set" beside
+      a dossier reading "Tel Aviv" is the exact split this routing exists to prevent.
+    */
+    const israel = makeBoard({
+      id: "israel",
+      name_key: "board.israel.name",
+      tiles: [makeTile(37, { name_key: "tile.israel.t37", group: "dark_blue" })],
+    });
+    render(
+      <EventLog
+        events={[
+          loggedEvent(1, {
+            type: "rent_charged",
+            payer: 1,
+            owner: 0,
+            tile: 37,
+            amount: 100,
+            base_rent: 50,
+            houses: 0,
+            multiplier: 2,
+            dice_total: null,
+            group: "dark_blue",
+            note_keys: ["rent.note.full_group_doubled"],
+            note_params: { group_key: "group.dark_blue", multiplier: 2 },
+          }),
+        ]}
+        players={PLAYERS}
+        board={israel}
+      />,
+    );
+    const text = logText();
+    expect(text).toContain("Tel Aviv");
+    expect(text).not.toContain("dark blue");
+    expect(text).not.toContain("Dark blue");
+    // The square's own name still comes from the same board catalogue, so the two agree.
+    expect(text).toContain("Allenby St.");
+  });
+
   it("says hotel or house, never 'building'", () => {
     // MON-413. `level` is the engine's answer to "which building moved", so the log stopped saying
     // "a building went up" — and the client never had to encode "five houses is a hotel".
@@ -293,8 +336,17 @@ describe("resolving the keys inside a note's params (MON-415)", () => {
   /** Echoes the key it was given, so the assertions are about *which* value was translated. */
   const translate = (key: string): string => `translated:${key}`;
 
+  /**
+   * A scope with no board-scoped entry to find.
+   *
+   * `exists: () => false` is the classic board's own behaviour — it defines no `group.*` key — so
+   * these four assertions describe the fallback path, and the board-scoped path is asserted
+   * separately below and in `i18n/groupNames.test.ts`.
+   */
+  const scope = { boardId: undefined, translate, exists: (): boolean => false };
+
   it("resolves a `*_key` param into its bare name and drops the suffixed entry", () => {
-    expect(resolveNoteParams({ group_key: "group.brown", multiplier: 2 }, { translate })).toEqual({
+    expect(resolveNoteParams({ group_key: "group.brown", multiplier: 2 }, scope)).toEqual({
       group: "translated:group.brown",
       multiplier: 2,
     });
@@ -303,7 +355,7 @@ describe("resolving the keys inside a note's params (MON-415)", () => {
   it("leaves an ordinary param alone, whatever its value looks like", () => {
     // `count` is a number and `houses` is a plain value; neither names a catalogue entry, and a
     // resolver that translated everything would put `translated:3` in front of a child.
-    expect(resolveNoteParams({ count: 3, houses: 2 }, { translate })).toEqual({
+    expect(resolveNoteParams({ count: 3, houses: 2 }, scope)).toEqual({
       count: 3,
       houses: 2,
     });
@@ -312,12 +364,29 @@ describe("resolving the keys inside a note's params (MON-415)", () => {
   it("knows nothing about colour groups — any namespace resolves the same way", () => {
     // The point of the convention over the deleted `Record<ColorGroup, string>`: the next engine
     // note to interpolate a key needs no change here at all.
-    expect(resolveNoteParams({ deck_key: "deck.chance" }, { translate })).toEqual({
+    expect(resolveNoteParams({ deck_key: "deck.chance" }, scope)).toEqual({
       deck: "translated:deck.chance",
     });
   });
 
   it("survives an absent params object", () => {
-    expect(resolveNoteParams(undefined, { translate })).toEqual({});
+    expect(resolveNoteParams(undefined, scope)).toEqual({});
+  });
+
+  it("prefers the board's own name for a group, and only for a group", () => {
+    // The Israeli board names each colour group after its city, so the note that interpolates a
+    // group has to reach `board-israel:group.dark_blue` — while `deck_key`, which no board renames,
+    // stays on the global catalogue even though the same board is in play.
+    const israel = {
+      boardId: "israel",
+      translate,
+      exists: (key: string): boolean => key === "board-israel:group.dark_blue",
+    };
+    expect(
+      resolveNoteParams({ group_key: "group.dark_blue", deck_key: "deck.chance" }, israel),
+    ).toEqual({
+      group: "translated:board-israel:group.dark_blue",
+      deck: "translated:deck.chance",
+    });
   });
 });

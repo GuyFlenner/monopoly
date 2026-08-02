@@ -123,18 +123,20 @@ jobs:
             packages/web/test-results/
           retention-days: 7
 
-      # `enablement: true` so the *first* run turns Pages on by itself rather than failing with a
-      # 404 and waiting for somebody to tick a box in Settings. That is exactly what happened on the
-      # first run after MON-805 merged: every build step passed, the smoke test played a turn in a
-      # real browser, and the job died here because `GET /repos/{owner}/{repo}/pages` was a 404.
+      # `enablement` stays off, and that is not a preference — it cannot work here. Enabling Pages
+      # was tried on this repository and the API refused the workflow's own token:
       #
-      # It is safe to leave on. The action treats an already-enabled site as success, and this only
-      # ever sets the build source to "GitHub Actions" — the thing this workflow *is*. It cannot
-      # change repository visibility, and a private repository stays private (its Pages site then
-      # needs a paid plan; see docs/DEPLOYMENT.md for the free routes).
+      #     Create Pages site failed. Error: Resource not accessible by integration
+      #
+      # Creating a Pages site needs repository-administration rights, which the default
+      # `GITHUB_TOKEN` does not carry however many `permissions:` the workflow declares. Only an
+      # owner (via Settings, once) or a PAT with admin scope can do it — and storing an admin PAT to
+      # save one click would be a poor trade.
+      #
+      # So the first run on a repository where Pages has never been switched on fails here, by
+      # design, with "Get Pages site failed". docs/DEPLOYMENT.md §1 is the one-time fix. Every run
+      # after that finds the site and passes.
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
