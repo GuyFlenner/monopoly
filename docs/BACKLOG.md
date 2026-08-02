@@ -764,13 +764,16 @@ sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhe
 
 | ID | Item | Tier | Size | Status |
 |---|---|---|---|---|
-| MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L | 🔄 in review (PR #27) |
-| MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M | 🔄 in review (PR #27) |
-| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | open — runs last, over the final UI; `axe-core` + `src/test/axe.ts` landed with MON-708 |
+| MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L | ✅ PR #27 |
+| MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M | ✅ PR #27 |
+| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | 🔄 in review (PR #30) — 9 defects found, 8 fixed, 1 deferred as a product decision; `docs/A11Y_AUDIT.md` |
 | MON-704 | Save / load to a file — `GameState` already serializes, so this is UI plus a schema-version check | Sonnet | S | ✅ PR #22 — `POST /games/load` validates `SCHEMA_VERSION` as a keyed 422; load reachable even from error frames, since a save carries its own board |
-| MON-705 | Replay viewer: step through a recorded game's events | Opus | M | 🔄 in review (PR #26) — pure client accumulator that copies only facts events assert |
+| MON-705 | Replay viewer: step through a recorded game's events | Opus | M | ✅ PR #26 — pure client accumulator that copies only facts events assert |
 | MON-706 | Sound cues (dice, cash, purchase, jail) with a mute that persists | Sonnet | S | ✅ PR #22 — Web Audio synth, one subscription beside the Announcer's; `rent_charged` deliberately un-cued (its `cash_changed` twin already sounds) |
-| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | mostly landed incrementally (27+ specs, both locales, RTL geometry, kids, trade); MON-703's pass closes it |
+| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | 🔄 in review (PR #30) — 48 specs, both locales, RTL geometry, kids, trade, keyboard, 44 px sweep, persistence |
+| MON-709 | The drawn card, held up on the board long enough to read | Opus | M | 🔄 in review (PR #33) — a beat in MON-701's queue; skippable, non-blocking, deck legible without colour. Reduced motion keeps the card and drops only the motion; a reload's replay drops the card instead |
+| MON-710 | Houses and hotels as figures rather than coloured blocks | Opus | M | 🔄 in review (PR #34) — pitched cottage against flat stepped block, asserted from the path data; the four fills are measured against the face they stand on, which the old CSS literals never were |
+| MON-711 | Action prominence, owned-only dossier, and turns that end themselves | Opus | M | 🔄 in review (PR #35) — owner's UX asks from the first playable build; `docs/UX_ACTION_PROMINENCE.md` |
 | MON-708 | Empty, loading and error states for every screen | Sonnet | S | ✅ PR #22 — one `EmptyState`/`LoadingState`/`ErrorState` set; added the missing retry on a game screen's failed first fetch |
 
 ---
@@ -813,6 +816,40 @@ leaves. A skip-if-running flag would have been cheaper and wrong — the running
 already decided "nothing to do" from the position *before* the command that queued the second
 task. Both regression tests fail on the unfixed code; the race test needs a 1 ms think delay
 because a coroutine that never yields cannot race.
+
+### MON-712 — Auctions off by default, configurable, with a reserve price 🔵 **OPEN**
+**Tier**: Fable design / Opus build · **Size**: M · *(added 2026-08-02 — owner, from a Hebrew game
+played with his child)*
+
+**The report.** Declining a property opens the official no-reserve auction, so the child bid ₪1,
+won, and did it again every turn. A parent who does not want the auction has no way to turn it off,
+and a parent who does want it has no way to stop a ₪1 steal.
+
+**What already exists.** `Ruleset.auctions_enabled` (default `True`, off in Kids Mode) and a
+hardcoded floor: `rules/auction.py` opens every lot with `min_bid=1  # no reserve (spec §3.6 trap
+5)`, and `legality.minimum_bid` is `max(frame.min_bid, high_bid + 1)`. So a reserve is a `min_bid`
+the opener chooses, not new machinery. What is missing is the *reach*: `CreateGameRequest` takes
+only a `RulesetName`, so the setup screen can pick `universal` or `kids` and nothing else.
+
+**Shape.**
+
+1. **Engine** — a reserve setting on `Ruleset` (`auction_minimum: "none" | "list_price"`), read by
+   `open_auction` for a `TileLot`'s floor. A `BuildingLot` names no tile, so it keeps ₪1.
+   `Ruleset.universal()` stays faithful to the printed rules: it is what the test suite and the
+   goldens mean by *correct*, and the product's default is a **setup** default, not a redefinition
+   of the official rule set.
+2. **Server** — per-game house-rule overrides on top of the named rule set. A contract change:
+   regenerate `openapi.json` and `packages/web/src/api/generated.ts`.
+3. **Web** — visible toggles on the setup screen, **auctions off by default**. No gating code is
+   needed for the auction affordance itself: the UI renders `legal_commands`, so with auctions off
+   the phase never opens and the panel never appears. `RuleDiff` then shows "auctions: off" as a
+   stated divergence, which is the transparency a parent sitting down deserves.
+
+**Why a reserve rather than only a switch.** An increment rule would not help — the ₪1 *first* bid
+is the exploit. With the floor at the printed price the auction stops being a discount and becomes
+"does anyone else want it at the sticker price, in turn order?", and a square nobody wants at that
+price stays with the bank, which is the same outcome as auctions off. The no-reserve rule remains
+available for players who want the printed game.
 
 ---
 
