@@ -326,7 +326,7 @@ describe("the house rules this table is playing", () => {
     expect(request.ruleset).toBe("universal");
   });
 
-  it("shows the switch in the position it is actually going to post", async () => {
+  it("shows the switch in the position it is actually going to post", () => {
     setup();
     const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
     expect(

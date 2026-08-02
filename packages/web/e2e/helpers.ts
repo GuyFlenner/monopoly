@@ -63,6 +63,16 @@ export async function startGame(
      * afterwards. Every selector below is structural or keyed on an input's `value`, so both work.
      */
     readonly locale?: Locale;
+    /**
+     * The table's house rules (MON-712), when a spec cares.
+     *
+     * Omitted, the form is left exactly as it opens — which is the point of the default: a spec that
+     * says nothing about auctions is testing the game a player gets without touching anything.
+     */
+    readonly auctions?: {
+      readonly enabled: boolean;
+      readonly minimum?: "list_price" | "none";
+    };
   } = {},
 ): Promise<void> {
   await page.goto("/");
@@ -87,6 +97,18 @@ export async function startGame(
   // to the language this helper has just changed. Same reason as `switchTo`'s locale radio below.
   if (options.ruleset !== undefined) {
     await page.locator(`label:has(input[name$="-ruleset"][value="${options.ruleset}"])`).click();
+  }
+
+  if (options.auctions !== undefined) {
+    // Structural and keyed on the input's `value`, like the rule set above: the labels are
+    // translated and this helper fills the form in either language.
+    const wanted = options.auctions.enabled ? "on" : "off";
+    await page.locator(`label:has(input[name$="-auctions"][value="${wanted}"])`).click();
+    if (options.auctions.minimum !== undefined) {
+      const floor = `label:has(input[name$="-auction-minimum"][value="${options.auctions.minimum}"])`;
+      await expect(page.locator(floor)).toBeVisible();
+      await page.locator(floor).click();
+    }
   }
 
   for (const bot of options.bots ?? []) {
