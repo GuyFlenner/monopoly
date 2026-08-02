@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ACTION_TONE } from "./actions";
+import { BUILDING_FILL, BUILDING_LEVELS, buildingReferenceSurface } from "./buildings";
 import {
   CONTRAST_FLOOR,
   contrastRatio,
@@ -154,6 +155,40 @@ describe.each([...THEMES])("action tones — %s theme", (theme: ThemeName) => {
 });
 
 /**
+ * The buildings (MON-710), which are exactly the bug this file was written for, one layer down.
+ *
+ * The fills they replaced were `#1f7a3d` and `#b3271f` — literals in a stylesheet, so nothing in
+ * this file knew they existed, so nobody ever noticed that in the dark theme they measure 2.53:1
+ * and 2.09:1 against the card face they sit on. That is the same shape as the 1.41:1 claim in the
+ * docstring above: not a wrong colour, an *unmeasured* one. `buildingReferenceSurface` exists so
+ * the surface is named by the module under test rather than guessed at here.
+ *
+ * The non-text floor applies: a house is a region, not a letter. The greyscale separation is
+ * asserted twice over — against the face, so the figure is visible at all with hue removed, and
+ * house against hotel, so the pair does not collapse into one grey shape for a deutan or protan
+ * player. That second one is a bonus channel and it is stated as such: the guarantee is the
+ * silhouette, and `buildings.test.tsx` measures that from the path data.
+ */
+describe.each([...THEMES])("buildings — %s theme", (theme: ThemeName) => {
+  const face = buildingReferenceSurface(theme);
+  const fills = BUILDING_FILL[theme];
+
+  it.each([...BUILDING_LEVELS])("a %s reads on the face it stands on at ≥ 3:1", (level) => {
+    expect(ratio(fills[level], face)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.nonText);
+  });
+
+  it.each([...BUILDING_LEVELS])("a %s is still a region with hue removed", (level) => {
+    expect(greyDistance(fills[level], face)).toBeGreaterThanOrEqual(GREY_SEPARATION);
+  });
+
+  it("keeps the house and the hotel apart in the greyscale channel too", () => {
+    // Green against red is the canonical deutan/protan collision — the very pair MON-412 removed
+    // from the icon channel. Colour is the *second* channel here, so it has to survive losing hue.
+    expect(greyDistance(fills.house, fills.hotel)).toBeGreaterThanOrEqual(GREY_SEPARATION);
+  });
+});
+
+/**
  * Every surface the focus ring can land on.
  *
  * Spec §5.5 asks for the ring to be "contrast-tested against every surface it can sit on", and
@@ -241,6 +276,13 @@ describe("the measured table", () => {
             `  onFill/fill ${ratio(colors.onFill, colors.fill).toFixed(2).padStart(5)}`,
         );
       }
+      for (const level of BUILDING_LEVELS) {
+        const fill = BUILDING_FILL[theme][level];
+        lines.push(
+          `  build ${level.padEnd(7)} fill/face ${ratio(fill, buildingReferenceSurface(theme)).toFixed(2).padStart(5)}` +
+            `  grey Δface ${String(greyDistance(fill, buildingReferenceSurface(theme))).padStart(3)}`,
+        );
+      }
     }
     const report = lines.join("\n");
     console.info(report);
@@ -260,6 +302,9 @@ describe("the measured table", () => {
     }
     for (const tone of ["primary", "neutral", "caution", "danger"] as const) {
       expect(report, `tone ${tone} is not in the table`).toContain(`tone ${tone.padEnd(8)}`);
+    }
+    for (const level of BUILDING_LEVELS) {
+      expect(report, `building ${level} is not in the table`).toContain(`build ${level.padEnd(7)}`);
     }
   });
 
