@@ -257,6 +257,64 @@ describe("holdings", () => {
     renderDossier(seat({ tiles_owned: [1] }), propertiesAt({ 1: property() }));
     expect(screen.queryByText("Railroads and utilities")).not.toBeInTheDocument();
   });
+
+  it("heads each band with the city on the Israeli board, not with the colour", () => {
+    /*
+      On the physical Israeli edition a colour group *is* a city and its squares are streets in it.
+      The colour name is not merely bland there, it is wrong: this card would otherwise print
+      "dark blue" over a deed list reading Allenby St. and Dizengoff St., which are Tel Aviv.
+
+      The board's own catalogue names each group (`board-israel.{en,he}.json`), and the resolver in
+      `i18n/groupNames.ts` prefers it — see `groupNames.test.ts` for the fallback that keeps the
+      classic board's colour names, which every other test in this file relies on.
+    */
+    const israel = makeBoard({
+      id: "israel",
+      name_key: "board.israel.name",
+      tiles: [
+        makeTile(37, { name_key: "tile.israel.t37", group: "dark_blue" }),
+        makeTile(39, { name_key: "tile.israel.t39", group: "dark_blue" }),
+      ],
+    });
+    const player = seat({
+      tiles_owned: [37, 39],
+      group_holdings: allGroups([{ group: "dark_blue", owned: 2, total: 2, complete: true }]),
+    });
+    render(
+      <PlayerDossier
+        player={player}
+        players={[player]}
+        board={israel}
+        properties={propertiesAt({ 37: property(), 39: property() })}
+      />,
+    );
+
+    const telAviv = screen.getByText("Tel Aviv").closest("li") as HTMLElement;
+    expect(telAviv.dataset.group).toBe("dark_blue");
+    // The streets under the heading are the reason the heading has to be the city.
+    expect(within(telAviv).getByText("Allenby St.")).toBeInTheDocument();
+    expect(within(telAviv).getByText("Dizengoff St.")).toBeInTheDocument();
+
+    // Every band, not only the one holding deeds — a card showing one city and seven colours is
+    // the half-routed failure this is really guarding.
+    const cities = [
+      "Eilat",
+      "Tiberias",
+      "Be'er Sheva",
+      "Netanya",
+      "Ramat Gan",
+      "Jerusalem",
+      "Haifa",
+      "Tel Aviv",
+    ];
+    for (const city of cities) {
+      expect(screen.getByText(city), `${city} band`).toBeInTheDocument();
+    }
+    expect(cities).toHaveLength(GROUP_ORDER.length);
+    for (const colour of ["Dark blue", "Light blue", "Brown", "Orange", "Yellow", "Green"]) {
+      expect(screen.queryByText(colour), `${colour} should not appear`).not.toBeInTheDocument();
+    }
+  });
 });
 
 describe("identity", () => {
