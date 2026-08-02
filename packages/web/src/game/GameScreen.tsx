@@ -77,6 +77,9 @@ import { ReplayButton } from "@/replay";
 import { MuteToggle, useSoundCues } from "@/sound";
 import { ACTION_THEME, COMFORT_ATTRIBUTE, Icon, KIDS_COMFORT } from "@/theme";
 
+import { useAutoEndTurn } from "./autoEndTurn";
+import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
+import { useAutoEndTurnPreference } from "./autoEndTurnPreference";
 import { presentationFor, type Presentation } from "./presentation";
 import { SaveGameButton } from "./SaveGameButton";
 import { useUiStore } from "./uiStore";
@@ -86,6 +89,9 @@ export interface GameScreenProps {
   /** Leave this game and go back to the setup screen. */
   readonly onLeave: () => void;
 }
+
+/** A stable empty seat list, so the auto-advance effect's deps do not change on every render. */
+const NO_PLAYERS: readonly PlayerView[] = [];
 
 /*
  * `useReasonText` and `FailureNote` used to live here, and moved to `panels/States.tsx` in MON-708.
@@ -107,11 +113,21 @@ export interface GameScreenProps {
 function Chrome({
   onLeave,
   comfort,
+  autoEndTurnSwitch = false,
   children,
 }: {
   readonly onLeave: () => void;
   /** `"kids"` steps the hit-target scale up; `undefined` leaves the 44 px floor in place. */
   readonly comfort?: string | undefined;
+  /**
+   * Offer the auto-end-turn switch.
+   *
+   * `false` while the first view is still in flight, because a preference about what happens after a
+   * purchase is not reachable-and-useful on a loading screen, and `false` in a kids game — where the
+   * feature is unconditionally on and a fourth switch would be one more thing between a six-year-old
+   * and the board. See `autoEndTurn.ts`.
+   */
+  readonly autoEndTurnSwitch?: boolean;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -131,6 +147,9 @@ function Chrome({
               decision — "less of the flourish, please" — and a player looking for one will look
               here for the other. The store behind it is module-level (MON-706). */}
           <MuteToggle />
+          {/* Third of the "less of this, please" switches, beside the other two for the same reason
+              they are beside each other: a player looking for one will look here for the rest. */}
+          {autoEndTurnSwitch && <AutoEndTurnToggle />}
           {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
               structurally rather than by care: this control writes to i18next and the document
               element, and the game reaches this package as a projection cached by TanStack Query
@@ -340,6 +359,34 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   );
 
   /**
+   * Hand the dice on after a purchase, so nobody has to press "I'm done" (owner request).
+   *
+   * Two things about this composition are load-bearing and neither is visible in the call:
+   *
+   * - **The decision is not here.** `autoEndTurn.ts` holds it, it is pure, and its entire rule is
+   *   "send the `end_turn` that is in `legalCommands`, or send nothing". That guard is what gives the
+   *   doubles rule, the interrupt rules and the jail rules for free — after buying on doubles the
+   *   engine does not offer `end_turn`, so nothing happens and the player rolls again.
+   * - **It watches the committed event log**, which is what keeps the purchase perceptible: by the
+   *   time a `property_acquired` is in `events`, the animation queue, the cue player and the narrator
+   *   have all had it. Chaining off `send`'s promise instead would let the second `setQueryData`
+   *   overtake the first view's events and silently drop the purchase's beat and sentence.
+   *
+   * `presentation.kids` forces it on: fewer obligatory clicks is most of the point of a kids game, and
+   * the chrome hides the switch there rather than offering a six-year-old a fourth toggle.
+   */
+  const { autoEndTurn: autoEndTurnPreferred } = useAutoEndTurnPreference();
+  const autoEndTurnEnabled = presentation.kids || autoEndTurnPreferred;
+  useAutoEndTurn({
+    events,
+    legalCommands,
+    players: state?.players ?? NO_PLAYERS,
+    enabled: autoEndTurnEnabled,
+    sending: status.isSending,
+    send: dispatch,
+  });
+
+  /**
    * The screen's translate.
    *
    * `useCopy` prefers the simpler `kids.*` wording where the catalogue has a twin and is exactly `t`
@@ -444,7 +491,11 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   }
 
   return (
-    <Chrome onLeave={onLeave} comfort={presentation.kids ? KIDS_COMFORT : undefined}>
+    <Chrome
+      onLeave={onLeave}
+      comfort={presentation.kids ? KIDS_COMFORT : undefined}
+      autoEndTurnSwitch={!presentation.kids}
+    >
       {connectionKey !== null && (
         <p data-testid="connection-note" className="text-sm opacity-80">
           {t(connectionKey)}

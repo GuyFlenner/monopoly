@@ -706,6 +706,35 @@ export function ActionBar({
   const headingId = useId();
   const [pending, setPending] = useState<Command | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
+  const region = useRef<HTMLElement>(null);
+  /** `true` while the keyboard is somewhere inside this bar. Maintained by the two capture handlers. */
+  const held = useRef(false);
+
+  /**
+   * Catch the focus a vanishing chit drops.
+   *
+   * Pressing a chit changes the legal set, so the button that was pressed usually unmounts — and a
+   * removed element takes focus to `<body>` with it, which is the "focus in the void" failure this
+   * repo has shipped twice. It is worst on the auto-end-turn path (`game/autoEndTurn.ts`), where the
+   * whole bar is replaced for the next seat without anybody having pressed anything, but it is not new
+   * there and the repair belongs here rather than in the caller.
+   *
+   * `aria-disabled` is the pattern used where a control can *stay* — see `SkipMotionButton`. A chit
+   * cannot: an absent button is how this bar says a move is unavailable, and a lingering disabled one
+   * would be the ADR-005 violation the whole file exists to prevent. So the answer is the other half of
+   * the same principle — put focus somewhere deliberate — and the region is exactly that somewhere,
+   * because it is already `tabIndex={-1}` as the "skip to actions" link's target.
+   *
+   * The two guards keep it from *stealing* focus: it acts only when the bar had focus, and only when
+   * focus is now on `<body>`. Removing an element fires no `blur`, which is what makes those two
+   * conditions together mean "the thing that had focus is gone" rather than "the player clicked
+   * elsewhere" — a click on the page background fires `focusout` and clears `held` first.
+   */
+  useEffect(() => {
+    if (held.current && document.activeElement === document.body) {
+      region.current?.focus();
+    }
+  }, [commands]);
 
   // Every label and heading in the bar goes through the kids-aware resolver, which is `t` verbatim
   // outside a kids game. It changes what a button *says* and never which buttons exist.
@@ -840,8 +869,20 @@ export function ActionBar({
     // scrolling: a fragment link cannot focus a target that is not focusable.
     <section
       id={id}
+      ref={region}
       tabIndex={-1}
       aria-labelledby={headingId}
+      onFocusCapture={() => {
+        held.current = true;
+      }}
+      onBlurCapture={(event) => {
+        // Focus genuinely left the bar. A chit *unmounting* fires no blur at all, which is precisely
+        // the case this must not clear — that is the one the effect above has to repair.
+        const next = event.relatedTarget;
+        if (next === null || !(next instanceof Node) || region.current?.contains(next) !== true) {
+          held.current = false;
+        }
+      }}
       className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]"
     >
       <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">

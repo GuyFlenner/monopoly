@@ -72,8 +72,15 @@ function refusal(
   return { status, body: { reason_key: reasonKey, params } };
 }
 
-/** `Method /path` (query stripped) -> reply. A request with no route is a test bug, and says so. */
-type Routes = Readonly<Record<string, Reply>>;
+/**
+ * `Method /path` (query stripped) -> reply. A request with no route is a test bug, and says so.
+ *
+ * A route may name **several** replies, consumed in order and then repeated for any further calls.
+ * That is what lets a test drive two commands whose views differ — the auto-end-turn tests post to
+ * `/commands` twice, once for the purchase and once for the turn that follows it, and the whole
+ * feature is about the second one being sent by the app rather than by a player.
+ */
+type Routes = Readonly<Record<string, Reply | readonly Reply[]>>;
 
 interface Edge {
   readonly client: ApiClient;
@@ -82,6 +89,8 @@ interface Edge {
 
 function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Edge {
   const calls: { method: string; path: string; body: unknown }[] = [];
+  /** How many times each route has answered, for the sequenced form. */
+  const served = new Map<string, number>();
   const doFetch: FetchLike = (input, init) => {
     const method = init?.method ?? "GET";
     const path = input.split("?")[0] ?? input;
@@ -93,9 +102,20 @@ function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Ed
     if (options.hang === true) {
       return new Promise<Response>(() => undefined);
     }
-    const reply = routes[`${method} ${path}`];
-    if (reply === undefined) {
-      return Promise.reject(new Error(`no route for ${method} ${path}`));
+    const route = `${method} ${path}`;
+    const configured = routes[route];
+    if (configured === undefined) {
+      return Promise.reject(new Error(`no route for ${route}`));
+    }
+    // The last reply repeats rather than running out, so a test only has to spell out the calls it
+    // actually cares about telling apart.
+    let reply: Reply;
+    if (Array.isArray(configured)) {
+      const nth = served.get(route) ?? 0;
+      served.set(route, nth + 1);
+      reply = configured[Math.min(nth, configured.length - 1)] as Reply;
+    } else {
+      reply = configured as Reply;
     }
     return Promise.resolve({
       ok: reply.status >= 200 && reply.status < 300,
@@ -146,11 +166,13 @@ const END_TURN: Command = { kind: "end_turn", player: 0 };
 function gameView(
   overrides: Partial<GameStateView> = {},
   commands: readonly Command[] = [],
+  events: readonly LoggedEvent[] = [],
 ): GameView {
   return makeView({
     board: makeRingBoard(),
     state: makeRingState(overrides),
     legal_commands: [...commands],
+    events: [...events],
   });
 }
 
