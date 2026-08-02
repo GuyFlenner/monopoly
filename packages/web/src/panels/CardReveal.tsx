@@ -171,15 +171,6 @@ export function CardReveal({
         onBlur={() => {
           holdsFocus.current = false;
         }}
-        onKeyDown={(event) => {
-          // Escape, scoped to this subtree rather than to the document: a keyboard user reading the
-          // card can put it down without hunting for the button, and a global listener would be a
-          // second opinion about Escape in a screen that already has modals with their own.
-          if (event.key === "Escape") {
-            event.stopPropagation();
-            dismiss();
-          }
-        }}
         className={`kesef-card-in bg-tile text-ink pointer-events-auto flex w-full max-w-sm flex-col gap-3 rounded-2xl p-4 text-start shadow-2xl ${DECK_EDGE[card.deck]}`}
         style={
           { "--kesef-motion-ms": `${String(durationMs(CARD_IN_MS))}ms` } as React.CSSProperties
@@ -236,6 +227,22 @@ export function CardReveal({
           type="button"
           data-testid="card-reveal-dismiss"
           onClick={dismiss}
+          onKeyDown={(event) => {
+            /*
+              Escape, on the control rather than on the card around it or on the document.
+
+              On the button because that is the only focusable thing the card contains, so it is
+              where a keyboard reader's focus actually is — and because a `role="group"` with a key
+              handler is a non-interactive element pretending to be interactive, which is both a lint
+              error and the thing the lint is right about. Not on the document either: a global
+              listener would be a second opinion about Escape in a screen whose modals already have
+              one.
+            */
+            if (event.key === "Escape") {
+              event.stopPropagation();
+              dismiss();
+            }
+          }}
           className="target bg-table text-on-table border-hairline self-start rounded-xl border px-4 py-2 text-sm font-semibold"
         >
           {copy("card_reveal.dismiss")}

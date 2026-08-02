@@ -112,8 +112,14 @@ function paid(
   delta: number,
   reason: "card" | "go_salary" | "rent" | "tax",
 ): LoggedEvent {
-  return frame({ type: "cash_changed", player, delta, reason, balance: 1500 + delta,
-    counterparty: "bank" });
+  return frame({
+    type: "cash_changed",
+    player,
+    delta,
+    reason,
+    balance: 1500 + delta,
+    counterparty: "bank",
+  });
 }
 
 function cards(steps: readonly TimelineStep[]): readonly CardRevealStep[] {

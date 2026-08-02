@@ -93,12 +93,8 @@ describe("what the card says", () => {
     // "Advance to GO" is a $200 card in every edition ever printed. The engine said 175, so the card
     // says 175: this component does no arithmetic and knows what no card does.
     mount({ delta: 175, balance: 1675 });
-    expect(stripIsolates(screen.getByTestId("card-reveal-figure").textContent ?? "")).toContain(
-      "175",
-    );
-    expect(stripIsolates(screen.getByTestId("card-reveal-balance").textContent ?? "")).toContain(
-      "1675",
-    );
+    expect(stripIsolates(screen.getByTestId("card-reveal-figure").textContent)).toContain("175");
+    expect(stripIsolates(screen.getByTestId("card-reveal-balance").textContent)).toContain("1675");
   });
 
   it("picks the verb from the sign of the figure", () => {
@@ -214,7 +210,7 @@ describe("putting the card down", () => {
     const landing = document.createElement("button");
     landing.textContent = "skip";
     document.body.append(landing);
-    const returnFocusRef = createRef<HTMLElement>() as React.RefObject<HTMLElement | null>;
+    const returnFocusRef = createRef<HTMLElement>();
     returnFocusRef.current = landing;
 
     mount({}, { returnFocusRef });
@@ -230,7 +226,7 @@ describe("putting the card down", () => {
     // control disappears — dropping the focus onto `<body>` in the middle of a turn.
     const landing = document.createElement("button");
     document.body.append(landing);
-    const returnFocusRef = createRef<HTMLElement>() as React.RefObject<HTMLElement | null>;
+    const returnFocusRef = createRef<HTMLElement>();
     returnFocusRef.current = landing;
 
     const view = render(
@@ -256,7 +252,7 @@ describe("putting the card down", () => {
     document.body.append(elsewhere);
     const landing = document.createElement("button");
     document.body.append(landing);
-    const returnFocusRef = createRef<HTMLElement>() as React.RefObject<HTMLElement | null>;
+    const returnFocusRef = createRef<HTMLElement>();
     returnFocusRef.current = landing;
 
     const view = render(
@@ -305,7 +301,13 @@ describe("a Hebrew game", () => {
     // it would take English's with it.
     const english = i18n.getResource("en", "cards", KEY) as string;
     const stub = (text: string): void => {
-      i18n.addResourceBundle("he", "cards", { card: { chance: { advance_to_go: text } } }, true, true);
+      i18n.addResourceBundle(
+        "he",
+        "cards",
+        { card: { chance: { advance_to_go: text } } },
+        true,
+        true,
+      );
     };
     stub("התקדמו להתחלה ואספו 200.");
     try {

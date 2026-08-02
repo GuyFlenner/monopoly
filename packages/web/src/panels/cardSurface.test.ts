@@ -70,7 +70,7 @@ describe("what language the card's text turned out to be in", () => {
     expect(cardBodyLanguage("— 100 —", "en")).toBeNull();
   });
 
-  it("treats an unknown locale as left-to-right rather than throwing", () => {
+  it("treats an unknown locale as LTR rather than throwing", () => {
     expect(cardBodyLanguage(ENGLISH, "fr")).toBeNull();
     expect(cardBodyLanguage(HEBREW, "fr")).toEqual({ lang: "he", dir: "rtl" });
   });

@@ -230,6 +230,19 @@ describe("the card on the board", () => {
     expect(queue.frame.card?.nonce).toBe(2);
   });
 
+  it("comes down while the rest of the timeline is still playing", () => {
+    // The clear that the drain would otherwise hide. A card is up for *its beat*, not until the
+    // batch happens to run out: leave it and the payment that follows a card plays underneath a card
+    // the player finished reading a second ago.
+    const queue = new MotionQueue();
+    queue.push([card("card.chance.advance_to_go", 1), pulse(1, 2, 400)], 0);
+    queue.advance(DEFAULT_DURATIONS.cardMs + 10);
+
+    expect(queue.idle).toBe(false);
+    expect(queue.frame.remaining).toBe(1);
+    expect(queue.frame.card).toBeNull();
+  });
+
   it("shows the card of the beat in flight, never a later one waiting its turn", () => {
     const queue = new MotionQueue();
     queue.push([card("card.chance.first", 1), card("card.chance.second", 2)], 0);
