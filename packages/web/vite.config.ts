@@ -8,6 +8,11 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Where the site is served from. `/` for a dev server and for a domain root; `/monopoly/` for
+  // GitHub Pages, which serves a project site under the repository's name (MON-805). Every asset
+  // URL — including the Pyodide wheels, which are fetched at run time and so cannot be rewritten by
+  // the bundler — resolves against `import.meta.env.BASE_URL`, which is this value.
+  base: process.env["VITE_BASE"] ?? "/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },

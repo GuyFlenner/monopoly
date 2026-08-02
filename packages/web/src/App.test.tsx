@@ -254,6 +254,52 @@ describe("App — the game screen", () => {
       expect(panel.textContent).not.toContain("group.");
     });
 
+    it("names the city, not the colour, when the Israeli board is in play", async () => {
+      /*
+        The third site the group name reaches, after the dossier's bands and the event log. All three
+        take the same `GroupNameScope` and go through `i18n/groupNames.ts`, so the sentence a player
+        reads before landing on Allenby St. says "the whole Tel Aviv set" — the same words the log
+        will say afterwards, and the same words the dossier's band carries.
+
+        The square names are remapped onto `tile.israel.*` because `board/Board.tsx` resolves a tile
+        name against the board namespace with no `exists` guard, so a classic key under
+        `board-israel` would throw. Unrelated to group names; noted so the remap does not look
+        superstitious.
+      */
+      const quotes = Array.from({ length: 40 }, () => null as RentQuote | null);
+      quotes[37] = {
+        owner: 1,
+        tile: 37,
+        amount: 100,
+        base_rent: 50,
+        houses: 0,
+        multiplier: 2,
+        dice_total: null,
+        group: "dark_blue",
+        note_keys: ["rent.note.full_group_doubled"],
+        note_params: { group_key: "group.dark_blue", multiplier: 2 },
+      };
+      const ring = makeRingBoard({ id: "israel" });
+      await openSquare(
+        makeView({
+          board: {
+            ...ring,
+            tiles: ring.tiles.map((tile) => ({
+              ...tile,
+              name_key: `tile.israel.t${String(tile.index).padStart(2, "0")}`,
+            })),
+          },
+          state: makeRingState({ rent_quotes: quotes }),
+        }),
+        37,
+      );
+
+      const panel = await screen.findByTestId("square-rent");
+      expect(panel.textContent).toContain("Tel Aviv");
+      expect(panel.textContent).not.toContain("Dark blue");
+      expect(panel.textContent).not.toContain("dark blue");
+    });
+
     it("states a utility's multiplier and no amount, because the throw has not happened", async () => {
       await openSquare(
         withQuote(12, {

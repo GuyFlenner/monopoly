@@ -41,3 +41,8 @@ Thumbs.db
 # VSCode Local History extension artifacts
 .history/
 .claude/worktrees/
+
+# The Pyodide wheels the local build installs (MON-805). Build artifacts, not sources: the deploy
+# workflow builds them straight into the site, and a developer checking the local build does the
+# same by hand — see docs/DEPLOYMENT.md.
+packages/web/public/wheels/

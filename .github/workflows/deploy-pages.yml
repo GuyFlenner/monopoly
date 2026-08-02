@@ -1,0 +1,156 @@
+# Publish the game to GitHub Pages as a fully static site (MON-805).
+#
+# ## One-time setup, by the repository owner
+#
+#   Settings -> Pages -> Build and deployment -> Source: **GitHub Actions**
+#
+# Until that is switched, `actions/deploy-pages` fails with "Get Pages site failed" and there is
+# nothing this file can do about it — enabling Pages is an account-level action, deliberately not
+# something a workflow can do to a repository on its own.
+#
+# **A private repository needs GitHub Pro for this to work at all.** Pages on a private repo is a
+# paid feature; the free alternatives (a public deploy repo, or Cloudflare Pages / Netlify / Vercel
+# building from the private one) are written up in `docs/DEPLOYMENT.md`.
+#
+# ## What is deployed, and why there is no server
+#
+# The rules engine is pure Python, so it is shipped as two wheels and run *in the browser* under
+# Pyodide (`packages/web/src/local/`, `packages/server/src/kesef_server/browser.py`). The site is
+# therefore genuinely static: no host to keep alive, no session cost, no database. A player's game
+# lives in their own tab, and the save file is a download.
+#
+# ## The four steps, and the one that is easy to get wrong
+#
+# 1. Build both wheels into `packages/web/public/wheels/` and write a `manifest.json` beside them.
+#    The manifest is what makes a version bump safe: the loader reads the filenames rather than
+#    hardcoding them, so `0.1.0` -> `0.2.0` is not a silent 404 at load time.
+# 2. `npm ci`, then build with `VITE_ENGINE=local` and `VITE_BASE=/<repo>/`. The base is not
+#    cosmetic — a project site is served under the repository's name, and an asset URL built for `/`
+#    404s there.
+# 3. Smoke-test the built artifact in a real browser against the real interpreter, at the real base
+#    path, *before* publishing it. Everything else in CI can be green while this is broken.
+# 4. Upload and deploy.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # So the owner can publish a build without pushing — re-running by hand after a settings change,
+  # or republishing an unchanged tree.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time, and a queued one is not cancelled: cancelling mid-deploy can leave the
+# published site as a half-uploaded artifact. This is the opposite of `ci.yml`'s policy, on purpose —
+# there, a superseded run is waste; here, it is a broken URL.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # The sub-path a project site is served under. Change this and `docs/DEPLOYMENT.md` together.
+  SITE_BASE: /monopoly/
+
+jobs:
+  build:
+    name: Build the static site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      # Wheels, not a copy of the source tree. `kesef-engine`'s board JSON is package data and
+      # travels inside its wheel, which is why the browser can load a board with no HTTP at all.
+      - name: Build the wheels
+        run: |
+          uv build --package kesef-engine --wheel --out-dir packages/web/public/wheels
+          uv build --package kesef-server --wheel --out-dir packages/web/public/wheels
+
+      # Read by `src/local/engine.ts`. A directory listing is not available over HTTP, and hardcoded
+      # filenames go stale the first time a version changes.
+      - name: Write the wheel manifest
+        working-directory: packages/web/public/wheels
+        run: |
+          ls -1 *.whl | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' > manifest.json
+          cat manifest.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/web/package-lock.json
+
+      - run: npm ci
+        working-directory: packages/web
+
+      - name: Build (local engine, Pages base path)
+        working-directory: packages/web
+        env:
+          VITE_ENGINE: local
+          VITE_BASE: ${{ env.SITE_BASE }}
+        run: npm run build
+
+      # The gate that only a browser can run: real Pyodide, the real wheels, the real base path,
+      # against `vite preview` serving the exact `dist/` about to be published. A blank page at a
+      # sub-path is invisible to every other job in this repository.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: packages/web
+
+      - name: Smoke-test the artifact
+        working-directory: packages/web
+        env:
+          VITE_BASE: ${{ env.SITE_BASE }}
+        run: npm run test:e2e:pages
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pages-smoke-report
+          path: |
+            packages/web/playwright-report/
+            packages/web/test-results/
+          retention-days: 7
+
+      # `enablement` stays off, and that is not a preference — it cannot work here. Enabling Pages
+      # was tried on this repository and the API refused the workflow's own token:
+      #
+      #     Create Pages site failed. Error: Resource not accessible by integration
+      #
+      # Creating a Pages site needs repository-administration rights, which the default
+      # `GITHUB_TOKEN` does not carry however many `permissions:` the workflow declares. Only an
+      # owner (via Settings, once) or a PAT with admin scope can do it — and storing an admin PAT to
+      # save one click would be a poor trade.
+      #
+      # So the first run on a repository where Pages has never been switched on fails here, by
+      # design, with "Get Pages site failed". docs/DEPLOYMENT.md §1 is the one-time fix. Every run
+      # after that finds the site and passes.
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: packages/web/dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    # The environment block is what `actions/deploy-pages` requires, and `url` is what puts the live
+    # link on the workflow run rather than leaving it to be reconstructed from the repository name.
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

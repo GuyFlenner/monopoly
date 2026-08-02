@@ -54,8 +54,7 @@ export interface paths {
          *
          *     Returns ``RulesetView`` rather than the raw ``Ruleset`` since MON-417 (G-36): each setting
          *     arrives with its ``label_key`` and a ``differs_from_universal`` the engine decided, which is
-         *     what deleted the setup screen's client-side diff and its hand-kept label map. The universal
-         *     rules are the baseline every view is measured against, so they are resolved once here.
+         *     what deleted the setup screen's client-side diff and its hand-kept label map.
          */
         get: operations["list_rulesets_rulesets_get"];
         put?: never;

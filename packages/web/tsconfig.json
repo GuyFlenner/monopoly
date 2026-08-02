@@ -29,5 +29,12 @@
   // preset cover them like everything else. Left out, they were checked by nothing: the specs
   // typechecked only as a side effect of Playwright running them, which is the wrong end of the
   // loop for a strict-mode repository.
-  "include": ["src", "vite.config.ts", "e2e", "playwright.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "e2e",
+    "e2e-pages",
+    "playwright.config.ts",
+    "playwright.pages.config.ts"
+  ]
 }
