@@ -5,10 +5,9 @@
  *
  * `cardBodyLanguage` is the one worth writing tests for, and its failure mode is invisible in the
  * language the reviewer reads in: a hardcoded `lang="en"` passes every English assertion, and every
- * Hebrew one too until `cards.he.json` lands — at which point a Hebrew card would be marked English,
- * pronounced with English phonetics, and laid out left-to-right inside an RTL card. So the tests
- * below run the *future* through it: a stubbed Hebrew card text must come back Hebrew with no code
- * change at all. Replace the script test with a constant and they go red.
+ * Hebrew one too until `cards.he.json` lands — which it now has, and a hardcoded answer would mark
+ * every Hebrew card as English, pronounced with English phonetics and laid out left-to-right inside
+ * an RTL card. Replace the script test with a constant and the tests below go red.
  *
  * The order of the two script questions matters too, and the numerals are why: a Hebrew card that
  * mentions $50 contains strong-LTR runs, so "any Latin at all?" would call it English. There is a
@@ -45,13 +44,14 @@ describe("what language the card's text turned out to be in", () => {
   const HEBREW = "התקדמו להתחלה ואספו 200.";
 
   it("marks an English card inside a Hebrew game, because today that is what it is", () => {
-    // The state of the world until MON-506 lands. Unmarked, a screen reader pronounces English with
+    // The state of a card the Hebrew deck has not got, where i18next falls back. Unmarked, a screen
+    // reader pronounces English with
     // Hebrew phonetics and the bidi algorithm throws the full stop to the wrong end of the line.
     expect(cardBodyLanguage(ENGLISH, "he")).toEqual({ lang: "en", dir: "ltr" });
   });
 
   it("marks nothing once the Hebrew catalogue lands — the same code, a different answer", () => {
-    // The self-closing property. This is the day `cards.he.json` exists: no flag to flip, no edit.
+    // The ordinary case since MON-506: the catalogue is Hebrew, and nothing had to be flipped.
     expect(cardBodyLanguage(HEBREW, "he")).toBeNull();
   });
 

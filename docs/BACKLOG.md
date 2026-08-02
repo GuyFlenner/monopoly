@@ -593,28 +593,42 @@ mirroring still moves GO by 0.91 against a 0.01 tolerance, so the test lost no p
 - The type scale checked in both languages — Hebrew has no capitals and a different
   x-height, so a scale tuned on Latin text usually reads small.
 
-### MON-506 — Hebrew card catalogue 🚧 **BLOCKED**
-**Tier**: Sonnet (human input required) · **Size**: S · **Depends on**: —
+### MON-506 — Hebrew card catalogue ✅ **DONE**
+**Tier**: Sonnet · **Size**: S · **Depends on**: — · *(closed 2026-08-02)*
 
-MON-206 shipped 31 Chance/Community Chest card ids as engine data (`decks.py`) and M4 gave
-them an English catalogue (`cards.en.json`); the Hebrew side is deliberately not attempted
-here. 31 cards of flavour text need a native-speaker pass, not a plausible machine guess — a
-fabricated catalogue would read fine and never be re-checked, the same reasoning MON-503
-applies to the Israeli board (cross-reference MON-503).
+`packages/web/src/i18n/locales/cards.he.json` ships all 31 texts, and `i18n/index.ts` registers it
+under `he` — the last namespace that pointed both languages at one English resource.
 
-- Source or author 31 Hebrew card strings, one per id in `CHANCE_CARD_IDS` /
-  `COMMUNITY_CHEST_CARD_IDS`, matching the mechanics each id's `CARD_EFFECTS` entry encodes
-  (amount, repairs schedule, destination tile) — reviewed by a native speaker.
-- Confirm gender and plural forms before writing: several cards address the holder directly
-  and several pay or charge "every other player," and Hebrew agreement differs by number and
-  gender. The catalogue may need i18next context per the grammatical-gender and CLDR-plural
-  gaps already tracked for `common` (GAP_ANALYSIS.md §5, G-41/G-42) — the same canonicalising
-  parity logic MON-501 adds should cover `cards` too rather than a second scheme.
-- Create `packages/web/src/i18n/locales/cards.he.json` with exactly the keys in
-  `cards.en.json`.
-- Delete `test_the_hebrew_card_catalogue_has_no_catalogue_yet` in `tests/test_locale_parity.py`
-  and remove `"cards"` from `ENGLISH_ONLY_CATALOGUES` — the parity machinery then compares
-  `cards` like any other bilingual catalogue.
+**Why this stopped being a blocker.** It was held on the reasoning MON-503 applies to the Israeli
+board: invented game data reads fine and nobody re-checks it. That reasoning was right about the
+board and wrong here, and the difference is worth writing down. The board's city names are *external
+facts* — a translation cannot recover which streets a particular physical board prints, so only a
+photograph could. The card texts are **this project's own English prose**, written for MON-206 and
+deliberately not any published deck's wording (compare "Head straight to GO" with the phrasing the
+branded product uses). Translating our own sentences is a catalogue job, not an invention.
+
+**What made it safe to write rather than merely plausible.** Every card has a machine-readable
+effect beside it in `decks.py`, so the risk that actually matters — a card that states a figure the
+engine will not apply, which is the game lying to a child — is checkable rather than believed.
+`test_the_hebrew_card_catalogue_says_what_each_card_actually_does` asserts every `amount`,
+`per_house` and `per_hotel` in `CARD_EFFECTS` appears in that card's Hebrew sentence; change 25 to
+20 and it fails by name. Square names are taken verbatim from `board-classic.he.json`, so a card
+names a square the way the board does. Register matches the rest of the Hebrew catalogue —
+second-person plural, gender-free, the voice `hint.reason.*` established, which is also what let
+MON-501 delete `AWAITING_HEBREW` without needing `grammatical_gender`.
+
+Amounts are bare numerals, like every other Hebrew string in the product; only the English cards
+carry a `$`, which predates the decision that this repo has no currency formatter (GAP G-43).
+
+- `ENGLISH_ONLY_CATALOGUES` is now empty, so `cards` goes through every parity check.
+- `e2e/cards.spec.ts` plays a real game in each language and asserts the card on the board is in
+  that language — the seam no unit test can see, since `i18n/index.ts` registered the wrong resource
+  for months with the whole suite green.
+- A card the Hebrew deck is missing still degrades honestly: i18next falls back to English and
+  `cardSurface.ts` marks the body `lang="en" dir="ltr"`, tested in `CardReveal.test.tsx`.
+
+A native-speaker review is still welcome and is no longer blocking anything; the failure it would
+catch is wording, and the failure that would matter is arithmetic, which is now gated.
 
 ---
 
@@ -924,7 +938,7 @@ MON-100 ─► MON-101 ─► MON-102 ─► MON-103 ─► MON-104 ─► MON-1
 MON-106 ─┬─► MON-301 ─► MON-302 ─► MON-303 ─► MON-304                                     (M3)
          │                  │
 MON-401 ─┴─► MON-402 ─► MON-403 ─► MON-404 / 405 / 406 / 407 / 408 / 409 / 410            (M4)
-                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 done, MON-506 still blocked on a Hebrew pass)
+                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 and MON-506 both done)
 MON-601 ─► MON-602 ─► MON-603 · MON-604 ─► MON-605                                        (M6)
 ```
 
