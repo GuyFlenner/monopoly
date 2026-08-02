@@ -22,6 +22,27 @@ class RulesetName(StrEnum):
     KIDS = "kids"
 
 
+class AuctionMinimum(StrEnum):
+    """What a lot may first be bid at (MON-712).
+
+    ``NONE`` is the printed rule: no reserve, so a square can go for ₪1 (spec §3.6 trap 5).
+    ``LIST_PRICE`` puts the floor at the deed's own printed price, which turns the auction from
+    "who wants this cheap" into "does anybody else want it at the sticker price".
+
+    The owner's report is why this exists: playing with a child, the child bid ₪1 on every square
+    the adult declined and won them all. The no-reserve rule assumes bidders who compete; between a
+    parent and a six-year-old there is no competition to hold the price up, so the rule that makes
+    the auction interesting between adults makes it a giveaway across a generation gap.
+
+    A *floor*, deliberately, and not a fixed price. The bidding above it is unchanged — the minimum
+    increment is still one, the decliner may still bid, the high bid still stands until beaten — so
+    this is one number in :class:`~kesef_engine.state.AuctionFrame`, not a second auction.
+    """
+
+    NONE = "none"
+    LIST_PRICE = "list_price"
+
+
 class Ruleset(BaseModel, frozen=True):
     """A complete, serialized rule configuration. Part of the saved game."""
 
@@ -47,6 +68,15 @@ class Ruleset(BaseModel, frozen=True):
     # --- Feature switches --------------------------------------------------
     auctions_enabled: bool = True
     """Official rule: declining to buy sends the property to auction. Off in Kids Mode."""
+    auction_minimum: AuctionMinimum = AuctionMinimum.NONE
+    """The floor a lot opens at. ``NONE`` is the printed no-reserve rule — see
+    :class:`AuctionMinimum` for why the alternative exists.
+
+    Defaults to the printed rule here and **not** to the safer option, because this model is what
+    the test suite and the golden games mean by *correct*. A product that would rather open with a
+    reserve says so where it decides what game to start (the setup screen), which is a different
+    question from what the rules are. A house rule that changed the reference ruleset would make
+    every golden a record of a variant."""
     mortgages_enabled: bool = True
     trading_enabled: bool = True
     even_build_enforced: bool = True

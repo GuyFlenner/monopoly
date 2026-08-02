@@ -2962,6 +2962,7 @@
       "stream": 0
     },
     "ruleset": {
+      "auction_minimum": "none",
       "auctions_enabled": true,
       "building_shortage_auction": false,
       "double_salary_on_exact_go": false,
@@ -2999,6 +3000,7 @@
     "dice_roll_draws": 2
   },
   "ruleset": {
+    "auction_minimum": "none",
     "auctions_enabled": true,
     "building_shortage_auction": false,
     "double_salary_on_exact_go": false,

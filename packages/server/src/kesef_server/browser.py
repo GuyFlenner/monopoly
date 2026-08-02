@@ -222,7 +222,8 @@ class BrowserHost:
                 seed=seed,
                 game_id=request.game_id or f"game-{secrets.token_hex(8)}",
                 board_id=request.board_id,
-                ruleset=Ruleset.by_name(request.ruleset),
+                # The named rule set, plus whatever this table asked to change (MON-712).
+                ruleset=request.house_rules.applied_to(Ruleset.by_name(request.ruleset)),
                 locale=request.locale,
             )
         except BoardDataError:

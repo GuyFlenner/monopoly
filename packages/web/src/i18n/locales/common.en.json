@@ -480,7 +480,8 @@
       "off": "Off",
       "none": "None"
     },
-    "previous": "Full rules: {{value}}"
+    "previous": "Full rules: {{value}}",
+    "auction_minimum": "Auction opening price"
   },
   "save": {
     "download": "Save this game to a file",
@@ -520,7 +521,10 @@
     "table": "The table",
     "title": "New game",
     "token": "Piece",
-    "universal": "Full rules"
+    "universal": "Full rules",
+    "house_rules": "This table's rules",
+    "house_rules_note": "The printed rules send a square nobody buys to auction. Off here by default.",
+    "auctions_here": "Auctions in this game"
   },
   "sound": {
     "mute": "Mute sound"
@@ -575,5 +579,9 @@
   "turn": {
     "banner": "{{name}}'s turn",
     "auto_end": "Auto end turn"
+  },
+  "auction_minimum": {
+    "none": "Bidding starts at 1",
+    "list_price": "Bidding starts at the price on the card"
   }
 }

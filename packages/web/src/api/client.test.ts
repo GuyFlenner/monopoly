@@ -38,6 +38,7 @@ describe("ApiClient — the happy paths", () => {
       ],
       board_id: "classic",
       ruleset: "universal",
+      house_rules: {},
       locale: "en",
       seed: null,
       game_id: null,

@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient
 from kesef_engine.board.models import BOARD_SIZE
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
 from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError
+from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, SCHEMA_VERSION
 from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
 from kesef_server.config import Settings
@@ -73,6 +74,10 @@ EXPECTED_SCHEMAS: Final = {
     "PropertyState",
     # Requests and answers
     "NewGameRequest",
+    # MON-712: per-game amendments to the named rule set, a closed set of fields rather than an
+    # open patch over `Ruleset` — see the class docstring on why the wire is not the engine's model.
+    "HouseRules",
+    "AuctionMinimum",
     "SeatConfig",
     "CommandRequest",
     "LegalityView",
@@ -367,6 +372,63 @@ def test_rulesets_endpoint_exposes_what_kids_mode_changes(client: TestClient) ->
     assert rulesets["kids"]["ruleset"]["auctions_enabled"] is False
     assert rulesets["kids"]["ruleset"]["hints_enabled"] is True
     assert rulesets["kids"]["label_key"] == "setup.kids"
+
+
+# --- House rules, per game (MON-712) -----------------------------------------
+#
+# The owner's report: a child bid ₪1 on every declined square and won all of them. Two settings
+# answer it — turning the auction off, and giving it a floor — and both had to become *reachable*,
+# because until this the wire took only a rule set's name.
+#
+# The falsifier throughout is a house rule that is accepted and then dropped on the floor: a request
+# body pydantic is happy with, a 201, and a game playing the unamended rules. So every test below
+# reads the flag back off the *game's own* projection rather than off the request.
+
+
+def test_a_table_can_turn_auctions_off_for_its_own_game(client: TestClient) -> None:
+    payload = new_game_payload(house_rules={"auctions_enabled": False})
+    view = client.post("/games", json=payload).json()
+    assert view["state"]["ruleset"]["auctions_enabled"] is False
+    # And it is still the universal rule set: turning one thing off is not switching to Kids Mode.
+    assert view["state"]["ruleset"]["name"] == "universal"
+    assert view["state"]["ruleset"]["starting_cash"] == 1500
+
+
+def test_a_table_can_give_the_auction_a_floor(client: TestClient) -> None:
+    payload = new_game_payload(house_rules={"auction_minimum": "list_price"})
+    view = client.post("/games", json=payload).json()
+    assert view["state"]["ruleset"]["auction_minimum"] == "list_price"
+    assert view["state"]["ruleset"]["auctions_enabled"] is True, "a floor is not an off switch"
+
+
+def test_a_game_with_no_house_rules_is_the_named_rule_set_exactly(client: TestClient) -> None:
+    """The default has to stay the printed rules, or the goldens record a variant."""
+    view = client.post("/games", json=new_game_payload()).json()
+    assert view["state"]["ruleset"] == Ruleset.universal().model_dump(mode="json")
+
+
+def test_house_rules_amend_kids_mode_without_replacing_it(client: TestClient) -> None:
+    """Composability, which is the reason every field is optional and defaults to `None`.
+
+    A kids game already has auctions off. A house rule that says nothing about auctions must leave
+    them off — an amendment that rebuilt the rule set from its own fields would turn them back on.
+    """
+    payload = new_game_payload(ruleset="kids", house_rules={"auction_minimum": "list_price"})
+    ruleset = client.post("/games", json=payload).json()["state"]["ruleset"]
+    assert ruleset["auctions_enabled"] is False, "the kids setting survived the amendment"
+    assert ruleset["auction_minimum"] == "list_price"
+    assert ruleset["starting_cash"] == 2000, "and so did everything else Kids Mode changes"
+
+
+def test_the_wire_is_not_an_open_patch_over_the_engine_model(client: TestClient) -> None:
+    """`extra="forbid"`: a client cannot hand itself 500 houses and call it a house rule."""
+    payload = new_game_payload(house_rules={"houses_available": 500})
+    assert client.post("/games", json=payload).status_code == UNPROCESSABLE
+
+
+def test_a_house_rule_that_is_not_a_rule_is_refused(client: TestClient) -> None:
+    payload = new_game_payload(house_rules={"auction_minimum": "whatever_i_like"})
+    assert client.post("/games", json=payload).status_code == UNPROCESSABLE
 
 
 def test_every_ruleset_flag_arrives_with_a_label_key(client: TestClient) -> None:

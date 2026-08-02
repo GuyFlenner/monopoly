@@ -343,6 +343,25 @@ export interface components {
             withdrawn: number[];
         };
         /**
+         * AuctionMinimum
+         * @description What a lot may first be bid at (MON-712).
+         *
+         *     ``NONE`` is the printed rule: no reserve, so a square can go for ₪1 (spec §3.6 trap 5).
+         *     ``LIST_PRICE`` puts the floor at the deed's own printed price, which turns the auction from
+         *     "who wants this cheap" into "does anybody else want it at the sticker price".
+         *
+         *     The owner's report is why this exists: playing with a child, the child bid ₪1 on every square
+         *     the adult declined and won them all. The no-reserve rule assumes bidders who compete; between a
+         *     parent and a six-year-old there is no competition to hold the price up, so the rule that makes
+         *     the auction interesting between adults makes it a giveaway across a generation gap.
+         *
+         *     A *floor*, deliberately, and not a fixed price. The bidding above it is unchanged — the minimum
+         *     increment is still one, the decliner may still bid, the high bid still stands until beaten — so
+         *     this is one number in :class:`~kesef_engine.state.AuctionFrame`, not a second auction.
+         * @enum {string}
+         */
+        AuctionMinimum: "none" | "list_price";
+        /**
          * AuctionReason
          * @description Why an auction opened. The continuation differs per cause, so it is stored.
          * @enum {string}
@@ -1051,6 +1070,28 @@ export interface components {
             /** Mortgaged Count */
             mortgaged_count: number;
         };
+        /**
+         * HouseRules
+         * @description What this table has agreed to change about the rules it is playing (MON-712).
+         *
+         *     Every field is optional and ``None`` means *leave the named rule set alone*, which is what makes
+         *     this composable with Kids Mode: a kids game already has auctions off, and a house rule that said
+         *     nothing about auctions must not turn them back on.
+         *
+         *     ## Why the product's default lives in the client and not here
+         *
+         *     The owner asked for auctions to be **off by default**, and the temptation is to spell that here,
+         *     where every caller would inherit it. It is the wrong place. ``Ruleset.universal()`` is what this
+         *     repository means by *correct* — the goldens replay against it and the invariant tests measure
+         *     it — so a default that quietly diverged would make every one of them a record of a variant. The
+         *     default belongs to whatever *decides which game to start*, which is the setup screen; the wire
+         *     stays a faithful description of what was asked for.
+         */
+        HouseRules: {
+            /** Auctions Enabled */
+            auctions_enabled?: boolean | null;
+            auction_minimum?: components["schemas"]["AuctionMinimum"] | null;
+        };
         /** LeftJail */
         LeftJail: {
             /**
@@ -1139,6 +1180,8 @@ export interface components {
             board_id: string;
             /** @default universal */
             ruleset: components["schemas"]["RulesetName"];
+            /** @default {} */
+            house_rules: components["schemas"]["HouseRules"];
             /**
              * Locale
              * @default en
@@ -1640,6 +1683,8 @@ export interface components {
              * @default true
              */
             auctions_enabled: boolean;
+            /** @default none */
+            auction_minimum: components["schemas"]["AuctionMinimum"];
             /**
              * Mortgages Enabled
              * @default true

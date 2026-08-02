@@ -967,6 +967,15 @@
         ],
         "title": "AuctionFrameView"
       },
+      "AuctionMinimum": {
+        "type": "string",
+        "enum": [
+          "none",
+          "list_price"
+        ],
+        "title": "AuctionMinimum",
+        "description": "What a lot may first be bid at (MON-712).\n\n``NONE`` is the printed rule: no reserve, so a square can go for ₪1 (spec §3.6 trap 5).\n``LIST_PRICE`` puts the floor at the deed's own printed price, which turns the auction from\n\"who wants this cheap\" into \"does anybody else want it at the sticker price\".\n\nThe owner's report is why this exists: playing with a child, the child bid ₪1 on every square\nthe adult declined and won them all. The no-reserve rule assumes bidders who compete; between a\nparent and a six-year-old there is no competition to hold the price up, so the rule that makes\nthe auction interesting between adults makes it a giveaway across a generation gap.\n\nA *floor*, deliberately, and not a fixed price. The bidding above it is unchanged — the minimum\nincrement is still one, the decliner may still bid, the high bid still stands until beaten — so\nthis is one number in :class:`~kesef_engine.state.AuctionFrame`, not a second auction."
+      },
       "AuctionReason": {
         "type": "string",
         "enum": [
@@ -2629,6 +2638,35 @@
         "title": "GroupHoldings",
         "description": "One colour group as one player holds it (G-31/G-32) — a verbatim copy since MON-421.\n\nEvery number used to be \"a copy or an engine call\", and three of the six were the second kind\nonly in the sense that they were arithmetic *beside* an engine call: ``owned``, ``houses`` and\n``mortgaged_count`` were computed here from ``state.properties``, which made this the third\ncopy of the ``properties[i].owner == player`` predicate while ``complete`` came from the\nengine. Half a row from the rules and half from a loop next to them is how the two halves end\nup able to disagree.\n\n``kesef_engine.state.GroupHoldings`` now answers all six, and this is the wire twin of it —\ndeclared rather than re-exported for the reason the module docstring gives: a view is a copy\nwith an explicit, greppable shape, and ``test_projection.py`` checks the field-by-field parity\nmechanically."
       },
+      "HouseRules": {
+        "properties": {
+          "auctions_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auctions Enabled"
+          },
+          "auction_minimum": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuctionMinimum"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "HouseRules",
+        "description": "What this table has agreed to change about the rules it is playing (MON-712).\n\nEvery field is optional and ``None`` means *leave the named rule set alone*, which is what makes\nthis composable with Kids Mode: a kids game already has auctions off, and a house rule that said\nnothing about auctions must not turn them back on.\n\n## Why the product's default lives in the client and not here\n\nThe owner asked for auctions to be **off by default**, and the temptation is to spell that here,\nwhere every caller would inherit it. It is the wrong place. ``Ruleset.universal()`` is what this\nrepository means by *correct* — the goldens replay against it and the invariant tests measure\nit — so a default that quietly diverged would make every one of them a record of a variant. The\ndefault belongs to whatever *decides which game to start*, which is the setup screen; the wire\nstays a faithful description of what was asked for."
+      },
       "LeftJail": {
         "properties": {
           "type": {
@@ -2894,6 +2932,10 @@
           "ruleset": {
             "$ref": "#/components/schemas/RulesetName",
             "default": "universal"
+          },
+          "house_rules": {
+            "$ref": "#/components/schemas/HouseRules",
+            "default": {}
           },
           "locale": {
             "type": "string",
@@ -3889,6 +3931,10 @@
             "type": "boolean",
             "title": "Auctions Enabled",
             "default": true
+          },
+          "auction_minimum": {
+            "$ref": "#/components/schemas/AuctionMinimum",
+            "default": "none"
           },
           "mortgages_enabled": {
             "type": "boolean",
