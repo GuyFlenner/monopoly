@@ -12,13 +12,20 @@
  * at `event.type`, copies the numbers the event already carries, and does arithmetic on a ring of
  * forty squares.
  *
- * ## Four animations, deliberately
+ * ## Five animations, deliberately
  *
- * A token moving square by square, a die settling, a figure pulsing when money moves, and a house
- * popping when one is built. Four, not twenty-four. A game that animates all twenty-four event
- * types is a game whose board is never still, which is a more complete failure than shipping no
- * animation at all — and every one added here is one closer to the threshold where a player
- * reaches for the skip switch and never turns it back off.
+ * A token moving square by square, a die settling, a figure pulsing when money moves, a house
+ * popping when one is built, and — since MON-709 — a drawn card held up long enough to read. Five,
+ * not twenty-four. A game that animates all twenty-four event types is a game whose board is never
+ * still, which is a more complete failure than shipping no animation at all — and every one added
+ * here is one closer to the threshold where a player reaches for the skip switch and never turns it
+ * back off.
+ *
+ * The card earns its place on a different argument from the other four. Those four *draw attention*
+ * to a change the screen already shows; the card **is** the change — before MON-709 the only trace
+ * of "advance to GO, collect your salary" on screen was a token that had moved and a log line naming
+ * the deck, and the sentence the player is being asked to obey was nowhere. That is also why it is
+ * the one beat whose duration is reading time rather than flourish: see {@link readingAllowanceMs}.
  *
  * ## Animation is presentation lag, never data lag
  *
@@ -49,7 +56,10 @@
  */
 
 import { nextIndex, previousIndex, TILE_COUNT } from "@/board/geometry";
-import type { LoggedEvent } from "@/api";
+import type { EventOfType, LoggedEvent } from "@/api";
+
+/** Which deck a card came from. The engine's own enum, never a string this file invents. */
+export type Deck = EventOfType<"card_drawn">["deck"];
 
 /** How long each kind of beat lasts, in milliseconds. */
 export interface TimelineDurations {
@@ -61,6 +71,8 @@ export interface TimelineDurations {
   readonly cashMs: number;
   /** A house or hotel appearing on a square. */
   readonly buildingMs: number;
+  /** How long a drawn card is held up. Reading time, not flourish — {@link readingAllowanceMs}. */
+  readonly cardMs: number;
 }
 
 /**
@@ -70,12 +82,20 @@ export interface TimelineDurations {
  * the whole move is 630 ms, which is under the ~1 s at which a wait starts being felt as one.
  * `diceMs` is `TUMBLE_MS` by construction — the tray's CSS tumble and this queue's idea of how long
  * a settle takes must be one number, or the cash pulse lands while the dice are still spinning.
+ *
+ * `cardMs` is the odd one out by an order of magnitude, and deliberately: 1800 ms is 1.5 × the
+ * `<Announcer>`'s `DEFAULT_STEP_MS`, so the card is still on screen when the polite region finishes
+ * saying it. A sighted reader and a screen-reader user are then on one clock rather than two. It is
+ * seven times the cash pulse, which is the "noticeably longer than a cash pulse" MON-709 asks for,
+ * and it is an upper bound rather than a wait: the card can be put down at any moment, and no input
+ * is gated on it (see `queue.ts`'s idle contract and `useAnimationQueue.ts`).
  */
 export const DEFAULT_DURATIONS: TimelineDurations = {
   perTileMs: 90,
   diceMs: 420,
   cashMs: 260,
   buildingMs: 240,
+  cardMs: 1800,
 };
 
 /**
@@ -126,7 +146,34 @@ export interface BuildingPopStep {
   readonly durationMs: number;
 }
 
-export type TimelineStep = TokenMoveStep | DiceSettleStep | CashPulseStep | BuildingPopStep;
+/**
+ * A card, held up on the board (MON-709).
+ *
+ * Everything on it is copied off the event stream. `cardId` is the engine's own i18n key — the
+ * `CardDrawn.card_id` field *is* `card.chance.advance_to_go`, which is what lets the reveal be
+ * bilingual by catalogue rather than by code — and `delta`/`balance` are the figures a following
+ * `cash_changed` stated, or `null`. There is no arithmetic here and no inference: a card that moves
+ * no money reveals with no figure, and a card whose money arrives in a later batch reveals with
+ * none either. A guessed number on a card the player is about to obey would be the worst possible
+ * place for this package to have an opinion.
+ */
+export interface CardRevealStep {
+  readonly kind: "card_reveal";
+  readonly id: string;
+  readonly seq: number;
+  readonly player: number;
+  readonly deck: Deck;
+  /** The catalogue key for the card's text, straight off `CardDrawn.card_id`. */
+  readonly cardId: string;
+  /** What the draw moved, off the following `cash_changed.delta`. `null` when it moved nothing. */
+  readonly delta: number | null;
+  /** The seat's balance afterwards, off the same event. Read, never accumulated. */
+  readonly balance: number | null;
+  readonly durationMs: number;
+}
+
+export type TimelineStep =
+  TokenMoveStep | DiceSettleStep | CashPulseStep | BuildingPopStep | CardRevealStep;
 
 /** The last square of a move — where the piece must be standing when the step ends. */
 export function destinationOf(step: TokenMoveStep): number {
@@ -171,6 +218,49 @@ function inRing(index: number): boolean {
 }
 
 /**
+ * What a drawn card cost or paid, taken off the events that followed it.
+ *
+ * The owner's example for MON-709 was "you earned $10", which is the card's *effect* — and an effect
+ * is something only the engine may state. So this reads it: the first `cash_changed` after the draw
+ * that names the **drawing seat** and gives `card` as its reason. Both halves of that condition are
+ * load-bearing.
+ *
+ * * `reason === "card"` is what separates the card's own money from money the card merely led to.
+ *   "Advance to Illinois Avenue, collect your salary if you pass GO" produces a `go_salary` change
+ *   and "go back three spaces" can land a player on income tax; neither figure belongs on the card,
+ *   and a scan that took the next `cash_changed` whatever its reason would print "you paid $200" on a
+ *   card that says nothing of the sort. The engine already labels this, so nothing here has to know
+ *   what any card does.
+ * * `player === drawer` is what keeps "you are elected chairman, pay every other player $50" showing
+ *   the drawer's −50 rather than a rival's +50.
+ *
+ * The scan stops at the next draw or the next turn, so a figure can never be attributed across a
+ * boundary, and it looks only inside the batch it was given: `apply()` emits a draw and its
+ * consequences together, so they share a view commit and therefore a frame batch. A draw whose money
+ * somehow arrived separately reveals with no figure, which is the honest outcome — the amount is on
+ * the dossier and in the log either way.
+ */
+export function cardFigure(
+  drawer: number,
+  following: readonly LoggedEvent[],
+): { readonly delta: number; readonly balance: number } | null {
+  for (const { event } of following) {
+    if (event.type === "card_drawn" || event.type === "turn_started") {
+      return null;
+    }
+    if (
+      event.type === "cash_changed" &&
+      event.player === drawer &&
+      event.reason === "card" &&
+      event.delta !== 0
+    ) {
+      return { delta: event.delta, balance: event.balance };
+    }
+  }
+  return null;
+}
+
+/**
  * The one beat this event is worth, or `null` for stillness.
  *
  * The mapping, and the reason for each omission:
@@ -187,10 +277,19 @@ function inRing(index: number): boolean {
  *   happened, not one per event.
  * * `building_changed` — the house or hotel pops. `delta` is not read: a demolition is as worth
  *   seeing as a build, and the pop is about the square changing rather than about the direction.
+ * * `card_drawn` — the card is held up (MON-709), carrying whatever figure the events after it
+ *   stated. This is the one case that reads past its own frame; see {@link cardFigure}.
  * * Everything else is still. Trading, mortgaging, bidding, jail and the phase machine all produce
  *   plenty of visible change already, and none of it is movement.
+ *
+ * @param following the frames after this one in the same batch. Only `card_drawn` reads it, and an
+ * empty list is always safe: it means "no figure was stated", which is a card with no money on it.
  */
-export function stepFor(frame: LoggedEvent, durations: TimelineDurations): TimelineStep | null {
+export function stepFor(
+  frame: LoggedEvent,
+  durations: TimelineDurations,
+  following: readonly LoggedEvent[] = [],
+): TimelineStep | null {
   const { seq, event } = frame;
   switch (event.type) {
     case "token_moved": {
@@ -237,6 +336,21 @@ export function stepFor(frame: LoggedEvent, durations: TimelineDurations): Timel
         durationMs: durations.buildingMs,
       };
 
+    case "card_drawn": {
+      const money = cardFigure(event.player, following);
+      return {
+        kind: "card_reveal",
+        id: `${String(seq)}:card`,
+        seq,
+        player: event.player,
+        deck: event.deck,
+        cardId: event.card_id,
+        delta: money?.delta ?? null,
+        balance: money?.balance ?? null,
+        durationMs: durations.cardMs,
+      };
+    }
+
     default:
       return null;
   }
@@ -245,6 +359,29 @@ export function stepFor(frame: LoggedEvent, durations: TimelineDurations): Timel
 /** What a whole timeline costs, in milliseconds. Steps play one at a time, so this is a sum. */
 export function totalMs(steps: readonly TimelineStep[]): number {
   return steps.reduce((sum, step) => sum + step.durationMs, 0);
+}
+
+/**
+ * How much longer than {@link DEFAULT_BUDGET_MS} a batch may take because it holds up a card.
+ *
+ * The budget bounds *flourish* — "how long is a human made to watch things move" — and a card's dwell
+ * is not flourish, it is the player reading a sentence they are about to be held to. Without this
+ * grant the arithmetic settles the question the wrong way: a roll, a seven-square walk, a card and a
+ * payment is 420 + 630 + 1800 + 260 ms, comfortably over budget, so **every** card-drawing turn would
+ * be compressed and the token would glide instead of walking — on precisely the turns where the walk
+ * carries information, because a card is what sends a player past GO.
+ *
+ * One card's worth, however many cards are in the batch, and that cap is the whole safety property.
+ * Six queued draws are 10.8 s of overlay, so they must compress; and they do, because the grant does
+ * not grow with them. What compression then does to a card is drop the ones a later card replaced —
+ * see {@link subjectOf} — rather than shorten the survivor, since half a sentence is not a faster
+ * read, it is an unread card.
+ */
+export function readingAllowanceMs(
+  steps: readonly TimelineStep[],
+  durations: TimelineDurations = DEFAULT_DURATIONS,
+): number {
+  return steps.some((step) => step.kind === "card_reveal") ? durations.cardMs : 0;
 }
 
 /**
@@ -298,8 +435,14 @@ function mergeRuns(
  *   "collapse the intermediate token positions" requirement: the piece still ends up on the right
  *   square, and it gets there in one beat instead of thirty-seven.
  * - A step that a later step supersedes is dropped: only the last dice settle, the last pulse per
- *   player, the last pop per square. Six bot turns arriving at once produce one settle rather than
- *   six clicks of the same die.
+ *   player, the last pop per square, the last card. Six bot turns arriving at once produce one settle
+ *   rather than six clicks of the same die.
+ *
+ * A card's *dwell* is deliberately not shortened here. Everything else on this rung shows a fact that
+ * is already on screen, so a shorter beat still says it; a card is the only step whose duration is the
+ * time it takes to read it, and a card flashed for 300 ms has not been shown at all. What compression
+ * does to cards is discard the ones a later card replaced — there is one card surface, so a card the
+ * player had no chance to read was never read — and hold the survivor for its full time.
  *
  * Order is preserved, and a kept step keeps the position of its **last** occurrence, because that
  * is the moment the fact it shows became true.
@@ -353,6 +496,10 @@ function subjectOf(step: TimelineStep): string | null {
       return `cash:${String(step.player)}`;
     case "building_pop":
       return `building:${String(step.tile)}`;
+    // One card surface, so a card the next one replaced is a card nobody read. Not per deck and not
+    // per player: two cards in one batch contend for the same rectangle whoever drew them.
+    case "card_reveal":
+      return "card";
   }
 }
 
@@ -389,8 +536,11 @@ export function plan(
   const budgetMs = options.budgetMs ?? DEFAULT_BUDGET_MS;
 
   const beats: TimelineStep[] = [];
-  for (const frame of frames) {
-    const step = stepFor(frame, durations);
+  for (const [index, frame] of frames.entries()) {
+    // Only a draw looks ahead, and only a draw pays for the slice. Everything else is handed the
+    // empty list, which keeps this a linear pass over the batch rather than a quadratic one.
+    const following = frame.event.type === "card_drawn" ? frames.slice(index + 1) : [];
+    const step = stepFor(frame, durations, following);
     if (step !== null) {
       beats.push(step);
     }
@@ -400,9 +550,11 @@ export function plan(
   if (options.instant === true) {
     return instantly(merged);
   }
-  if (totalMs(merged) <= budgetMs) {
+  if (totalMs(merged) <= budgetMs + readingAllowanceMs(merged, durations)) {
     return merged;
   }
   const compressed = compress(merged, durations);
-  return totalMs(compressed) <= budgetMs ? compressed : instantly(compressed);
+  return totalMs(compressed) <= budgetMs + readingAllowanceMs(compressed, durations)
+    ? compressed
+    : instantly(compressed);
 }

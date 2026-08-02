@@ -13,7 +13,7 @@
  * the right values in the right places.
  */
 
-import type { GameEvent, Phase } from "@/api";
+import type { EventOfType, GameEvent, Phase } from "@/api";
 
 import type { AnnouncementDraft } from "./announcements";
 
@@ -22,6 +22,16 @@ export interface NarrationContext {
   readonly playerName: (playerId: number) => string;
   /** A tile's translated name, from `board.tiles[index].name_key`. */
   readonly tileName: (tileIndex: number) => string;
+  /**
+   * A card's text, from the `cards` namespace, given the key the event carries (MON-709).
+   *
+   * A lookup like the two above — `CardDrawn.card_id` *is* `card.chance.advance_to_go`, so there is
+   * nothing to derive. It is handed in rather than resolved here for the reason the whole file
+   * exists: this table stays free of i18next, and the caller is where the `exists` guard belongs.
+   */
+  readonly cardText: (cardId: string) => string;
+  /** A deck's translated name. The caller owns the `deck.*` lookup; this table owns no enum labels. */
+  readonly deckName: (deck: EventOfType<"card_drawn">["deck"]) => string;
 }
 
 /**
@@ -90,6 +100,26 @@ export function narrate(event: GameEvent, context: NarrationContext): readonly A
           payer: context.playerName(event.payer),
           owner: context.playerName(event.owner),
           amount: event.amount,
+        }),
+      ];
+
+    case "card_drawn":
+      /*
+        MON-709. The card is the one visual the game shows that a screen-reader user would otherwise
+        have no access to at all: before this, the log said "Ruti drew a Chance card" and the sentence
+        the player was being asked to obey was never spoken. A card a screen-reader user cannot hear
+        is a card they did not draw.
+
+        Polite, not assertive, and the distinction is the one this file keeps making: a draw does not
+        change who is acting. The card also stays on screen for 1800 ms — 1.5 × the Announcer's step —
+        so the sentence finishes while the card is still up, which is why the two channels do not need
+        to be synchronised by anything more than choosing those two numbers together.
+      */
+      return [
+        polite("a11y.card_drawn", {
+          name: context.playerName(event.player),
+          deck: context.deckName(event.deck),
+          card: context.cardText(event.card_id),
         }),
       ];
 

@@ -5,6 +5,7 @@
     "sound_off": "הצליל כבוי.",
     "sound_on": "הצליל דלוק.",
     "board_tile": "{{name}}, {{kind}}{{owner}}",
+    "card_drawn": "{{name}} — קלף {{deck}}: {{card}}",
     "cash_gained": "{{name}} — {{amount}} נכנסו לקופה.",
     "cash_paid": "{{name}} — תשלום של {{amount}}.",
     "dice_result": "יצא {{first}} ו-{{second}}, סך הכול {{total}}.",
@@ -106,6 +107,14 @@
   "building": {
     "hotel": "מלון",
     "house": "בית"
+  },
+  "card_reveal": {
+    "balance": "הכסף עכשיו: {{balance}}",
+    "dismiss": "להניח את הקלף",
+    "gained": "{{amount}} נכנסו לקופה",
+    "label": "קלף {{deck}} — {{name}}",
+    "paid": "תשלום של {{amount}}",
+    "unnamed": "לקלף הזה עוד אין טקסט בקטלוג."
   },
   "cash_reason": {
     "auction_win": "זכייה במכירה פומבית",
@@ -308,6 +317,11 @@
       "choose_square": "איזו משבצת?",
       "label": "מה אפשר לעשות",
       "none": "אין מה לעשות עדיין."
+    },
+    "card_reveal": {
+      "dismiss": "הבנתי",
+      "gained": "{{amount}} בשבילך!",
+      "paid": "צריך לשלם {{amount}}."
     },
     "dossier": {
       "all_players": "מה יש לכל אחד"
