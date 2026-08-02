@@ -666,7 +666,7 @@ export function PlayerDossier({
                   holdings={holdings}
                   deeds={deedsByKey.get(holdings.group) ?? []}
                   onSelectSquare={onSelectSquare}
-                  t={translate}
+                  scope={groupScope}
                 />
               ))}
             </ul>

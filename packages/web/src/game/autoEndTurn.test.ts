@@ -149,7 +149,14 @@ describe("which acquisitions count", () => {
         price: 60,
         via: "purchase",
       }),
-      loggedEvent(5, { type: "cash_changed", player: 0, delta: -60, reason: "purchase" }),
+      loggedEvent(5, {
+        type: "cash_changed",
+        player: 0,
+        delta: -60,
+        reason: "purchase",
+        balance: 1440,
+        counterparty: "bank",
+      }),
     ];
     expect(decide({ events })?.seq).toBe(4);
   });

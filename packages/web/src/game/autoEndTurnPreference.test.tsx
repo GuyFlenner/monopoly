@@ -9,10 +9,11 @@
  */
 
 import { act, render, renderHook, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { Announcer } from "@/a11y";
+import { Announcer, AnnouncerProvider, useAnnouncer } from "@/a11y";
 
 import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
 import {
@@ -24,7 +25,28 @@ import {
   writeAutoEndTurn,
 } from "./autoEndTurnPreference";
 
+/** What reached the bus, which is "was announced" before any dwell timer has run. */
+let announced: Array<{ politeness: string; key: string }> = [];
+
+function Recorder(): null {
+  const { bus } = useAnnouncer();
+  useEffect(
+    () =>
+      bus.subscribe((added) => {
+        announced.push(
+          ...added.map((announcement) => ({
+            politeness: announcement.politeness,
+            key: announcement.key,
+          })),
+        );
+      }),
+    [bus],
+  );
+  return null;
+}
+
 beforeEach(() => {
+  announced = [];
   globalThis.localStorage.clear();
   // The store caches, deliberately, so a test that writes storage behind its back has to say so.
   forgetCachedAutoEndTurn();
@@ -92,9 +114,13 @@ describe("the preference", () => {
 describe("the switch in the chrome", () => {
   function renderToggle() {
     return render(
-      <Announcer>
+      // The same shape as `MuteToggle.test.tsx`: the provider owns the bus, `<Announcer>` is a
+      // sibling live region rather than a wrapper, and the switch pushes through the one of them.
+      <AnnouncerProvider>
+        <Announcer stepMs={5} />
+        <Recorder />
         <AutoEndTurnToggle />
-      </Announcer>,
+      </AnnouncerProvider>,
     );
   }
 
@@ -111,11 +137,14 @@ describe("the switch in the chrome", () => {
 
     expect(screen.getByTestId("auto-end-turn")).toHaveAttribute("aria-pressed", "false");
     expect(readAutoEndTurn()).toBe(false);
-    // Through the one Announcer, politely, and describing the state it has just moved *to* — the
-    // off-by-one the other two switches get right the same way.
-    expect(document.querySelector('[data-announcer="polite"]')).toHaveTextContent(
-      "Turns will wait for you to end them.",
-    );
+    // Asserted at the bus rather than in the region's text, which is `MuteToggle.test.tsx`'s idiom
+    // and for its reason: the region is serialized behind a dwell timer, so reading its text is a
+    // test of the Announcer's clock — which `Announcer.test.tsx` already owns — rather than of this
+    // switch. What belongs here is that the press said the state it moved *to*, politely, once.
+    expect(announced).toEqual([{ politeness: "polite", key: "a11y.auto_end_off" }]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Auto end turn" }));
+    expect(announced.at(-1)).toEqual({ politeness: "polite", key: "a11y.auto_end_on" });
   });
 
   it("keeps the 44 px floor and needs no mouse", async () => {
