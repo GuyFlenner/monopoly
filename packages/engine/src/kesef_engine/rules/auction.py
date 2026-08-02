@@ -36,6 +36,7 @@ from kesef_engine.events import AuctionEnded, AuctionStarted, BidderWithdrew, Bi
 from kesef_engine.primitives import AuctionReason, CashReason, Lot, PlayerId, TileLot
 from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import update_property
+from kesef_engine.ruleset import AuctionMinimum
 from kesef_engine.state import AuctionFrame, GameState
 
 MIN_BIDDERS = 2
@@ -56,6 +57,34 @@ def bidding_order(state: GameState, *, start_from: PlayerId, include_start: bool
     return tuple(player.id for player in ordered if not player.bankrupt)
 
 
+def opening_floor(state: GameState, lot: Lot) -> int:
+    """The smallest first bid this lot may take (MON-712).
+
+    One under the printed rule, where a square may go for ₪1; the deed's own price under
+    ``AuctionMinimum.LIST_PRICE``, which the owner asked for after a game in which a child bid ₪1
+    on every square the adult declined and won all of them. See :class:`~kesef_engine.ruleset.AuctionMinimum`.
+
+    Read per lot rather than once per auction, because an estate queue is a queue of *different*
+    squares: ``_open_next`` re-enters here for each one, so a ₪60 deed and a ₪400 deed in the same
+    bankruptcy get their own floors rather than the first one's.
+
+    Three edges, all decided here so that nothing downstream has to:
+
+    * A ``BuildingLot`` names no tile and therefore no price — a shortage auction sells *a house*,
+      not a square — so it keeps the ₪1 floor whatever the setting says.
+    * A tile with no price (a corner, a card square) cannot reach an auction, since only an ownable
+      square can be declined or liquidated; ``or 0`` and the ``max`` below mean a hand-built state
+      that does reach it opens at ₪1 rather than at zero, which would be a bid of nothing winning.
+    * The floor is a floor and nothing else. ``legality.minimum_bid`` still takes
+      ``max(min_bid, high_bid + 1)``, so the increment above it is the ordinary one.
+    """
+    if state.ruleset.auction_minimum is not AuctionMinimum.LIST_PRICE:
+        return 1
+    if not isinstance(lot, TileLot):
+        return 1
+    return max(1, state.board.tile(lot.tile).price or 0)
+
+
 def open_auction(
     state: GameState, *, lots: Sequence[Lot], reason: AuctionReason, eligible: tuple[PlayerId, ...]
 ) -> tuple[GameState, tuple[Event, ...]]:
@@ -74,7 +103,7 @@ def open_auction(
             eligible=bidders,
             active=bidders,
             turn=bidders[0],
-            min_bid=1,  # no reserve (spec §3.6 trap 5)
+            min_bid=opening_floor(state, lots[0]),
             queue=tuple(lots[1:]),
         )
         state = state.push_interrupt(frame)

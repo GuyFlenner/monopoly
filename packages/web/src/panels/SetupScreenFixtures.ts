@@ -36,6 +36,7 @@ export const UNIVERSAL_RULES: Ruleset = {
   houses_available: 32,
   hotels_available: 12,
   auctions_enabled: true,
+  auction_minimum: "none",
   mortgages_enabled: true,
   trading_enabled: true,
   even_build_enforced: true,

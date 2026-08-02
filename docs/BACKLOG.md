@@ -817,7 +817,7 @@ already decided "nothing to do" from the position *before* the command that queu
 task. Both regression tests fail on the unfixed code; the race test needs a 1 ms think delay
 because a coroutine that never yields cannot race.
 
-### MON-712 — Auctions off by default, configurable, with a reserve price 🔵 **OPEN**
+### MON-712 — Auctions off by default, configurable, with a reserve price 🔄 **in review**
 **Tier**: Fable design / Opus build · **Size**: M · *(added 2026-08-02 — owner, from a Hebrew game
 played with his child)*
 
@@ -850,6 +850,21 @@ is the exploit. With the floor at the printed price the auction stops being a di
 "does anyone else want it at the sticker price, in turn order?", and a square nobody wants at that
 price stays with the bank, which is the same outcome as auctions off. The no-reserve rule remains
 available for players who want the printed game.
+
+**What landed.** `AuctionMinimum` (`none` | `list_price`) on `Ruleset`, defaulting to the printed
+rule; `auction.opening_floor` reads it per *lot*, so an estate queue prices a ₪60 deed and a ₪400
+deed separately rather than carrying the first one's floor. `HouseRules` on `NewGameRequest`, a
+closed set of fields with `extra="forbid"` — an open patch over `Ruleset` would have let a client
+award itself 500 houses — applied as an amendment, so a kids game keeps everything Kids Mode changed.
+The setup screen owns the product default and states the divergence on screen.
+
+Two consequences worth knowing. A reserve applies to a **bankruptcy** estate too, so a lot nobody
+will pay list price for returns to the bank instead of selling cheap; that is the same rule read
+consistently, and the setting is opt-in. And a bidder who cannot reach the floor is offered no bid at
+all — only the withdrawal, plus the selling and mortgaging that `AUCTION` already allows (G-B1a).
+
+The golden games shifted by exactly eight lines, all of them `"auction_minimum": "none"`, proven
+before regeneration.
 
 ---
 

@@ -83,6 +83,25 @@ async function expectFocusVisible(page: Page, because: string): Promise<void> {
   expect(state.ring, `${because}: no focus ring is painted`).not.toMatch(/^none 0px \/ none$/);
 }
 
+/**
+ * Where the focused element sits among every element in the document, or `-1` for none.
+ *
+ * An *identity*, which {@link focusedDescription} deliberately is not: every chit in the action bar
+ * describes as `button[type="button"]`, so comparing descriptions to detect "the press moved
+ * nothing" reports a stall for every ordinary step through the bar — and the correction below then
+ * restarts the walk from the top, forever. A document position distinguishes two buttons that look
+ * identical, which is the whole question being asked.
+ */
+async function focusedPosition(page: Page): Promise<number> {
+  return page.evaluate(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) {
+      return -1;
+    }
+    return [...document.querySelectorAll("*")].indexOf(active);
+  });
+}
+
 /** Thrown when a modal took the keyboard while walking to something behind it. Not a failure. */
 class DialogInterrupted extends Error {}
 
@@ -105,6 +124,10 @@ async function dialogHasTheKeyboard(page: Page, selector: string): Promise<boole
  * information that makes a broken tab order debuggable.
  */
 async function tabTo(page: Page, selector: string, because = selector): Promise<number> {
+  /** Presses that moved nothing. Reported on failure, because it names which cause was at work. */
+  let stalls = 0;
+  /** Which way along the tab order this walk is going. Flipped by a stall — see below. */
+  let backwards = false;
   for (let presses = 0; presses <= TAB_BUDGET; presses += 1) {
     if (await page.evaluate((s) => document.activeElement?.matches(s) ?? false, selector)) {
       await expectFocusVisible(page, `on reaching ${because}`);
@@ -129,7 +152,41 @@ async function tabTo(page: Page, selector: string, because = selector): Promise<
         `${because} is behind a modal that opened during the walk; focus is on ${await focusedDescription(page)}`,
       );
     }
-    await page.keyboard.press("Tab");
+
+    const before = await focusedPosition(page);
+    await page.keyboard.press(backwards ? "Shift+Tab" : "Tab");
+
+    /*
+      A press that moved nothing, and the reason it is answered by *turning round*.
+
+      A real browser wraps: Tab from the last control moves into the address bar, and the press
+      after that comes back to the top of the page, so every control is reachable from every other
+      one. Headless Chromium has no chrome to pass through, so focus stops dead at the last control
+      and every further press is a no-op — a walk that started *after* its target would burn its
+      whole budget standing still and then report "not reachable" about a control a person reaches
+      immediately.
+
+      Blurring does not fix it: clearing `document.activeElement` leaves Chromium's sequential focus
+      navigation *starting point* where it was, so the next Tab carries on from the same dead end.
+      Shift+Tab does fix it, and it is what a person does — the tab order is a line, and reaching a
+      control behind you means walking back up it. The direction flips on each stall, so a walk that
+      hits the top going backwards turns round again.
+
+      The one case this must not paper over is focus genuinely trapped on a single element. It does
+      not: a trap stalls in *both* directions, so the flipping walk still spends its budget and
+      fails, and the message says how many presses moved nothing.
+    */
+    if ((await focusedPosition(page)) === before) {
+      stalls += 1;
+      backwards = !backwards;
+      // A stall at the very start of the run is usually the screen not having arrived yet, rather
+      // than the end of the tab order, so this is also where the walk waits for it.
+      await page
+        .locator(selector)
+        .first()
+        .waitFor({ state: "attached", timeout: 1_000 })
+        .catch(() => undefined);
+    }
   }
   // The failure message carries the target's own state, because "not reachable" has two very
   // different causes — it is not in the tab order, or it is not in the document at all — and a bare
@@ -144,7 +201,8 @@ async function tabTo(page: Page, selector: string, because = selector): Promise<
     }));
   }, selector);
   throw new Error(
-    `${because} was not reachable in ${String(TAB_BUDGET)} Tab presses; ` +
+    `${because} was not reachable in ${String(TAB_BUDGET)} Tab presses ` +
+      `(${String(stalls)} of them moved nothing); ` +
       `focus ended on ${await focusedDescription(page)}; ` +
       `matches: ${JSON.stringify(target)}`,
   );

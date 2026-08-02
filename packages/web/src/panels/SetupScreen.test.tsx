@@ -300,6 +300,109 @@ describe("validation is the server's", () => {
   });
 });
 
+/**
+ * The house rules (MON-712), and the one claim that is easy to satisfy wrongly.
+ *
+ * The owner asked for auctions **off by default**. A screen that merely *renders* the switch in the
+ * off position satisfies every screenshot and still starts a game with auctions on, because the
+ * default that matters is the one that reaches the wire — the engine's own default is the printed
+ * rule, deliberately, so a request that says nothing gets auctions. So the first test below presses
+ * nothing at all and reads the posted body.
+ */
+describe("the house rules this table is playing", () => {
+  it("posts auctions off without the player touching anything", async () => {
+    const user = userEvent.setup();
+    const { onStart } = setup();
+    await nameBothSeats(["Ruti", "Dan"]);
+
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    const request = onStart.mock.calls[0]?.[0] as NewGameRequest;
+    expect(request.house_rules).toEqual({ auctions_enabled: false });
+    // And the rule *set* is untouched: turning one thing off is not switching to Kids Mode.
+    expect(request.ruleset).toBe("universal");
+  });
+
+  it("shows the switch in the position it is actually going to post", () => {
+    setup();
+    const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
+    expect(
+      within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.off") }),
+    ).toBeChecked();
+  });
+
+  it("asks about the floor only once there is an auction to have one", async () => {
+    const user = userEvent.setup();
+    setup();
+    const floorLabel = i18next.t("ruleset.auction_minimum");
+    expect(screen.queryByRole("group", { name: floorLabel })).not.toBeInTheDocument();
+
+    const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
+    await user.click(within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.on") }));
+
+    expect(screen.getByRole("group", { name: floorLabel })).toBeInTheDocument();
+  });
+
+  it("defaults the floor to the price on the card, which is what stops the ₪1 steal", async () => {
+    const user = userEvent.setup();
+    const { onStart } = setup();
+    await nameBothSeats(["Ruti", "Dan"]);
+
+    const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
+    await user.click(within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.on") }));
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    const request = onStart.mock.calls[0]?.[0] as NewGameRequest;
+    expect(request.house_rules).toEqual({
+      auctions_enabled: true,
+      auction_minimum: "list_price",
+    });
+  });
+
+  it("can still play the printed rule, for a table that wants it", async () => {
+    const user = userEvent.setup();
+    const { onStart } = setup();
+    await nameBothSeats(["Ruti", "Dan"]);
+
+    const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
+    await user.click(within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.on") }));
+    const floor = screen.getByRole("group", { name: i18next.t("ruleset.auction_minimum") });
+    await user.click(within(floor).getByRole("radio", { name: i18next.t("auction_minimum.none") }));
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    const request = onStart.mock.calls[0]?.[0] as NewGameRequest;
+    expect(request.house_rules).toEqual({ auctions_enabled: true, auction_minimum: "none" });
+  });
+
+  it("sends no floor when there is no auction to apply it to", async () => {
+    // An absent field means "leave the rule set alone", so a floor for an auction that cannot
+    // happen would be a fact about the game that is not true of it.
+    const user = userEvent.setup();
+    const { onStart } = setup();
+    await nameBothSeats(["Ruti", "Dan"]);
+
+    const auctions = screen.getByRole("group", { name: i18next.t("setup.auctions_here") });
+    await user.click(within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.on") }));
+    await user.click(within(auctions).getByRole("radio", { name: i18next.t("ruleset.value.off") }));
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    const request = onStart.mock.calls[0]?.[0] as NewGameRequest;
+    expect(request.house_rules).not.toHaveProperty("auction_minimum");
+  });
+});
+
 describe("what reaches the wire", () => {
   it("carries the seat's kind, level, pronoun and a distinct piece each", async () => {
     const user = userEvent.setup();

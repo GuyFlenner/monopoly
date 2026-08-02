@@ -40,7 +40,7 @@ from __future__ import annotations
 import re
 from typing import Annotated, Literal, Self, assert_never
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kesef_engine.board.models import Board, ColorGroup, Tile, TileKind
 from kesef_engine.commands import Command, TradeOffer
@@ -56,7 +56,7 @@ from kesef_engine.primitives import (
     PlayerId,
     TileIndex,
 )
-from kesef_engine.ruleset import Ruleset, RulesetName
+from kesef_engine.ruleset import AuctionMinimum, Ruleset, RulesetName
 from kesef_engine.state import (
     AuctionFrame,
     CardFrame,
@@ -165,6 +165,41 @@ class SeatConfig(BaseModel):
         )
 
 
+class HouseRules(BaseModel):
+    """What this table has agreed to change about the rules it is playing (MON-712).
+
+    Every field is optional and ``None`` means *leave the named rule set alone*, which is what makes
+    this composable with Kids Mode: a kids game already has auctions off, and a house rule that said
+    nothing about auctions must not turn them back on.
+
+    ## Why the product's default lives in the client and not here
+
+    The owner asked for auctions to be **off by default**, and the temptation is to spell that here,
+    where every caller would inherit it. It is the wrong place. ``Ruleset.universal()`` is what this
+    repository means by *correct* — the goldens replay against it and the invariant tests measure
+    it — so a default that quietly diverged would make every one of them a record of a variant. The
+    default belongs to whatever *decides which game to start*, which is the setup screen; the wire
+    stays a faithful description of what was asked for.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    auctions_enabled: bool | None = None
+    """``False`` turns the declined-purchase auction off: the square simply stays with the bank."""
+    auction_minimum: AuctionMinimum | None = None
+    """The floor a lot opens at. See :class:`~kesef_engine.ruleset.AuctionMinimum`."""
+
+    def applied_to(self, ruleset: Ruleset) -> Ruleset:
+        """``ruleset`` with the stated amendments, and only the stated ones.
+
+        ``model_copy`` rather than a constructor call, so a field this class does not mention keeps
+        whatever the named rule set gave it. Validated afterwards, because ``model_copy`` skips
+        validators by design and a frozen model is not the same thing as a checked one.
+        """
+        stated = self.model_dump(exclude_none=True)
+        return Ruleset.model_validate({**ruleset.model_dump(), **stated}) if stated else ruleset
+
+
 class NewGameRequest(BaseModel):
     seats: tuple[SeatConfig, ...]
     """Unconstrained on purpose, since MON-418: **how many players a game takes is a rule.**
@@ -182,6 +217,18 @@ class NewGameRequest(BaseModel):
     """
     board_id: str = "classic"
     ruleset: RulesetName = RulesetName.UNIVERSAL
+    house_rules: HouseRules = HouseRules()
+    """Per-game amendments to the named rule set (MON-712).
+
+    Separate from ``ruleset`` because they answer different questions. The name says *which rules
+    this is a variant of* — it is what Kids Mode is, and what the golden games are recorded
+    against. House rules say what this table has agreed to do differently tonight, and a table that
+    turns auctions off has not started playing Kids Mode.
+
+    A closed set of fields rather than an open patch over ``Ruleset``: a client that could post any
+    flag could post ``houses_available: 500`` and call it a house rule, and the engine's model would
+    have become the wire format. Each field here is one the product actually offers a control for.
+    """
     locale: str = "en"
     seed: int | None = None
     """None means the server picks one and returns it, so a game can be replayed."""

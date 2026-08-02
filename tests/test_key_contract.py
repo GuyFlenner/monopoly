@@ -85,7 +85,7 @@ def _emitted_literals(namespace: str) -> set[str]:
 def _displayed_enums() -> tuple[tuple[type[StrEnum], str], ...]:
     from kesef_engine.board.models import ColorGroup, TileKind
     from kesef_engine.primitives import AuctionReason, BotLevel, CashReason, Deck
-    from kesef_engine.ruleset import RulesetName
+    from kesef_engine.ruleset import AuctionMinimum, RulesetName
 
     return (
         # Each pair is (enum, the catalogue namespace the UI concatenates onto). Every one of
@@ -98,6 +98,8 @@ def _displayed_enums() -> tuple[tuple[type[StrEnum], str], ...]:
         (AuctionReason, "auction_reason."),  # panels/AuctionPanel.tsx
         (BotLevel, "bot_level."),  # panels/SetupScreen.tsx, via BOT_LEVEL_KEYS
         (RulesetName, "setup."),  # panels/SetupScreen.tsx
+        # MON-712: the setup screen offers the floor as a choice, so both members are rendered.
+        (AuctionMinimum, "auction_minimum."),  # panels/SetupScreen.tsx, via the house-rule controls
     )
 
 

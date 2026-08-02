@@ -45,6 +45,15 @@ export type ErrorParams = ErrorResponse["params"];
 export type LegalityView = Schemas["LegalityView"];
 
 export type NewGameRequest = Schemas["NewGameRequest"];
+/**
+ * The per-game amendments a table may make to the named rule set (MON-712).
+ *
+ * Named here rather than inlined at the one call site so the setup screen's state is typed by the
+ * *contract* — a field the server stops accepting becomes a compile error on the screen that
+ * offers it, which is the whole reason this package generates its types.
+ */
+export type HouseRules = Schemas["HouseRules"];
+export type AuctionMinimum = Schemas["AuctionMinimum"];
 export type SeatConfig = Schemas["SeatConfig"];
 export type BoardSummary = Schemas["BoardSummary"];
 export type GameSummary = Schemas["GameSummary"];

@@ -34,6 +34,7 @@ import { useTranslation } from "react-i18next";
 import {
   asApiError,
   type ApiError,
+  type AuctionMinimum,
   type BoardSummary,
   type NewGameRequest,
   type RuleFlagView,
@@ -157,6 +158,15 @@ export interface SetupScreenProps {
 
 const UNIVERSAL: RulesetView["name"] = "universal";
 
+/**
+ * Both floors, in the order they are offered.
+ *
+ * A literal list rather than a derivation, because there is nothing to derive from: the enum lives
+ * in the generated types as a union of string literals, so `satisfies` is what checks this against
+ * the contract — add a third floor to the engine and this line stops compiling.
+ */
+const AUCTION_MINIMUMS = ["list_price", "none"] as const satisfies readonly AuctionMinimum[];
+
 /** Find a rule set by name in whatever order `/rulesets` returned them. */
 function findRuleset(
   rulesets: readonly RulesetView[],
@@ -180,6 +190,23 @@ export function SetupScreen({
   const [nextSeatId, setNextSeatId] = useState(2);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [rulesetName, setRulesetName] = useState<RulesetView["name"]>(UNIVERSAL);
+  /*
+    The house rules this table is starting with (MON-712), and the one place the product's own
+    default lives.
+
+    **Auctions start off**, which is not what the printed rules say and is deliberate. The owner
+    reported the reason: playing with his child, every square he declined went to a ₪1 bid, again
+    and again, because the no-reserve rule assumes bidders who compete and across a generation gap
+    there is nobody to hold the price up. The engine keeps the printed rule — `Ruleset.universal()`
+    is what the golden games are recorded against, so a default that diverged there would make every
+    one of them a record of a variant — and the divergence is stated here, on the screen that
+    decides what game to start, where a player can see it and change it in one press.
+
+    The floor defaults to the deed's own price *for the table that turns auctions back on*, because
+    an increment rule cannot help: the exploit is the first bid, not the raise after it.
+  */
+  const [auctionsEnabled, setAuctionsEnabled] = useState(false);
+  const [auctionMinimum, setAuctionMinimum] = useState<AuctionMinimum>("list_price");
   const [seed, setSeed] = useState("");
   const [isSubmitting, setSubmitting] = useState(false);
   const [rejection, setRejection] = useState<ApiError | null>(null);
@@ -227,7 +254,12 @@ export function SetupScreen({
     setSubmitting(true);
     setRejection(null);
     try {
-      await onStart(buildRequest(seats, chosenBoardId, rulesetName, locale, seed));
+      await onStart(
+        buildRequest(seats, chosenBoardId, rulesetName, locale, seed, {
+          auctions_enabled: auctionsEnabled,
+          ...(auctionsEnabled ? { auction_minimum: auctionMinimum } : {}),
+        }),
+      );
     } catch (cause) {
       setRejection(asApiError(cause));
     } finally {
@@ -339,6 +371,59 @@ export function SetupScreen({
           />
 
           {rulesetName !== UNIVERSAL && <RuleDiff differences={differences} />}
+
+          {/*
+            The house rules, in the flow rather than behind the advanced disclosure.
+
+            The seed hides because it is a developer's feature wearing a player's clothes. This is
+            the opposite: it is the setting a parent most wants and the one they cannot discover any
+            other way, since with auctions off there is no auction on screen to notice the absence
+            of.
+
+            Its own fieldset and its own wording, because otherwise "Auctions" appears twice on this
+            screen meaning two different things. `<RuleDiff>` above answers *what Kids Mode changes
+            about the rules*; this answers *what this table is doing tonight*, and it is the one that
+            wins — a kids game with the switch on has auctions, whatever the diff says Kids Mode does
+            by itself. Two controls sharing `ruleset.auctions_enabled` as a name is a defect for a
+            screen reader before it is one for a test.
+          */}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="pb-1 text-sm font-medium">{t("setup.house_rules")}</legend>
+            <p className="text-xs opacity-70">{t("setup.house_rules_note")}</p>
+
+            <Choice
+              name={`${formId}-auctions`}
+              label={t("setup.auctions_here")}
+              options={[
+                { value: "off", label: t("ruleset.value.off") },
+                { value: "on", label: t("ruleset.value.on") },
+              ]}
+              value={auctionsEnabled ? "on" : "off"}
+              onChange={(value) => {
+                setAuctionsEnabled(value === "on");
+              }}
+            />
+
+            {/*
+              Only when there is an auction to have a floor for. A disabled control would be a second
+              way of saying what the switch above already says, and an always-visible one would ask a
+              parent to answer a question about a feature they have just turned off.
+            */}
+            {auctionsEnabled && (
+              <Choice
+                name={`${formId}-auction-minimum`}
+                label={t("ruleset.auction_minimum")}
+                options={AUCTION_MINIMUMS.map((candidate) => ({
+                  value: candidate,
+                  label: t(`auction_minimum.${candidate}`),
+                }))}
+                value={auctionMinimum}
+                onChange={(value) => {
+                  setAuctionMinimum(value as AuctionMinimum);
+                }}
+              />
+            )}
+          </fieldset>
 
           <Choice
             name={`${formId}-locale`}
@@ -720,6 +805,16 @@ function buildRequest(
   ruleset: RulesetView["name"],
   locale: Locale,
   seed: string,
+  /**
+   * What this table changed about the named rule set (MON-712).
+   *
+   * Sent whole rather than only when it differs from the printed rules, and that is the honest
+   * shape: the screen has *decided* that auctions are off unless told otherwise, so saying nothing
+   * would leave the server to apply a default the player never chose. The floor is omitted when
+   * auctions are off, because a floor for an auction that cannot happen is not a fact about the
+   * game — and `HouseRules` reads an absent field as "leave the rule set alone".
+   */
+  houseRules: NonNullable<NewGameRequest["house_rules"]>,
 ): NewGameRequest {
   const parsed = Number(seed.trim());
   const usable = seed.trim() !== "" && Number.isSafeInteger(parsed) && parsed >= 0;
@@ -733,6 +828,7 @@ function buildRequest(
     })),
     board_id: boardId,
     ruleset,
+    house_rules: houseRules,
     locale,
     ...(usable ? { seed: parsed } : {}),
   };

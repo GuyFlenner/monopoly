@@ -46,6 +46,7 @@ const NEW_GAME = {
   seats: SEATS,
   board_id: "classic",
   ruleset: "universal" as const,
+  house_rules: {},
   locale: "he",
   seed: 7,
   game_id: null,
