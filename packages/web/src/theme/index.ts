@@ -37,6 +37,7 @@ export {
   ICON_PATH,
   ICON_VIEWBOX,
   type ActionIconName,
+  type DeckIconName,
   type IconName,
   type IconProps,
   type ModifierIconName,

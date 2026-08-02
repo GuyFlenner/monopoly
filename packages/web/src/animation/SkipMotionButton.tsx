@@ -32,18 +32,28 @@ export interface SkipMotionButtonProps {
   readonly playing: boolean;
   readonly onSkip: () => void;
   readonly className?: string | undefined;
+  /**
+   * A handle on the button, for a caller that needs somewhere safe to put the keyboard focus.
+   *
+   * `<CardReveal>` (MON-709) uses it: a card that unmounts with the focus inside it has to hand the
+   * focus to something, and the reason this button is the right something is the paragraph above —
+   * it is always mounted, and it is about the same thing the card's dismiss control is about.
+   */
+  readonly buttonRef?: React.RefObject<HTMLButtonElement | null> | undefined;
 }
 
 export function SkipMotionButton({
   playing,
   onSkip,
   className,
+  buttonRef,
 }: SkipMotionButtonProps): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
     <button
       type="button"
+      ref={buttonRef}
       data-testid="skip-motion"
       data-playing={playing}
       aria-disabled={!playing}

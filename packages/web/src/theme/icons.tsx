@@ -89,6 +89,22 @@ const ACTION_ICON_PATH = {
   flag: "M4.8 2.4H7v19.2H4.8Zm3.4 1h11.4l-2.6 4.6 2.6 4.6H8.2Z",
 } as const;
 
+/**
+ * Deck glyphs — the two card decks (MON-709).
+ *
+ * Two decks that must be told apart *without colour*, which is this project's standing rule for any
+ * grouping (spec §5.4, G-B4). So they are a four-point spark and a lidded box: one radial, one
+ * rectilinear, and the only pair in this file where distinctness from each other is the requirement
+ * rather than a consequence. Cover the colour, shrink them to 16 px, and they are still two different
+ * things — which is also why the card surface names its deck in words as well.
+ */
+const DECK_ICON_PATH = {
+  /** chance — a four-point spark: a sudden turn of fortune, and the only quadrilateral star here. */
+  spark: "M12 2.2L15.2 8.8L21.8 12L15.2 15.2L12 21.8L8.8 15.2L2.2 12L8.8 8.8Z",
+  /** community_chest — a chest: a trapezoid lid over a box, with a keyhole punched by evenodd. */
+  chest: "M3.4 9.4H20.6V19.8H3.4ZM5.6 4.2H18.4L20.6 7.8H3.4ZM10.8 12.4H13.2V16.8H10.8Z",
+} as const;
+
 /** Modifier badges. Small, high-contrast marks that ride the corner of a glyph. */
 const MODIFIER_ICON_PATH = {
   plus: "M10.4 3h3.2v7.4H21v3.2h-7.4V21h-3.2v-7.4H3v-3.2h7.4Z",
@@ -101,6 +117,7 @@ export const ICON_PATH = {
   ...TILE_ICON_PATH,
   ...TOKEN_ICON_PATH,
   ...ACTION_ICON_PATH,
+  ...DECK_ICON_PATH,
   ...MODIFIER_ICON_PATH,
 } as const;
 
@@ -108,6 +125,7 @@ export type IconName = keyof typeof ICON_PATH;
 export type TileIconName = keyof typeof TILE_ICON_PATH;
 export type TokenIconName = keyof typeof TOKEN_ICON_PATH;
 export type ActionIconName = keyof typeof ACTION_ICON_PATH;
+export type DeckIconName = keyof typeof DECK_ICON_PATH;
 export type ModifierIconName = keyof typeof MODIFIER_ICON_PATH;
 
 export const ICON_NAMES = Object.keys(ICON_PATH) as readonly IconName[];

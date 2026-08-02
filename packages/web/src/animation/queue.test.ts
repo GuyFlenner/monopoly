@@ -52,6 +52,24 @@ function pop(tile: number, seq = 1, durationMs = DEFAULT_DURATIONS.buildingMs): 
   return { kind: "building_pop", id: `${String(seq)}:building`, seq, tile, houses: 1, durationMs };
 }
 
+function card(
+  cardId = "card.chance.advance_to_go",
+  seq = 1,
+  extras: { readonly delta?: number | null; readonly durationMs?: number } = {},
+): TimelineStep {
+  return {
+    kind: "card_reveal",
+    id: `${String(seq)}:card`,
+    seq,
+    player: 1,
+    deck: "chance",
+    cardId,
+    delta: extras.delta ?? null,
+    balance: extras.delta === undefined || extras.delta === null ? null : 1500 + extras.delta,
+    durationMs: extras.durationMs ?? DEFAULT_DURATIONS.cardMs,
+  };
+}
+
 describe("a queue with nothing in it", () => {
   it("is idle and overrides nothing", () => {
     const queue = new MotionQueue();
@@ -160,6 +178,85 @@ describe("beats", () => {
     queue.advance(10_000);
     expect(queue.frame.cash.get(1)).toBe(2);
     expect(queue.frame.cash.get(2)).toBe(1);
+  });
+});
+
+/**
+ * The card is the one thing in a frame that is content rather than a counter (MON-709), so it is the
+ * one thing that must come back *off* the frame. The falsifiers: a card left up after its beat is
+ * this class asserting a fact the projection does not carry — `GameStateView` has no "card showing"
+ * — and an idle queue that still names a card is the idle contract broken for the only field where
+ * breaking it is visible to a player.
+ */
+describe("the card on the board", () => {
+  it("goes up when its beat starts, carrying only what the step carried", () => {
+    const queue = new MotionQueue();
+    queue.push([card("card.chest.doctors_fee", 1, { delta: -50 })], 0);
+
+    expect(queue.frame.card?.cardId).toBe("card.chest.doctors_fee");
+    expect(queue.frame.card?.delta).toBe(-50);
+    expect(queue.frame.card?.balance).toBe(1450);
+    expect(queue.frame.card?.nonce).toBe(1);
+  });
+
+  it("comes down when its beat ends, and the queue is idle with no card", () => {
+    const queue = new MotionQueue();
+    queue.push([card()], 0);
+    queue.advance(DEFAULT_DURATIONS.cardMs);
+
+    expect(queue.idle).toBe(true);
+    expect(queue.frame.card).toBeNull();
+  });
+
+  it("comes down when the player catches up, in the same gesture as the rest", () => {
+    const queue = new MotionQueue();
+    queue.push([card()], 0);
+    queue.advance(100);
+    expect(queue.frame.card).not.toBeNull();
+
+    queue.skip();
+
+    expect(queue.frame.card).toBeNull();
+    expect(queue.frame).toEqual(STILL);
+  });
+
+  it("counts a fresh beat for the same card drawn twice, so two draws read as two", () => {
+    const queue = new MotionQueue();
+    queue.push([card("card.chance.go_to_jail", 1), card("card.chance.go_to_jail", 2)], 0);
+    const first = queue.frame.card?.nonce;
+    queue.advance(DEFAULT_DURATIONS.cardMs);
+
+    expect(first).toBe(1);
+    expect(queue.frame.card?.nonce).toBe(2);
+  });
+
+  it("comes down while the rest of the timeline is still playing", () => {
+    // The clear that the drain would otherwise hide. A card is up for *its beat*, not until the
+    // batch happens to run out: leave it and the payment that follows a card plays underneath a card
+    // the player finished reading a second ago.
+    const queue = new MotionQueue();
+    queue.push([card("card.chance.advance_to_go", 1), pulse(1, 2, 400)], 0);
+    queue.advance(DEFAULT_DURATIONS.cardMs + 10);
+
+    expect(queue.idle).toBe(false);
+    expect(queue.frame.remaining).toBe(1);
+    expect(queue.frame.card).toBeNull();
+  });
+
+  it("shows the card of the beat in flight, never a later one waiting its turn", () => {
+    const queue = new MotionQueue();
+    queue.push([card("card.chance.first", 1), card("card.chance.second", 2)], 0);
+    expect(queue.frame.card?.cardId).toBe("card.chance.first");
+  });
+
+  it("holds up nothing at all when its dwell is zero", () => {
+    // The history path: `plan` drops the step rather than zeroing it, and this is the belt to that
+    // brace — a zero-length card must not flash a frame with content nobody can read.
+    const queue = new MotionQueue();
+    queue.push([card("card.chance.old", 1, { durationMs: 0 })], 0);
+
+    expect(queue.idle).toBe(true);
+    expect(queue.frame.card).toBeNull();
   });
 });
 

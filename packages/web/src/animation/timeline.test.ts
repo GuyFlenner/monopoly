@@ -26,15 +26,18 @@ import type { LoggedEvent } from "@/api";
 import { TILE_COUNT } from "@/board";
 
 import {
+  cardFigure,
   compress,
   DEFAULT_BUDGET_MS,
   DEFAULT_DURATIONS,
   destinationOf,
   instantly,
   plan,
+  readingAllowanceMs,
   stepFor,
   totalMs,
   walk,
+  type CardRevealStep,
   type TimelineStep,
   type TokenMoveStep,
 } from "./timeline";
@@ -93,6 +96,34 @@ function built(tile: number, houses: number, delta = 1): LoggedEvent {
 /** An event nothing animates, so a batch can be checked for what it *leaves* still. */
 function mortgaged(tile: number): LoggedEvent {
   return frame({ type: "mortgage_changed", tile, player: 1, mortgaged: true });
+}
+
+function drew(
+  player: number,
+  cardId = "card.chance.advance_to_go",
+  deck: "chance" | "community_chest" = "chance",
+): LoggedEvent {
+  return frame({ type: "card_drawn", player, deck, card_id: cardId });
+}
+
+/** A cash change with a stated reason, which is what tells a card's own money from money it led to. */
+function paid(
+  player: number,
+  delta: number,
+  reason: "card" | "go_salary" | "rent" | "tax",
+): LoggedEvent {
+  return frame({
+    type: "cash_changed",
+    player,
+    delta,
+    reason,
+    balance: 1500 + delta,
+    counterparty: "bank",
+  });
+}
+
+function cards(steps: readonly TimelineStep[]): readonly CardRevealStep[] {
+  return steps.filter((step): step is CardRevealStep => step.kind === "card_reveal");
 }
 
 function kinds(steps: readonly TimelineStep[]): readonly string[] {
@@ -271,6 +302,109 @@ describe("the compression ladder", () => {
   });
 });
 
+/**
+ * The card (MON-709). Every claim here is about a figure this module must **not** work out.
+ *
+ * The falsifiers: a card that took the next payment whatever its reason would print "you paid $200"
+ * on a card that says nothing of the sort; a card that took a rival's payment would show +50 on
+ * "pay every other player $50"; and a card that survived compression only by being shortened would
+ * be flashed for a fifth of a second, which is not a faster read but an unread card.
+ */
+describe("a drawn card", () => {
+  it("carries the engine's own catalogue key, and no text of its own", () => {
+    const [card] = cards(plan([drew(1, "card.chest.doctors_fee")]));
+    expect(card?.cardId).toBe("card.chest.doctors_fee");
+    expect(card?.player).toBe(1);
+    expect(card?.durationMs).toBe(DEFAULT_DURATIONS.cardMs);
+  });
+
+  it("shows the figure the engine attributed to the card", () => {
+    const [card] = cards(plan([drew(1), paid(1, -50, "card")]));
+    expect(card?.delta).toBe(-50);
+    expect(card?.balance).toBe(1450);
+  });
+
+  it("shows no figure for money the card merely led to", () => {
+    // "Advance to GO" pays a salary; the salary is not what the card says, and `reason` is how the
+    // engine already tells the two apart. Drop the `reason` check and this reads "+200".
+    const [card] = cards(plan([drew(1), paid(1, 200, "go_salary")]));
+    expect(card?.delta).toBeNull();
+    expect(card?.balance).toBeNull();
+  });
+
+  it("shows the drawer's side of a card that moves other players' money", () => {
+    // "You are elected chairman — pay every other player $50."
+    const [card] = cards(plan([drew(1), paid(2, 50, "card"), paid(1, -150, "card")]));
+    expect(card?.delta).toBe(-150);
+  });
+
+  it("never reaches across a later draw or a new turn for a figure", () => {
+    const later = [
+      drew(1),
+      frame({ type: "card_drawn", player: 1, deck: "community_chest", card_id: "card.chest.gift" }),
+      paid(1, 25, "card"),
+    ];
+    expect(cards(plan(later))[0]?.delta).toBeNull();
+
+    const nextTurn: readonly LoggedEvent[] = [
+      { seq: 90, event: { type: "card_drawn", player: 1, deck: "chance", card_id: "card.x" } },
+      { seq: 91, event: { type: "turn_started", player: 2, turn_number: 9 } },
+      {
+        seq: 92,
+        event: {
+          type: "cash_changed",
+          player: 1,
+          delta: 25,
+          reason: "card",
+          balance: 1525,
+          counterparty: "bank",
+        },
+      },
+    ];
+    expect(cardFigure(1, nextTurn.slice(1))).toBeNull();
+  });
+
+  it("grants one card's reading time however many cards are in the batch", () => {
+    const one = plan([drew(1)]);
+    expect(readingAllowanceMs(one)).toBe(DEFAULT_DURATIONS.cardMs);
+    // Six draws are 10.8s of overlay; the grant must not grow with them or the cap is not a cap.
+    const six = Array.from({ length: 6 }, (_, seat) => drew(seat));
+    expect(readingAllowanceMs(six.flatMap((event) => [...plan([event])]))).toBe(
+      DEFAULT_DURATIONS.cardMs,
+    );
+  });
+
+  it("does not spend a token's walk on a card's dwell", () => {
+    // Roll, seven squares, card, payment — over budget on the raw arithmetic, and it is precisely the
+    // turn where the walk carries information, because a card is what sends a player past GO. Remove
+    // the reading allowance from `plan` and the walk collapses to one glide.
+    const steps = plan([rolled(1), moved(1, 0, 7), drew(1), paid(1, -50, "card")]);
+    expect(totalMs(steps)).toBeGreaterThan(DEFAULT_BUDGET_MS);
+    expect(moves(steps)[0]?.path).toHaveLength(7);
+  });
+
+  it("drops the cards a later card replaced, and holds the survivor for its full time", () => {
+    const steps = compress([
+      ...plan([drew(1, "card.chance.first")]),
+      ...plan([drew(2, "card.chance.second")]),
+      ...plan([drew(3, "card.chance.third")]),
+    ]);
+    const survivors = cards(steps);
+    expect(survivors).toHaveLength(1);
+    // The last one, at its full dwell: half a sentence is not a faster read.
+    expect(survivors[0]?.cardId).toBe("card.chance.third");
+    expect(survivors[0]?.durationMs).toBe(DEFAULT_DURATIONS.cardMs);
+  });
+
+  it("contends for one surface across players and decks, not one per deck", () => {
+    const steps = compress([
+      ...plan([drew(1, "card.chance.a", "chance")]),
+      ...plan([drew(2, "card.chest.b", "community_chest")]),
+    ]);
+    expect(cards(steps)).toHaveLength(1);
+  });
+});
+
 describe("reduced motion", () => {
   it("keeps every step and zeroes every duration", () => {
     // Not `[]`. An empty timeline would never move a token override off its old square, so the
@@ -290,5 +424,34 @@ describe("reduced motion", () => {
     const steps = plan([moved(1, 0, 3), moved(1, 3, 6)], { instant: true });
     expect(steps).toHaveLength(1);
     expect(destinationOf(moves(steps)[0] as TokenMoveStep)).toBe(6);
+  });
+
+  it("still holds the card up long enough to read (MON-709)", () => {
+    // Reduced motion, not reduced information. The card does not move — its entrance is zero through
+    // `useMotionPreference` — but the log names only the deck, so a zeroed card is an instruction the
+    // player is about to be held to that appeared nowhere. Zero `cardMs` here and a player who asked
+    // for a still board is left guessing.
+    const steps = plan([rolled(1), moved(1, 0, 5), drew(1), paid(1, -50, "card")], {
+      instant: true,
+    });
+    expect(cards(steps)).toHaveLength(1);
+    expect(cards(steps)[0]?.durationMs).toBe(DEFAULT_DURATIONS.cardMs);
+    // Everything else really is still.
+    expect(totalMs(steps.filter((step) => step.kind !== "card_reveal"))).toBe(0);
+  });
+});
+
+describe("frames that are history", () => {
+  it("holds up no card at all — nobody watched that draw happen", () => {
+    // A reload replays the whole game in one batch. Reduced motion's answer (keep the dwell) would
+    // put up a card someone drew twenty turns ago, and forty of them in a row.
+    const steps = plan([rolled(1), moved(1, 0, 5), drew(1), paid(1, -50, "card")], {
+      instant: true,
+      history: true,
+    });
+    expect(cards(steps)).toHaveLength(0);
+    expect(totalMs(steps)).toBe(0);
+    // The rest of the batch still lands, or the board would keep drawing a stale position.
+    expect(kinds(steps)).toEqual(["dice_settle", "token_move", "cash_pulse"]);
   });
 });

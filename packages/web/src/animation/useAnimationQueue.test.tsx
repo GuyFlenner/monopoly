@@ -79,6 +79,7 @@ function Probe(): React.JSX.Element {
       <p data-testid="truth">{String(truth)}</p>
       <p data-testid="remaining">{String(motion.remaining)}</p>
       <p data-testid="dice-beat">{String(motion.dice)}</p>
+      <p data-testid="card">{motion.card?.cardId ?? "none"}</p>
       <button
         type="button"
         onClick={() => {
@@ -245,6 +246,63 @@ describe("a live command", () => {
     }, SETTLE);
     // Drained, so the override is gone and the projection's own figure is what shows.
     expect(screen.getByTestId("drawn")).toHaveTextContent("5");
+  });
+});
+
+describe("a card drawn", () => {
+  it("goes up on a live draw and comes down when its beat ends (MON-709)", async () => {
+    responses = [
+      viewAt(0, [loggedEvent(1, { type: "turn_started", player: 0, turn_number: 1 })]),
+      viewAt(0, [
+        loggedEvent(2, {
+          type: "card_drawn",
+          player: 0,
+          deck: "chance",
+          card_id: "card.chance.advance_to_go",
+        }),
+      ]),
+    ];
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("truth")).toHaveTextContent("0");
+    });
+    await userEvent.click(screen.getByRole("button", { name: "act" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("card")).toHaveTextContent("card.chance.advance_to_go");
+    }, SETTLE);
+
+    // Past the dwell. The card is content, not a counter, so it must come *off* the frame — there is
+    // no field in the projection behind it to keep it honest.
+    clock = 5000;
+    await waitFor(() => {
+      expect(screen.getByTestId("card")).toHaveTextContent("none");
+    }, SETTLE);
+  });
+
+  it("holds up no card when the batch is history — nobody watched that draw", async () => {
+    // A reload's `since=0` replay. Reduced motion keeps a card's dwell (`plan`'s `instant`); history
+    // drops the step entirely (`plan`'s `history`), and this is the hook choosing between them.
+    responses = [
+      viewAt(7, [
+        moveEvent(1, 0, 0, 3),
+        loggedEvent(2, {
+          type: "card_drawn",
+          player: 0,
+          deck: "community_chest",
+          card_id: "card.chest.doctors_fee",
+        }),
+        moveEvent(3, 0, 3, 7),
+      ]),
+    ];
+    mount();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("truth")).toHaveTextContent("7");
+    });
+    expect(screen.getByTestId("remaining")).toHaveTextContent("0");
+    expect(screen.getByTestId("card")).toHaveTextContent("none");
   });
 });
 

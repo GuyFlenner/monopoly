@@ -8,6 +8,7 @@
     "rent_charged": "{{payer}} paid {{amount}} in rent to {{owner}}.",
     "cash_gained": "{{name}} received {{amount}}.",
     "cash_paid": "{{name}} paid {{amount}}.",
+    "card_drawn": "{{name}} drew a {{deck}} card: {{card}}",
     "turn": "It is {{name}}'s turn.",
     "phase_auction": "An auction has started.",
     "phase_debt_settlement": "A debt has to be settled before play continues.",
@@ -106,6 +107,14 @@
   "building": {
     "house": "house",
     "hotel": "hotel"
+  },
+  "card_reveal": {
+    "label": "{{deck}} card, drawn by {{name}}",
+    "gained": "You collect {{amount}}",
+    "paid": "You pay {{amount}}",
+    "balance": "Money now: {{balance}}",
+    "dismiss": "Put the card down",
+    "unnamed": "This card has no text in the catalogue yet."
   },
   "cash_reason": {
     "go_salary": "GO salary",
@@ -308,6 +317,11 @@
       "label": "What you can do",
       "none": "Nothing to do yet.",
       "choose_square": "Which square?"
+    },
+    "card_reveal": {
+      "gained": "You get {{amount}}!",
+      "paid": "You pay {{amount}}.",
+      "dismiss": "Got it"
     },
     "dossier": {
       "all_players": "What everyone has"

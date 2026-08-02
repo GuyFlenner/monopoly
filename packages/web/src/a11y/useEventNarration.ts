@@ -15,6 +15,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventFeed, useGame } from "@/game";
+import { DECK_KEYS } from "@/panels/EventLogLines";
 
 import type { AnnouncementDraft } from "./announcements";
 import { useAnnounce } from "./AnnouncerContext";
@@ -22,7 +23,7 @@ import { narrate, type NarrationContext } from "./narration";
 
 export function useEventNarration(): void {
   const { board, state } = useGame();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const announce = useAnnounce();
 
   const playerName = useCallback(
@@ -46,7 +47,26 @@ export function useEventNarration(): void {
     [board, t],
   );
 
-  const context: NarrationContext = { playerName, tileName };
+  /**
+   * A card's text (MON-709), guarded exactly as the log guards a server-supplied key.
+   *
+   * `card_id` comes from the *engine*, and `missingKeyHandler` throws under dev and test by design
+   * (G-F17) — so a deck that has grown a card the catalogue has not must not take the narration down
+   * with it. The fallback names the gap instead of speaking a raw key.
+   */
+  const cardText = useCallback(
+    (cardId: string) => {
+      const key = `cards:${cardId}`;
+      return i18n.exists(key) ? t(key) : t("card_reveal.unnamed");
+    },
+    [t, i18n],
+  );
+
+  // The `deck.*` lookup lives here rather than in `narrate`, so the pure table keeps its property of
+  // holding no enum labels — the same reason `EventLogLines` owns `DECK_KEYS` and shares it.
+  const deckName = useCallback((deck: keyof typeof DECK_KEYS) => t(DECK_KEYS[deck]), [t]);
+
+  const context: NarrationContext = { playerName, tileName, cardText, deckName };
 
   useEventFeed((frames) => {
     const drafts: AnnouncementDraft[] = [];

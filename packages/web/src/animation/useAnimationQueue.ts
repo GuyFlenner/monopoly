@@ -39,6 +39,11 @@
  *
  * Both answer `instant: true`, which is a zero-duration timeline rather than a second code path:
  * the queue drains in one tick and the board shows the truth. Everything contiguous animates.
+ *
+ * History says one thing more than reduced motion does, and only about the card: it sets
+ * `history: true`, which drops the card step instead of shortening it. A reload replaying forty
+ * turns must not hold up the card someone drew in the eleventh, whereas a player who merely asked
+ * for a still board must still be shown the card they just drew (MON-709).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -132,7 +137,11 @@ export function useAnimationQueue(options: AnimationQueueOptions = {}): Animatio
     if (frames.length === 0) {
       return;
     }
-    const instant = skipMotion || isReplay(frames, lastSeq.current);
+    // The two reasons for a still board are kept apart here, and they part company at the card
+    // (MON-709): a player who asked for less motion still gets to read the card, and a batch that is
+    // history gets none — see `PlanOptions.instant` and `PlanOptions.history`.
+    const history = isReplay(frames, lastSeq.current);
+    const instant = skipMotion || history;
     const last = frames[frames.length - 1];
     if (last !== undefined) {
       lastSeq.current = Math.max(lastSeq.current, last.seq);
@@ -142,6 +151,7 @@ export function useAnimationQueue(options: AnimationQueueOptions = {}): Animatio
         ...(durations === undefined ? {} : { durations }),
         ...(budgetMs === undefined ? {} : { budgetMs }),
         instant,
+        history,
       }),
       now(),
     );
