@@ -3,17 +3,37 @@
  *
  * ## The acceptance criterion with teeth
  *
- * `commands` is `GameView.legal_commands`, rendered **verbatim**. There is no `filter`, no `sort`,
- * no `slice`, no `disabled`, and no comparison of anything against anything. A command in the list
- * is legal because the engine put it there, and a command the engine did not offer cannot be
+ * `commands` is `GameView.legal_commands`, rendered **whole**. Every element appears exactly once,
+ * in the engine's relative order *within its zone* (below), and every one is operable — clickable,
+ * keyboard-reachable, and delivered to `onCommand` by identity. There is no `filter`, no `sort`, no
+ * `slice`, no `disabled`, and no comparison of anything against anything. A command in the list is
+ * legal because the engine put it there, and a command the engine did not offer cannot be
  * represented here at all — there is no code path that constructs one (ADR-005). That is why the
  * "disabled state never lies" requirement needs no vigilance in this file: the absent button is
  * the mechanism, and a disabled button is a shape the component cannot produce.
  *
- * The one thing that is *presented* rather than listed is grouping. When several commands of one
- * tile-scoped kind are legal at once — four `build_house`, one per square — they collapse behind a
- * single affordance that reveals them. Nothing is dropped, nothing is reordered across kinds, and
- * the squares offered are the squares in the legal set. See {@link groupCommands}.
+ * What the bar *does* decide is **placement**, in three ways and no others:
+ *
+ * 1. **Grouping.** When several commands of one tile-scoped kind are legal at once — four
+ *    `build_house`, one per square — they collapse behind a single affordance that reveals them, and
+ *    the squares offered are the squares in the legal set. See {@link groupCommands}.
+ * 2. **Zoning.** Each kind is filed under one of two labelled zones by `ACTION_THEME[kind].zone`:
+ *    what the game is waiting for, then estate management. See {@link zoneCommands}.
+ * 3. **Emphasis.** The estate zone is a disclosure, and it *begins open* when
+ *    `PHASE_EMPHASIS[phase]` says the estate is the point — which in `DEBT_SETTLEMENT` it is.
+ *
+ * All three answers come from static tables keyed on the engine's own vocabulary, evaluated against
+ * nothing. **A wrong entry in any of them can move a chit or leave a zone folded; it cannot remove
+ * one.** That is the whole of the difference from the property this file used to state, which was
+ * about DOM order — and order was never the thing worth guaranteeing, it was a proxy for "nothing
+ * was dropped". `ActionBar.test.tsx` now asserts the thing itself, over seven phases including a
+ * debt-settlement position: it opens every disclosure, clicks every chit, and compares the objects
+ * delivered to `onCommand` against the input set by identity. `docs/UX_ACTION_PROMINENCE.md` records
+ * why, and what the alternatives cost.
+ *
+ * Zoning is deliberately invisible when it would be scaffolding: with only one zone occupied — the
+ * purchase decision, an auction, a trade review — the bar is a flat list with no zone headings, which
+ * is exactly its former rendering.
  *
  * ## Every chit is icon *and* text
  *
@@ -46,13 +66,17 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { BoardView, Command } from "@/api";
+import type { BoardView, Command, Phase } from "@/api";
 import { useCopy, type Copy } from "@/i18n/copy";
 import {
   ACTION_THEME,
+  emphasisFor,
   Icon,
   requiresConfirmation,
+  ZONE_ORDER,
+  zoneOf,
   type ActionTheme,
+  type ActionZone,
   type CommandKind,
 } from "@/theme";
 
@@ -104,9 +128,24 @@ export interface ActionBarProps {
    *
    * Compared by **identity** against the members of `commands`, so it can only ever mark a chit the
    * engine already offered — a `hinted` value from anywhere else marks nothing. It adds a rim and a
-   * badge and changes nothing else: no filter, no reorder, no `disabled`. The list stays verbatim.
+   * badge and changes nothing else: no filter, no reorder, no `disabled`. The set stays whole.
+   *
+   * When the marked command is inside something folded — a collapsed command group, or the estate
+   * zone — the badge propagates to the affordance that hides it, so the mark is never invisible in
+   * the one state a child most needs it. See {@link CommandGroupDisclosure} and {@link ZoneFold}.
    */
   readonly hinted?: Command | undefined;
+  /**
+   * `state.phase`, for one decision only: whether the estate zone begins open.
+   *
+   * `PHASE_EMPHASIS[phase]` is a static table in `theme/prominence.ts`, and its output reaches
+   * exactly one `useState` initial value. It cannot add, remove, filter or disable a command — the
+   * set is `commands` — and the worst a wrong entry does is leave a labelled, announced, one-keystroke
+   * disclosure folded. Presentation, in the sense `game/presentation.ts` sets out.
+   *
+   * Omitted, the estate zone begins folded, which is the quieter presentation.
+   */
+  readonly phase?: Phase | undefined;
 }
 
 /** The id `Board.tsx` links to by default. Kept in step with its `actionsRegionId` default. */
@@ -152,6 +191,48 @@ export function groupCommands(commands: readonly Command[]): readonly CommandGro
       collapsible: members.length > 1 && members.every((member) => tileOf(member) !== undefined),
     };
   });
+}
+
+/** One zone's share of the legal set: its kind groups, and every command inside them. */
+export interface CommandZone {
+  readonly zone: ActionZone;
+  readonly groups: readonly CommandGroup[];
+  /** The zone's commands, flattened. The count the fold reports, and the reachability unit. */
+  readonly commands: readonly Command[];
+}
+
+/**
+ * Which zones the legal set occupies, in `ZONE_ORDER`, and what is in each.
+ *
+ * Two properties, both tested. **Nothing is lost**: every command lands in exactly one zone, because
+ * `zoneOf` is total over the kind union by the `Record<CommandKind, …>` gate in `theme/actions.ts`.
+ * And **nothing is reordered within a zone**: the members reach {@link groupCommands} in the order the
+ * engine offered them, so relative order is preserved and only the *interleaving* of the two zones
+ * changes — which is the whole point, since the engine's interleaving is alphabetical by kind
+ * (`legality.py`'s `_sort_key`) and puts `mortgage_property` above `roll_dice`.
+ *
+ * An unoccupied zone is omitted rather than rendered empty, which is what lets the bar fall back to
+ * a flat, heading-free list in every phase that offers turn flow alone.
+ */
+export function zoneCommands(commands: readonly Command[]): readonly CommandZone[] {
+  return ZONE_ORDER.map((zone) => {
+    const members = commands.filter((command) => zoneOf(command.kind) === zone);
+    return { zone, groups: groupCommands(members), commands: members };
+  }).filter((block) => block.commands.length > 0);
+}
+
+/**
+ * The zones that may fold, which is the estate one and only ever the estate one.
+ *
+ * A set rather than a `!== "flow"` so the reason is written where the behaviour is: the flow zone is
+ * *by definition* what the game is waiting for, and folding away the answer to "what now?" would be
+ * the bug this whole change is trying not to introduce.
+ */
+const FOLDABLE_ZONES: ReadonlySet<ActionZone> = new Set<ActionZone>(["portfolio"]);
+
+/** `actionbar.zone.flow` / `actionbar.zone.portfolio` — concatenated, like `action.<kind>`. */
+export function zoneLabelKey(zone: ActionZone): string {
+  return `actionbar.zone.${zone}`;
 }
 
 /** The glyph and its direction badge, in the die-cut well. Both `aria-hidden`, always. */
@@ -356,6 +437,148 @@ function CommandGroupDisclosure({
   );
 }
 
+/** Shared by the two zone shells: which zone, its rows, and the resolver for its label. */
+interface ZoneShellProps {
+  readonly zone: ActionZone;
+  /** The zone's rows — `<li>`s for the chits and for any collapsed kind group. */
+  readonly children: React.ReactNode;
+  readonly t: Copy;
+}
+
+/** The uppercase micro-heading both zones wear, so the two read as one pair. */
+const ZONE_HEADING_CLASS = "text-[0.6875rem] font-semibold tracking-[0.14em] uppercase opacity-70";
+
+/**
+ * An always-open zone: a heading, and the rows under it.
+ *
+ * A real `<h3>` under the bar's `<h2>` rather than a styled `<span>`, so the split is reachable by
+ * heading navigation and not only by eye — the labels are the channel that makes the demotion
+ * *legible* rather than merely present, which is the argument that sank a silent sort
+ * (`docs/UX_ACTION_PROMINENCE.md` §2a). The `<ul>` takes its accessible name from the same heading,
+ * so a screen reader announcing the list says which half of the bar it is in.
+ */
+function ZoneHeading({ zone, children, t }: ZoneShellProps): React.JSX.Element {
+  const headingId = useId();
+  return (
+    <div className="flex flex-col gap-1">
+      <h3 id={headingId} className={ZONE_HEADING_CLASS}>
+        {t(zoneLabelKey(zone))}
+      </h3>
+      <ul aria-labelledby={headingId} className="flex flex-col gap-2">
+        {children}
+      </ul>
+    </div>
+  );
+}
+
+interface ZoneFoldProps extends ZoneShellProps {
+  /** How many commands are inside. The engine's count, reported so the fold is not a mystery box. */
+  readonly count: number;
+  /** `PHASE_EMPHASIS` says the estate is the point. See {@link ActionBarProps.phase}. */
+  readonly emphasised: boolean;
+  /** The hint's badge, when the marked command is one of the ones inside. */
+  readonly badge: string | undefined;
+}
+
+/**
+ * A zone that folds: the estate one, and only ever that one (see `FOLDABLE_ZONES`).
+ *
+ * ## What makes this a fold and not a filter
+ *
+ * `aria-expanded` on a named affordance that reports its own contents (`4 moves`), inside an `<h3>`
+ * so it is both a disclosure and a landmark for heading navigation. Nothing is `disabled` and
+ * nothing is `aria-disabled` — folded is a different claim from unavailable, and this says the one it
+ * means. The count comes from the legal set, so a fold can never under-report what it holds.
+ *
+ * ## Emphasis only ever opens
+ *
+ * `emphasised` seeds the initial state, and the effect below **opens and never closes**. Two
+ * consequences, both deliberate:
+ *
+ * - A phase change cannot unmount a chit that has focus, so focus cannot fall to `<body>` — the
+ *   failure this repo has shipped twice. The only thing that closes this zone is the player, using
+ *   the affordance that already holds focus.
+ * - A player who folds the estate away during `DEBT_SETTLEMENT` stays folded. They asked; the
+ *   commands are one keystroke away and the badge still reports a hint inside.
+ *
+ * Escape is bound to the toggle alone, which is a smaller surface than {@link CommandGroupDisclosure}
+ * gives its members and is the right one here: the toggle is where focus is after opening, and
+ * binding it only there means the collapse and the focus are guaranteed to be in the same place.
+ */
+function ZoneFold({
+  zone,
+  children,
+  t,
+  count,
+  emphasised,
+  badge,
+}: ZoneFoldProps): React.JSX.Element {
+  const [open, setOpen] = useState(emphasised);
+  const panelId = useId();
+  const toggle = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    // Monotonic on purpose. See the docstring: the closing direction is the player's alone.
+    if (emphasised) {
+      setOpen(true);
+    }
+  }, [emphasised]);
+
+  const collapse: React.KeyboardEventHandler<HTMLButtonElement> = (event) => {
+    if (event.key !== "Escape" || !open) {
+      return;
+    }
+    event.stopPropagation();
+    setOpen(false);
+    toggle.current?.focus();
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <h3>
+        <button
+          type="button"
+          ref={toggle}
+          aria-expanded={open}
+          aria-controls={panelId}
+          data-zone={zone}
+          data-hinted={badge !== undefined}
+          onClick={() => {
+            setOpen((was) => !was);
+          }}
+          onKeyDown={collapse}
+          className={`target -mx-1 flex w-full items-center gap-2 rounded-lg px-1 ${ZONE_HEADING_CLASS} hover:opacity-100`}
+        >
+          {/*
+            Plus and minus swapped by state rather than a rotating chevron, the same choice
+            `PlayerDossier`'s fold makes and for the same reason: a chevron has to point along the
+            inline axis, and CSS transforms have no logical variant.
+          */}
+          <Icon name={open ? "minus" : "plus"} size={12} className="shrink-0" />
+          <span>{t(zoneLabelKey(zone))}</span>
+          <span className="tabular-nums opacity-80" dir="ltr">
+            {t("actionbar.zone.moves", { count })}
+          </span>
+          {badge !== undefined && (
+            <span
+              data-testid="hint-badge"
+              className="border-hairline ms-auto shrink-0 rounded-full border px-2 py-0.5 text-[0.625rem] font-bold tracking-[0.1em] uppercase"
+            >
+              {badge}
+            </span>
+          )}
+        </button>
+      </h3>
+
+      {open && (
+        <ul id={panelId} className="flex flex-col gap-2">
+          {children}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 interface ConfirmProps {
   readonly command: Command;
   readonly actionLabel: string;
@@ -477,11 +700,41 @@ export function ActionBar({
   kids = false,
   auctions = true,
   hinted,
+  phase,
 }: ActionBarProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const headingId = useId();
   const [pending, setPending] = useState<Command | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
+  const region = useRef<HTMLElement>(null);
+  /** `true` while the keyboard is somewhere inside this bar. Maintained by the two capture handlers. */
+  const held = useRef(false);
+
+  /**
+   * Catch the focus a vanishing chit drops.
+   *
+   * Pressing a chit changes the legal set, so the button that was pressed usually unmounts — and a
+   * removed element takes focus to `<body>` with it, which is the "focus in the void" failure this
+   * repo has shipped twice. It is worst on the auto-end-turn path (`game/autoEndTurn.ts`), where the
+   * whole bar is replaced for the next seat without anybody having pressed anything, but it is not new
+   * there and the repair belongs here rather than in the caller.
+   *
+   * `aria-disabled` is the pattern used where a control can *stay* — see `SkipMotionButton`. A chit
+   * cannot: an absent button is how this bar says a move is unavailable, and a lingering disabled one
+   * would be the ADR-005 violation the whole file exists to prevent. So the answer is the other half of
+   * the same principle — put focus somewhere deliberate — and the region is exactly that somewhere,
+   * because it is already `tabIndex={-1}` as the "skip to actions" link's target.
+   *
+   * The two guards keep it from *stealing* focus: it acts only when the bar had focus, and only when
+   * focus is now on `<body>`. Removing an element fires no `blur`, which is what makes those two
+   * conditions together mean "the thing that had focus is gone" rather than "the player clicked
+   * elsewhere" — a click on the page background fires `focusout` and clears `held` first.
+   */
+  useEffect(() => {
+    if (held.current && document.activeElement === document.body) {
+      region.current?.focus();
+    }
+  }, [commands]);
 
   // Every label and heading in the bar goes through the kids-aware resolver, which is `t` verbatim
   // outside a kids game. It changes what a button *says* and never which buttons exist.
@@ -565,54 +818,114 @@ export function ActionBar({
     onCommand(command);
   }, [pending, onCommand]);
 
-  const groups = groupCommands(commands);
+  /**
+   * The zones, and whether the split is worth showing.
+   *
+   * `zoned` is the one piece of layout that depends on the *shape* of the legal set rather than on a
+   * table, and it is deliberately the mildest possible dependency: with a single zone occupied there
+   * is no second zone to demote anything relative to, so two headings would be scaffolding to read
+   * past. It cannot hide anything — the un-zoned branch renders the same rows in the same order.
+   */
+  const zones = zoneCommands(commands);
+  const zoned = zones.length > 1;
+  const emphasis = emphasisFor(phase);
+
+  /**
+   * One zone's rows: a disclosure for a collapsed tile-scoped kind, a chit for everything else.
+   *
+   * A function rather than a component so the closures above (`label`, `squareName`, `activate`) are
+   * read directly instead of threaded through props — the rows are the same rows in all three
+   * renderings, and a second copy of this mapping is how one of them would quietly lose a chit.
+   */
+  const rowsOf = (groups: readonly CommandGroup[]): React.ReactNode =>
+    groups.map((group) =>
+      group.collapsible ? (
+        <CommandGroupDisclosure
+          key={group.kind}
+          group={group}
+          label={label}
+          squareName={squareName}
+          onActivate={activate}
+          t={copy}
+          hintBadge={hintBadge}
+        />
+      ) : (
+        group.commands.map((command, index) => (
+          <li key={`${command.kind}-${String(tileOf(command) ?? index)}`}>
+            <Chit
+              command={command}
+              label={label(command)}
+              squareName={squareName(command)}
+              onActivate={activate}
+              hintBadge={hintBadge(command)}
+            />
+          </li>
+        ))
+      ),
+    );
 
   return (
     // `tabIndex={-1}` so `Board`'s "skip to actions" link moves focus here rather than only
     // scrolling: a fragment link cannot focus a target that is not focusable.
     <section
       id={id}
+      ref={region}
       tabIndex={-1}
       aria-labelledby={headingId}
+      onFocusCapture={() => {
+        held.current = true;
+      }}
+      onBlurCapture={(event) => {
+        // Focus genuinely left the bar. A chit *unmounting* fires no blur at all, which is precisely
+        // the case this must not clear — that is the one the effect above has to repair.
+        const next = event.relatedTarget;
+        if (next === null || !(next instanceof Node) || region.current?.contains(next) !== true) {
+          held.current = false;
+        }
+      }}
       className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]"
     >
       <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">
         {copy("actionbar.label")}
       </h2>
 
-      {groups.length === 0 ? (
+      {zones.length === 0 ? (
         // `resolve={copy}` rather than letting the shared state translate for itself: `useCopy` prefers
         // the simpler `kids.*` wording where the catalogue has a twin (MON-604), and a bar whose
         // labels are simplified above an empty state that is not would speak in two registers at once.
         <EmptyState messageKey="actionbar.none" className="py-2" resolve={copy} />
       ) : (
-        <ul className="flex flex-col gap-2">
-          {groups.map((group) =>
-            group.collapsible ? (
-              <CommandGroupDisclosure
-                key={group.kind}
-                group={group}
-                label={label}
-                squareName={squareName}
-                onActivate={activate}
-                t={copy}
-                hintBadge={hintBadge}
-              />
-            ) : (
-              group.commands.map((command, index) => (
-                <li key={`${command.kind}-${String(tileOf(command) ?? index)}`}>
-                  <Chit
-                    command={command}
-                    label={label(command)}
-                    squareName={squareName(command)}
-                    onActivate={activate}
-                    hintBadge={hintBadge(command)}
-                  />
-                </li>
-              ))
-            ),
-          )}
-        </ul>
+        zones.map((block) => {
+          const rows = rowsOf(block.groups);
+          if (!zoned) {
+            // One zone occupied: the flat, heading-free list this bar has always been.
+            return (
+              <ul key={block.zone} className="flex flex-col gap-2">
+                {rows}
+              </ul>
+            );
+          }
+          if (!FOLDABLE_ZONES.has(block.zone)) {
+            return (
+              <ZoneHeading key={block.zone} zone={block.zone} t={copy}>
+                {rows}
+              </ZoneHeading>
+            );
+          }
+          const hintedMember = block.commands.find((command) => hintBadge(command) !== undefined);
+          return (
+            <ZoneFold
+              key={block.zone}
+              zone={block.zone}
+              t={copy}
+              count={block.commands.length}
+              emphasised={emphasis === block.zone}
+              badge={hintedMember === undefined ? undefined : hintBadge(hintedMember)}
+            >
+              {rows}
+            </ZoneFold>
+          );
+        })
       )}
 
       {pending !== null && (

@@ -21,6 +21,8 @@
     "animations_on": "Animations on.",
     "animations_off": "Animations off.",
     "sound_on": "Sound on.",
+    "auto_end_on": "Turns will end by themselves after a purchase.",
+    "auto_end_off": "Turns will wait for you to end them.",
     "sound_off": "Sound off.",
     "pinned": "{{name}} pinned for comparison.",
     "unpinned": "{{name}} no longer pinned."
@@ -49,7 +51,13 @@
   "actionbar": {
     "label": "Moves",
     "none": "No moves right now.",
-    "choose_square": "Choose a square"
+    "choose_square": "Choose a square",
+    "zone": {
+      "flow": "Waiting on you",
+      "portfolio": "Your properties",
+      "moves_one": "{{count}} move",
+      "moves_other": "{{count}} moves"
+    }
   },
   "app": {
     "title": "Kesef Street",
@@ -173,6 +181,7 @@
     "seat": "Seat {{seat}}",
     "bot": "Bot",
     "other_holdings": "Railroads and utilities",
+    "unstarted_sets": "Sets with no properties",
     "all_players": "Everyone's properties"
   },
   "engine": {
@@ -316,7 +325,11 @@
     "actionbar": {
       "label": "What you can do",
       "none": "Nothing to do yet.",
-      "choose_square": "Which square?"
+      "choose_square": "Which square?",
+      "zone": {
+        "flow": "Do this now",
+        "portfolio": "Your houses and streets"
+      }
     },
     "card_reveal": {
       "gained": "You get {{amount}}!",
@@ -560,6 +573,7 @@
     "title": "Offer a trade"
   },
   "turn": {
-    "banner": "{{name}}'s turn"
+    "banner": "{{name}}'s turn",
+    "auto_end": "Auto end turn"
   }
 }

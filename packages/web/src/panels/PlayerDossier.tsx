@@ -22,6 +22,28 @@
  * most likely to have contained, and `PlayerDossier.test.tsx` feeds it a `group_holdings` whose
  * `complete` disagrees with that comparison in both directions and asserts the projected value wins.
  *
+ * ## The bands shown are the bands held
+ *
+ * The card used to list all ten — eight colour sets plus railroads and utilities — of which a new
+ * player holds none. Seven rows of `0 of 3` inside a fold that exists *because the card left no room
+ * for the history* pushed the three rows that matter below it, worst on a phone and worst for a
+ * child. So a group row is drawn when the player **holds something in that set**, and the rest go
+ * behind a nested disclosure that keeps the full picture one keystroke away
+ * (`docs/UX_ACTION_PROMINENCE.md` §4).
+ *
+ * The one new expression in this file is `holdings.owned > 0`, and it is worth being precise about
+ * why that is not a computed figure: it is a **presence test on a projected count**, not a
+ * re-derivation of any claim the card makes. Nothing above changes — `complete` is still
+ * `owns_whole_group`'s answer and never `owned === total`, and the completion counts and the
+ * "Complete set" badge still come from the roll-up, on the sets that now survive the filter. Those
+ * are the teaching moment (`2 of 3`, two pips inked, is how a child learns what building requires),
+ * which is exactly the figure that says nothing at `0 of 3`.
+ *
+ * The filter is `owned > 0 **or** a deed was filed under it`, and the second half is not
+ * belt-and-braces: it is the same argument the `others` computation below makes. Losing a holding is
+ * a worse failure than showing one without a fraction, so no square can be dropped even if the
+ * roll-up and the board disagree.
+ *
  * What this file *does* do with the board is a lookup: an owned tile index becomes a `TileView` and
  * a `TileThemeKey`, so the squares can be filed under the right band. The completion figure is never
  * taken from those buckets — the buckets decide where a name is printed, the projection decides what
@@ -501,6 +523,18 @@ export function PlayerDossier({
     (key) => !rolledUp.has(key) && (deedsByKey.get(key) ?? []).length > 0,
   );
 
+  /**
+   * The sets this player is in, and the sets they have not started.
+   *
+   * A partition rather than a filter, so the second half is *shown somewhere* rather than dropped —
+   * see the module docstring on why the full picture stays reachable. Order within each half is the
+   * order the projection sent, untouched.
+   */
+  const held = player.group_holdings.filter(
+    (holdings) => holdings.owned > 0 || (deedsByKey.get(holdings.group) ?? []).length > 0,
+  );
+  const unstarted = player.group_holdings.filter((holdings) => !held.includes(holdings));
+
   return (
     <section
       data-testid="player-dossier"
@@ -595,12 +629,19 @@ export function PlayerDossier({
         </summary>
 
         {/*
-          `group_holdings` in the order the server sent it — all eight colour groups, always, which is
-          what keeps two dossiers side by side aligned in the compare case. Not sorted, not filtered:
-          "0 of 3" is real information about a set that is still wide open.
+          The sets this player is in, in the order the server sent them. Not sorted — the projection's
+          order is board travel order, which is the order the sets sit on the table in front of the
+          player, and re-ranking them by size would be the card having an opinion about which holding
+          matters.
+
+          This used to be all eight, always, on the argument that "0 of 3" is real information about a
+          set that is still wide open and that a fixed ten rows keep two cards aligned in the compare
+          tray. Both were true and neither survived the column: the *board* is the authoritative answer
+          to what is still available — forty squares, every band, every owner, at all times — and
+          aligning ten rows of zeros is aligning noise. §4 of the UX doc argues it at length.
         */}
         <ul className="mt-2 flex flex-col">
-          {player.group_holdings.map((holdings) => (
+          {held.map((holdings) => (
             <GroupRow
               key={holdings.group}
               themeKey={holdings.group}
@@ -611,6 +652,44 @@ export function PlayerDossier({
             />
           ))}
         </ul>
+
+        {unstarted.length > 0 && (
+          /*
+            The full picture, one keystroke away.
+
+            Planning value is genuinely lost without this — "which colours has nobody here touched" is
+            a question a player asks around turn ten, and answering it by counting the board is worse
+            than answering it here. A nested `<details>` for the same four reasons its parent is one:
+            keyboard-operable with no handler of our own, exposed as an expandable group, findable by
+            in-page search while closed, and it holds its own state.
+
+            It carries no count in words. `dossier.set_progress` is the only fraction on this card and
+            it belongs to a set; a plain numeral beside the label says how many rows are inside without
+            inventing a second unit for a child to learn.
+          */
+          <details data-testid="dossier-unstarted" className="group/sets mt-1 min-w-0">
+            <summary className="target -mx-1 flex cursor-pointer items-center gap-2 rounded-lg px-1 text-[0.625rem] font-semibold tracking-[0.12em] uppercase opacity-65 hover:opacity-100">
+              <Icon name="plus" size={12} className="shrink-0 group-open/sets:hidden" />
+              <Icon name="minus" size={12} className="hidden shrink-0 group-open/sets:block" />
+              {t("dossier.unstarted_sets")}
+              <span className="tabular-nums opacity-80" dir="ltr">
+                {unstarted.length}
+              </span>
+            </summary>
+            <ul className="flex flex-col">
+              {unstarted.map((holdings) => (
+                <GroupRow
+                  key={holdings.group}
+                  themeKey={holdings.group}
+                  holdings={holdings}
+                  deeds={deedsByKey.get(holdings.group) ?? []}
+                  onSelectSquare={onSelectSquare}
+                  scope={groupScope}
+                />
+              ))}
+            </ul>
+          </details>
+        )}
 
         {others.length > 0 && (
           <div className="flex flex-col gap-1">

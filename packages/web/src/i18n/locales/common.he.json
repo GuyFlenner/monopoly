@@ -2,6 +2,8 @@
   "a11y": {
     "animations_off": "אנימציות כבויות.",
     "animations_on": "אנימציות דלוקות.",
+    "auto_end_off": "סיום תור אוטומטי — כבוי.",
+    "auto_end_on": "סיום תור אוטומטי לאחר קנייה — פעיל.",
     "sound_off": "הצליל כבוי.",
     "sound_on": "הצליל דלוק.",
     "board_tile": "{{name}}, {{kind}}{{owner}}",
@@ -49,7 +51,14 @@
   "actionbar": {
     "choose_square": "בחרו משבצת",
     "label": "מהלכים",
-    "none": "אין מהלכים כרגע."
+    "none": "אין מהלכים כרגע.",
+    "zone": {
+      "flow": "המשחק ממתין",
+      "moves_one": "מהלך אחד",
+      "moves_other": "{{count}} מהלכים",
+      "moves_two": "שני מהלכים",
+      "portfolio": "הנכסים שלכם"
+    }
   },
   "app": {
     "new_game": "משחק חדש",
@@ -173,7 +182,8 @@
     "seat": "מושב {{seat}}",
     "set_progress": "{{owned}} מתוך {{total}}",
     "title": "הנכסים של {{name}}",
-    "unpin": "ביטול הצמדה"
+    "unpin": "ביטול הצמדה",
+    "unstarted_sets": "קבוצות ללא נכסים"
   },
   "engine": {
     "local": {
@@ -316,7 +326,11 @@
     "actionbar": {
       "choose_square": "איזו משבצת?",
       "label": "מה אפשר לעשות",
-      "none": "אין מה לעשות עדיין."
+      "none": "אין מה לעשות עדיין.",
+      "zone": {
+        "flow": "מה לעשות עכשיו",
+        "portfolio": "הבתים והרחובות שלכם"
+      }
     },
     "card_reveal": {
       "dismiss": "הבנתי",
@@ -563,6 +577,7 @@
     "title": "הצעת עסקה"
   },
   "turn": {
+    "auto_end": "סיום תור אוטומטי",
     "banner": "התור של {{name}}"
   }
 }
