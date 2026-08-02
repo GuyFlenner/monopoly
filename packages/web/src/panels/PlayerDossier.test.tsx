@@ -213,16 +213,20 @@ describe("holdings", () => {
     expect(within(blue).getByText("Oriental Avenue")).toBeInTheDocument();
   });
 
-  it("draws houses as pips and a hotel as one block, off the square's own `houses`", () => {
+  it("draws the board's own house and hotel figures, off the square's own `houses`", () => {
     const player = seat({ tiles_owned: [1, 3] });
     renderDossier(player, propertiesAt({ 1: property({ houses: 3 }), 3: property({ houses: 5 }) }));
 
     const rows = screen.getAllByTestId("deed-development");
     expect(rows[0]?.dataset.houses).toBe("3");
     expect(rows[0]?.dataset.hotel).toBe("false");
-    expect(rows[0]?.querySelectorAll(".kesef-deed-house")).toHaveLength(3);
+    // The same `data-level` a board square's figures carry (MON-710): one vocabulary in both
+    // places, so a hotel in the wallet is the shape a player already learned on the street.
+    expect(rows[0]?.querySelectorAll('[data-level="house"]')).toHaveLength(3);
+    expect(rows[0]?.querySelectorAll('[data-level="hotel"]')).toHaveLength(0);
     expect(rows[1]?.dataset.hotel).toBe("true");
-    expect(rows[1]?.querySelectorAll(".kesef-deed-hotel")).toHaveLength(1);
+    expect(rows[1]?.querySelectorAll('[data-level="hotel"]')).toHaveLength(1);
+    expect(rows[1]?.querySelectorAll('[data-level="house"]')).toHaveLength(0);
   });
 
   it("flags a mortgaged square in words, not only with a symbol", () => {

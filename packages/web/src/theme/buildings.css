@@ -1,0 +1,74 @@
+/*
+ * The house and the hotel: what a figure looks like, and nothing about how big it is (MON-710).
+ *
+ * ## Two duplications, both tripwired
+ *
+ * The four fills below are duplicated from `BUILDING_FILL` in `buildings.tsx`, and the per-level
+ * `aspect-ratio` and `--kesef-building-scale` are duplicated from `BUILDING_FIGURE`. Both
+ * duplications exist for the same reason `panels.css` duplicates `ACTION_TONE`: the theme table is
+ * keyed by theme name because `contrast.test.ts` measures both themes, and a component cannot pick
+ * between them — which theme is live is a media query's answer, and a media query cannot be written
+ * in an inline style. `buildings.css.test.ts` parses this file and fails on any drift.
+ *
+ * ## Where the size comes from
+ *
+ * Nowhere in here. `--kesef-building-unit` is set by whichever container is drawing the figures:
+ * `board.css` sizes it from the square's own inline size (`cqw`) so a house grows with the board,
+ * and `panels.css` gives the dossier's deed rows a fixed one. A figure is `scale × unit` on the
+ * block axis and its own aspect ratio wide, so a house and a hotel scale together and never lose
+ * their relative size.
+ *
+ * ## Why the keyline does not scale
+ *
+ * `vector-effect: non-scaling-stroke` pins the rim at one device pixel whatever the figure's size.
+ * A stroke expressed in user units would be 0.2 px on a 5 px house — invisible, so the fill would
+ * have to carry the edge on its own, which is exactly what `surfaces.ts` says a fill cannot do.
+ *
+ * Every declaration here is direction-neutral or logical, and Stylelint checks it.
+ */
+
+:root {
+  --kesef-building-house: #2f7d4a;
+  --kesef-building-hotel: #9c2118;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Both fills lighten. `#2f7d4a` measures 2.53:1 against the dark card face and `#9c2118`
+     * 2.09:1 — under the 3:1 non-text floor, which is the defect MON-710 found by making these
+     * colours theme data that something measures. */
+    --kesef-building-house: #79d6a4;
+    --kesef-building-hotel: #ea7a7a;
+  }
+}
+
+.kesef-building {
+  display: block;
+  /* Never squeezed by a flex row: four houses at their own size or none. */
+  flex: none;
+  block-size: calc(var(--kesef-building-unit, 0.5rem) * var(--kesef-building-scale, 1));
+  /* Resolved from the block size through `aspect-ratio` below, so one unit sizes both axes. */
+  inline-size: auto;
+}
+
+.kesef-building > path {
+  stroke: var(--color-hairline);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+/* A cottage: as tall as it is wide, and pointed. */
+.kesef-building--house {
+  --kesef-building-scale: 1;
+
+  aspect-ratio: 22 / 22;
+  fill: var(--kesef-building-house);
+}
+
+/* A stepped block: half again as tall as a house, and nearly twice as wide. */
+.kesef-building--hotel {
+  --kesef-building-scale: 1.28;
+
+  aspect-ratio: 34 / 24;
+  fill: var(--kesef-building-hotel);
+}

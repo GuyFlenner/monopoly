@@ -71,7 +71,15 @@ import {
   TOKEN_PX,
   type PropertyProjection,
 } from "@/board";
-import { bandFill, GROUP_ORDER, Icon, patternDomId, TILE_THEME, type TileThemeKey } from "@/theme";
+import {
+  bandFill,
+  BuildingFigure,
+  GROUP_ORDER,
+  Icon,
+  patternDomId,
+  TILE_THEME,
+  type TileThemeKey,
+} from "@/theme";
 
 import { EmptyState } from "./States";
 
@@ -194,7 +202,17 @@ function SetPips({
   );
 }
 
-/** Houses as pips and a hotel as one wider block, exactly as a square draws them. */
+/**
+ * The same buildings a square draws, at deed-row size (MON-710).
+ *
+ * One figure vocabulary across both surfaces, from `theme/buildings.tsx`: a player who learns the
+ * pointed little thing on the board recognises it in the wallet without being told twice. Only the
+ * size differs, and it differs in the stylesheet (`.kesef-deed-buildings`) rather than here — a deed
+ * row is type-scale furniture, where a board square scales its buildings with itself.
+ *
+ * The counts are untouched: this row still shows `deed.houses` and the set roll-up above it still
+ * shows `GroupHoldings.houses`. What changed is what a house looks like.
+ */
 function Development({ houses }: { readonly houses: number }): React.JSX.Element | null {
   if (houses <= 0) {
     return null;
@@ -208,12 +226,12 @@ function Development({ houses }: { readonly houses: number }): React.JSX.Element
       data-testid="deed-development"
       data-houses={houses}
       data-hotel={isHotel}
-      className="flex items-center gap-px"
+      className="kesef-deed-buildings flex items-end gap-px"
     >
       {isHotel ? (
-        <span className="kesef-deed-hotel" />
+        <BuildingFigure level="hotel" />
       ) : (
-        Array.from({ length: houses }, (_, pip) => <span key={pip} className="kesef-deed-house" />)
+        Array.from({ length: houses }, (_, slot) => <BuildingFigure key={slot} level="house" />)
       )}
     </span>
   );

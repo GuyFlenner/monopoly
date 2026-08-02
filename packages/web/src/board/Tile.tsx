@@ -36,7 +36,7 @@
 // The file, not `@/animation` — one presentational leaf rather than the barrel, which is what keeps
 // this out of a cycle: `animation/index.ts` re-exports the hook, and the hook reaches `@/game`.
 import { Pop } from "@/animation/Beat";
-import { bandFill, patternDomId, tokenForSeat, type TileThemeKey } from "@/theme";
+import { bandFill, BuildingFigure, patternDomId, tokenForSeat, type TileThemeKey } from "@/theme";
 
 import type { TileRotation } from "./geometry";
 import {
@@ -118,7 +118,18 @@ function GroupBand({ themeKey }: { themeKey: TileThemeKey }): React.JSX.Element 
   );
 }
 
-/** Houses as pips, a hotel as one wider block. Both read off `houses`; neither is inferred. */
+/**
+ * What is built on the street, drawn as buildings (MON-710).
+ *
+ * A row of cottages standing on a common ground line, or one stepped block. The figures are the
+ * theme's (`theme/buildings.tsx`) and the size is `.kesef-tile-buildings`', which sizes them from
+ * the square's own inline size — so this component decides *how many* and nothing else.
+ *
+ * `houses` is read off the projection and compared against the engine's own `HOTEL_LEVEL`. Nothing
+ * here counts a colour set, works out whether a fifth house is legal, or turns "5" into "hotel" by
+ * a rule of its own — the comparison against a named engine constant is a lookup, and a lookup is
+ * all a square is allowed (ADR-005, ADR-008).
+ */
 function Development({ houses }: { houses: number }): React.JSX.Element | null {
   if (houses <= 0) {
     return null;
@@ -130,12 +141,15 @@ function Development({ houses }: { houses: number }): React.JSX.Element | null {
       data-houses={houses}
       data-hotel={isHotel}
       aria-hidden="true"
-      className="flex items-center justify-center gap-px"
+      // `items-end` puts every roof at a different height only if the figures differ in size, which
+      // they do not within a row — what it buys is a shared ground line, so a row of houses reads as
+      // houses standing on a street rather than as marks floating in a band.
+      className="kesef-tile-buildings flex items-end justify-center gap-px"
     >
       {isHotel ? (
-        <span className="kesef-hotel" />
+        <BuildingFigure level="hotel" />
       ) : (
-        Array.from({ length: houses }, (_, pip) => <span key={pip} className="kesef-house" />)
+        Array.from({ length: houses }, (_, slot) => <BuildingFigure key={slot} level="house" />)
       )}
     </span>
   );

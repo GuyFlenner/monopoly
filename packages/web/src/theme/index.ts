@@ -9,6 +9,21 @@
  */
 
 export {
+  BUILDING_CSS_VAR,
+  BUILDING_FIGURE,
+  BUILDING_FILL,
+  BUILDING_LEVELS,
+  BUILDING_UNIT_CSS_VAR,
+  BuildingFigure,
+  buildingFigureClass,
+  buildingReferenceSurface,
+  type BuildingFigureGeometry,
+  type BuildingFigureProps,
+  type BuildingLevel,
+  type Roofline,
+} from "./buildings";
+
+export {
   contrastRatio,
   CONTRAST_FLOOR,
   meets,
