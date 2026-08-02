@@ -2,8 +2,8 @@
  * What the board needs and Tailwind cannot say.
  *
  * Three kinds of thing live here and nothing else: the felt's texture, the small printed marks on a
- * tile (a house pip, a hotel block, a mortgage stamp) whose sizes are physical rather than part of
- * any scale, and the dice tumble's keyframes.
+ * tile (how big a building stands, a mortgage stamp) whose sizes are physical or a share of the
+ * square rather than part of any type scale, and the dice tumble's keyframes.
  *
  * ## The block-axis sizing contract
  *
@@ -94,24 +94,35 @@
   z-index: 1;
 }
 
-/* One built house. Sized in absolute units because a pip is a physical object, not type. */
-.kesef-house {
-  display: block;
-  block-size: 0.3rem;
-  inline-size: 0.3rem;
-  border: 1px solid var(--color-hairline);
-  border-radius: 1px;
-  background-color: var(--color-house);
-}
-
-/* The hotel: one wider block, so five houses never look like four. */
-.kesef-hotel {
-  display: block;
-  block-size: 0.32rem;
-  inline-size: 0.62rem;
-  border: 1px solid var(--color-hairline);
-  border-radius: 1px;
-  background-color: var(--color-hotel);
+/*
+ * How big a building is on a square (MON-710).
+ *
+ * The figures themselves — silhouette, fill, keyline — are the theme's (`theme/buildings.css`).
+ * What belongs here is the one number that depends on the board: how tall a house is on *this*
+ * square. It replaces a `.kesef-house` that was a 4.8 px green square and a `.kesef-hotel` that was
+ * a 9.9 px red block, and the sizing model changes with them.
+ *
+ * ## Why `cqw` here, when a pip is an absolute object
+ *
+ * The rule this file's docstring states — that the small printed marks are sized in physical units
+ * rather than type units — was written for a *pip*, and it is right about a pip: a drilled hole on a
+ * die is the same hole whatever the type scale. A building is not a pip. It is a picture that has to
+ * be recognisable, and 0.3rem is 4.8 px on a 26 px square (unreadable) and *still* 4.8 px on a 70 px
+ * square (absurd). So the unit is a share of the square, which `.kesef-tile`'s `@container` makes
+ * available, with an absolute floor and ceiling around it:
+ *
+ * - **floor `5px`** — the narrowest a house may be drawn at all. It is also the widest that fits:
+ *   four houses plus three 1 px gaps is 23 px inside the ~24.2 px a 320 px board leaves a square,
+ *   so the floor and the fit meet at the same number and `board.css.test.ts` does that arithmetic.
+ * - **`20cqw`** — the preferred size, which is 5.1 px on a 320 px board and 12 px on a 60 px square.
+ * - **ceiling `13px`** — past this a house starts competing with the square's name for the eye, and
+ *   a bigger board should give a player a bigger *board*, not bigger scenery.
+ *
+ * The hotel takes the same unit and multiplies it by its own `--kesef-building-scale`, so it is
+ * always the larger building without this rule knowing by how much.
+ */
+.kesef-tile-buildings {
+  --kesef-building-unit: clamp(5px, 20cqw, 13px);
 }
 
 /* The mortgage stamp: a dashed rim, like an overprint on a deed. */

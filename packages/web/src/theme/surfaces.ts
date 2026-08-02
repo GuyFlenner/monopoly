@@ -74,37 +74,6 @@ export const SURFACES: Readonly<Record<ThemeName, Surfaces>> = {
   },
 };
 
-/**
- * The two building marks: a house and a hotel (MON-703).
- *
- * These were `#1f7a3d` and `#b3271f` written twice each, in `board/board.css` and
- * `panels/panels.css`, and named in neither TypeScript module — so `contrast.test.ts` had never
- * measured them and the CSS/TS parity test could not see them. They are the last two painted areas in
- * the product that were outside the theme, which is the whole reason the audit went looking.
- *
- * Theme-invariant, like a colour band and for the same reason: a green house is a green house on felt
- * of either lightness, and it is the keyline around it that carries the edge (see the module
- * docstring). What the contrast suite therefore asserts about them is not a text ratio — nothing is
- * written on a 4 px pip — but the two claims that *are* load-bearing:
- *
- * - each is visible as a region against a card face with hue removed, and
- * - a house and a hotel do **not** rely on hue to be told apart. They deliberately collide in grey
- *   (a mid green and a mid red land close), and the channel that separates them is **shape**: a
- *   house is a small square, a hotel is a block twice as wide. Both stylesheets say so; the test
- *   asserts the collision so that nobody "fixes" it by re-tinting one of them and quietly removing
- *   the only channel a colourblind player has.
- */
-export const BUILDING_MARK = {
-  house: "#1f7a3d",
-  hotel: "#b3271f",
-} as const;
-
-/** The CSS custom property each building mark ships as. Keeps the CSS/TS parity test honest. */
-export const BUILDING_MARK_CSS_VAR: Readonly<Record<keyof typeof BUILDING_MARK, string>> = {
-  house: "--color-house",
-  hotel: "--color-hotel",
-};
-
 /** Both rings, in both themes. Theme-invariant by design — see the module docstring's proof. */
 export const FOCUS_RING = {
   inner: "#101a2e",

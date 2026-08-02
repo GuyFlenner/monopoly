@@ -7,8 +7,11 @@ import {
   ACTION_THEME,
   ACTION_TONE,
   COMMAND_KINDS,
+  PORTFOLIO_COMMANDS,
   TERMINAL_COMMANDS,
+  ZONE_ORDER,
   requiresConfirmation,
+  zoneOf,
   type CommandKind,
 } from "./actions";
 import { ICON_PATH } from "./icons";
@@ -128,6 +131,54 @@ describe("consequence classes", () => {
     for (const kind of COMMAND_KINDS) {
       expect(["reversible", "consequential", "terminal"]).toContain(ACTION_THEME[kind].class);
     }
+  });
+});
+
+describe("zones", () => {
+  it("files every command kind under exactly one of the two zones", () => {
+    // The coverage that matters for MON-UX1: a kind with no zone is a chit the bar renders nowhere.
+    // `Record<CommandKind, …>` already makes that a compile error; this is the runtime restatement,
+    // for the day somebody widens the key type.
+    for (const kind of COMMAND_KINDS) {
+      expect(ZONE_ORDER, `${kind} has no zone`).toContain(zoneOf(kind));
+    }
+    expect(new Set(COMMAND_KINDS.map(zoneOf)).size, "one zone is unused").toBe(ZONE_ORDER.length);
+  });
+
+  it("puts the estate kinds in `portfolio` and the turn's own moves in `flow`", () => {
+    // Named rather than derived, because this *is* the decision — a test that recomputed it from
+    // `ACTION_THEME` would agree with any mistake. The five are the kinds `_portfolio_gate` opens to
+    // every solvent player in a quiet phase; see the module docstring on why that coincidence is the
+    // vocabulary agreeing with itself and not a rule being copied.
+    expect([...PORTFOLIO_COMMANDS].sort()).toEqual([
+      "build_house",
+      "mortgage_property",
+      "propose_trade",
+      "sell_house",
+      "unmortgage_property",
+    ]);
+  });
+
+  it("keeps `declare_bankruptcy` in the flow zone, terminal though it is", () => {
+    // The one entry a reader is most likely to "fix". In DEBT_SETTLEMENT it is one of the two answers
+    // the game is waiting for, and folding the way out of a phase behind "your properties" is the bug
+    // this whole change exists not to introduce. It is also where `HINT_ORDER` and `zone` deliberately
+    // disagree, which is the argument for them being two tables.
+    expect(zoneOf("declare_bankruptcy")).toBe("flow");
+    expect(requiresConfirmation("declare_bankruptcy")).toBe(true);
+  });
+
+  it("answers the trade frame's two sides with `flow`, not `portfolio`", () => {
+    // Answering an offer is the table waiting on this seat; *drafting* one is estate management.
+    expect(zoneOf("respond_to_trade")).toBe("flow");
+    expect(zoneOf("cancel_trade")).toBe("flow");
+    expect(zoneOf("propose_trade")).toBe("portfolio");
+  });
+
+  it("lays flow out before portfolio", () => {
+    // The one place the order is written down. A bar that put the estate first would be the original
+    // complaint with extra headings.
+    expect([...ZONE_ORDER]).toEqual(["flow", "portfolio"]);
   });
 });
 

@@ -65,6 +65,76 @@ describe("a row of the ring declares exactly one block-axis track", () => {
   });
 });
 
+/**
+ * Four houses on the narrowest square there is (MON-710).
+ *
+ * `board.css` states this arithmetic in prose and says this file does it. It did not, which is the
+ * same class of defect as the 1.41:1 contrast claim `theme/contrast.test.ts` was written for: a
+ * number in a comment that nothing checks is a number that drifts the first time someone tunes the
+ * clamp. Every term below is either read out of the stylesheet or named as an input with the file
+ * that pins it, so tuning any of them without re-checking the fit turns this red.
+ *
+ * jsdom has no layout engine, so this is arithmetic on declared values rather than a measurement —
+ * the same bargain the rest of this file makes, and MON-707's Playwright run is where the real
+ * geometry gets checked.
+ */
+describe("four houses fit on a 320 px board's square", () => {
+  /**
+   * The inline size a square gets when the whole board is 320 px wide.
+   *
+   * The conservative figure of the two this repo quotes: `board/Token.tsx` says about 29 px and
+   * `board.css` about 24.2. They differ because they measure at different points in the padding
+   * chain; the smaller one is the one worth holding the fit to.
+   */
+  const NARROWEST_SQUARE_PX = 24.2;
+  /** `gap-px` on `.kesef-tile-buildings`, pinned by `Board.test.tsx`. */
+  const GAP_PX = 1;
+  /** Four is the most houses a square can hold: the fifth is a hotel (`HOTEL_LEVEL`). */
+  const MOST_HOUSES = 4;
+
+  function clampTerms(): { floor: number; preferredCqw: number; ceiling: number } {
+    const declared = declaredValue(".kesef-tile-buildings", "--kesef-building-unit") ?? "";
+    const found = /clamp\(\s*([\d.]+)px\s*,\s*([\d.]+)cqw\s*,\s*([\d.]+)px\s*\)/.exec(declared);
+    expect(found, `--kesef-building-unit is not a px/cqw/px clamp: ${declared}`).not.toBeNull();
+    return {
+      floor: Number(found?.[1]),
+      preferredCqw: Number(found?.[2]),
+      ceiling: Number(found?.[3]),
+    };
+  }
+
+  it("sizes a house from the square rather than from the type scale", () => {
+    // The bug this replaced: `0.3rem` is 4.8 px on a 26 px square and *still* 4.8 px on a 70 px one.
+    const { floor, preferredCqw, ceiling } = clampTerms();
+    expect(preferredCqw).toBeGreaterThan(0);
+    expect(floor).toBeLessThan(ceiling);
+  });
+
+  it("still draws a house at least 5 px wide when the square is at its narrowest", () => {
+    const { floor, preferredCqw } = clampTerms();
+    const preferred = (preferredCqw / 100) * NARROWEST_SQUARE_PX;
+    // The preferred size falls under the floor here, which is the whole point of having one.
+    expect(preferred).toBeLessThan(floor);
+    expect(Math.max(floor, preferred)).toBe(floor);
+  });
+
+  it("leaves four of them and their gaps inside the square", () => {
+    const { floor, preferredCqw, ceiling } = clampTerms();
+    const unit = Math.min(Math.max(floor, (preferredCqw / 100) * NARROWEST_SQUARE_PX), ceiling);
+    // A house is square (`aspect-ratio: 22 / 22`), so its inline size is the unit itself.
+    const row = MOST_HOUSES * unit + (MOST_HOUSES - 1) * GAP_PX;
+
+    expect(row).toBeLessThanOrEqual(NARROWEST_SQUARE_PX);
+  });
+
+  it("does not let the ceiling bind on a large square, or a big board would grow scenery", () => {
+    const { ceiling, preferredCqw } = clampTerms();
+    // A 70 px square would otherwise take 14 px houses, which start competing with the square's own
+    // name for the eye.
+    expect((preferredCqw / 100) * 70).toBeGreaterThan(ceiling);
+  });
+});
+
 describe("a square fills the cell it is placed in", () => {
   it("gives .kesef-tile a full block size", () => {
     // A square is a flex column whose parts are percentages of it — a 22% colour band, a 10%

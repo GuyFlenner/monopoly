@@ -9,6 +9,21 @@
  */
 
 export {
+  BUILDING_CSS_VAR,
+  BUILDING_FIGURE,
+  BUILDING_FILL,
+  BUILDING_LEVELS,
+  BUILDING_UNIT_CSS_VAR,
+  BuildingFigure,
+  buildingFigureClass,
+  buildingReferenceSurface,
+  type BuildingFigureGeometry,
+  type BuildingFigureProps,
+  type BuildingLevel,
+  type Roofline,
+} from "./buildings";
+
+export {
   contrastRatio,
   CONTRAST_FLOOR,
   meets,
@@ -37,6 +52,7 @@ export {
   ICON_PATH,
   ICON_VIEWBOX,
   type ActionIconName,
+  type DeckIconName,
   type IconName,
   type IconProps,
   type ModifierIconName,
@@ -56,8 +72,6 @@ export {
 } from "./patterns";
 
 export {
-  BUILDING_MARK,
-  BUILDING_MARK_CSS_VAR,
   COMFORT_ATTRIBUTE,
   FOCUS_CSS_VAR,
   FOCUS_RING,
@@ -87,11 +101,17 @@ export {
   ACTION_THEME,
   ACTION_TONE,
   COMMAND_KINDS,
+  PORTFOLIO_COMMANDS,
   requiresConfirmation,
   TERMINAL_COMMANDS,
+  zoneOf,
+  ZONE_ORDER,
   type ActionClass,
   type ActionTheme,
   type ActionTone,
+  type ActionZone,
   type CommandKind,
   type ToneColors,
 } from "./actions";
+
+export { emphasisFor, PHASE_EMPHASIS, RAISING_EMPHASIS_PHASES } from "./prominence";

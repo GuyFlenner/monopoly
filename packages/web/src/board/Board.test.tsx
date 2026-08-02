@@ -368,6 +368,53 @@ describe("what the board draws is what the projection said", () => {
     expect(markers[0]).toHaveAttribute("data-owner-seat", "2");
   });
 
+  it("draws one figure per house, and the fifth building as a single hotel (MON-710)", () => {
+    withBoardInlineSize(WIDE_PX);
+    render(
+      <Board
+        board={makeRingBoard()}
+        state={makeRingState({
+          properties: makeProperties({
+            1: { owner: 0, houses: 3 },
+            3: { owner: 0, houses: 5 },
+          }),
+        })}
+      />,
+    );
+    const [threeHouses, hotel] = screen.getAllByTestId("development");
+
+    // Three cottages, not one mark meaning three: a child counts the buildings on the square.
+    const houses = within(threeHouses as HTMLElement).getAllByTestId("building-figure");
+    expect(houses).toHaveLength(3);
+    expect(houses.map((figure) => figure.getAttribute("data-level"))).toEqual([
+      "house",
+      "house",
+      "house",
+    ]);
+    // And the fifth building replaces them rather than joining them.
+    const built = within(hotel as HTMLElement).getAllByTestId("building-figure");
+    expect(built).toHaveLength(1);
+    expect(built[0]).toHaveAttribute("data-level", "hotel");
+
+    // The 1 px gap is one of the four terms in the "four houses fit at 320 px" arithmetic that
+    // `board.css.test.ts` does; this is where that term is actually declared.
+    expect((threeHouses as HTMLElement).className).toContain("gap-px");
+  });
+
+  it("says nothing about the buildings out loud — the square's name already does", () => {
+    // Four decorative shapes read in place of "with three houses" is worse than silence; the words
+    // come from `describeTile`, and `buildings.tsx` is `aria-hidden` by construction.
+    withBoardInlineSize(WIDE_PX);
+    render(
+      <Board
+        board={makeRingBoard()}
+        state={makeRingState({ properties: makeProperties({ 1: { owner: 0, houses: 3 } }) })}
+      />,
+    );
+    expect(screen.getByTestId("development")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getAllByTestId("building-figure")[0]).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("draws houses as pips and the fifth building as a hotel", () => {
     withBoardInlineSize(WIDE_PX);
     render(

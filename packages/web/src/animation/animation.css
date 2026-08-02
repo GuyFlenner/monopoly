@@ -70,3 +70,47 @@
   animation-timing-function: cubic-bezier(0.28, 0.9, 0.3, 1);
   animation-iteration-count: 1;
 }
+
+/*
+ * A card being turned over (MON-709). It grows to size and fades in, and then stops — the dwell is
+ * the queue's, not the animation's, so this describes only the *arrival*.
+ *
+ * Scale and opacity again, and here the constraint bites harder than it does on a pulse: the obvious
+ * card animation is a flick in from the deck's corner, which is a translate, which is the one thing
+ * that has to be mirrored by hand under `dir="rtl"` and is therefore refused. A card that swells into
+ * place has no inline axis at all, so it is dealt from the same direction in both languages — and the
+ * board it is dealt onto does not mirror either (`Board.tsx`'s pinned `dir="ltr"`), so a card sliding
+ * in from the reading edge would have disagreed with the board underneath it.
+ *
+ * No `rotate`, either. A tilt is direction-neutral and would have been safe, but the card carries the
+ * sentence a player is about to be held to, and text set at an angle is harder to read for exactly
+ * the audience this project keeps naming — a six-year-old and anyone with low vision.
+ */
+@keyframes kesef-card-in {
+  0% {
+    scale: 0.86;
+    opacity: 0;
+  }
+
+  70% {
+    scale: 1.03;
+    opacity: 1;
+  }
+
+  100% {
+    scale: 1;
+    opacity: 1;
+  }
+}
+
+/*
+ * `--kesef-motion-ms` carries the *entrance* length, not the card's dwell: the component passes a
+ * short arrival through `useMotionPreference().durationMs`, because a 1.8 s fade is not an arrival,
+ * it is a card that never quite gets there. Zero is a real value here as everywhere else.
+ */
+.kesef-card-in {
+  animation-name: kesef-card-in;
+  animation-duration: var(--kesef-motion-ms, 0ms);
+  animation-timing-function: cubic-bezier(0.22, 1.1, 0.36, 1);
+  animation-iteration-count: 1;
+}

@@ -172,29 +172,18 @@
 }
 
 /*
- * The printed marks on a deed row.
+ * How big a building is on a deed row (MON-710).
  *
- * The same visual vocabulary as a board square's pips (`board/board.css`) and deliberately not the
- * same rules: a square sizes its marks in `cqw` against its own 29 px container, which is
- * meaningless in a list row. Sized in `rem` here so a house is the same house at every dossier
- * width.
+ * Exactly the same figures a board square draws — silhouette, fill and keyline all come from
+ * `theme/buildings.css` — and deliberately not the same size rule. A square sizes its buildings from
+ * its own inline size in `cqw`, because a square is 26 px on a phone and 70 px on a laptop; a deed
+ * row is type-scale furniture, so a house here is the same house at every dossier width.
+ *
+ * 0.55rem rather than the 0.4rem the old coloured square used: a figure needs a couple more pixels
+ * than a block does before its roof is a roof.
  */
-.kesef-deed-house {
-  display: block;
-  block-size: 0.4rem;
-  inline-size: 0.4rem;
-  border: 1px solid var(--color-hairline);
-  border-radius: 1px;
-  background-color: var(--color-house);
-}
-
-.kesef-deed-hotel {
-  display: block;
-  block-size: 0.42rem;
-  inline-size: 0.8rem;
-  border: 1px solid var(--color-hairline);
-  border-radius: 1px;
-  background-color: var(--color-hotel);
+.kesef-deed-buildings {
+  --kesef-building-unit: 0.55rem;
 }
 
 /* The mortgage overprint: a dashed rim, as a stamp across a deed. */

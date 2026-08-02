@@ -16,11 +16,20 @@ test.describe("the property card's deed list", () => {
   test("is folded away on arrival, and the log is taller for it", async ({ page }) => {
     await startGame(page);
 
-    const deeds = page.getByTestId("deed-spine").first();
-    const summary = page.locator('[data-testid="player-dossier"] summary').first();
+    /*
+      The thing inside the fold, since MON-UX1.
 
-    // Closed: the deed rows are in the DOM and not painted.
-    await expect(deeds).toBeHidden();
+      It used to be `deed-spine`, which was every one of the ten colour bands. The card now shows only
+      the sets the player holds something in (`docs/UX_ACTION_PROMINENCE.md` §4), and at turn one that
+      is none — so the first band on the page is inside the *nested* fold and would report hidden even
+      with the outer one open. The nested fold's own summary is the honest probe: a direct child of the
+      outer `<details>`, painted exactly when it is open.
+    */
+    const inner = page.getByTestId("dossier-unstarted");
+    const summary = page.locator('[data-testid="player-dossier"] > details > summary').first();
+
+    // Closed: the rows are in the DOM and not painted.
+    await expect(inner).toBeHidden();
 
     // What folding actually buys, measured rather than assumed. The first version of this test
     // asserted the log got *taller*, and it does not: the log is sized by its content (125 px either
@@ -31,7 +40,7 @@ test.describe("the property card's deed list", () => {
     const folded = await rectOf(log);
 
     await summary.click();
-    await expect(deeds).toBeVisible();
+    await expect(inner).toBeVisible();
     const unfolded = await rectOf(log);
 
     expect(
@@ -56,9 +65,23 @@ test.describe("the property card's deed list", () => {
     // A native `<summary>` is focusable and responds to Enter with no handler of our own. Asserted
     // because the alternative implementation — a div with an onClick — would pass every other test in
     // this file and fail this one, and a child who cannot use a mouse is exactly who this is for.
-    const summary = page.locator('[data-testid="player-dossier"] summary').first();
+    const summary = page.locator('[data-testid="player-dossier"] > details > summary').first();
     await summary.focus();
     await page.keyboard.press("Enter");
-    await expect(page.getByTestId("deed-spine").first()).toBeVisible();
+    await expect(page.getByTestId("dossier-unstarted")).toBeVisible();
+  });
+
+  test("keeps the sets nobody has started reachable in one more keystroke", async ({ page }) => {
+    await startGame(page);
+
+    // §4 of the UX doc: only the sets a player holds something in are listed, and the rest are folded
+    // rather than gone. At turn one that is every set, which makes this the clearest place to assert
+    // the second half of the promise.
+    await page.locator('[data-testid="player-dossier"] > details > summary').first().click();
+
+    const inner = page.getByTestId("dossier-unstarted");
+    await expect(inner.getByTestId("deed-spine").first()).toBeHidden();
+    await inner.locator("summary").click();
+    await expect(inner.getByTestId("deed-spine").first()).toBeVisible();
   });
 });

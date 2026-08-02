@@ -14,6 +14,11 @@ import { INTERRUPT_PHASE_KEYS, narrate, type NarrationContext } from "./narratio
 const context: NarrationContext = {
   playerName: (id) => ["Ruti", "Dan"][id] ?? `#${String(id)}`,
   tileName: (index) => `tile-${String(index)}`,
+  // Both are lookups the caller owns, so the double is a lookup too: it echoes the key it was given
+  // rather than a fixed string, which is what lets the card test below prove the *event's* card_id
+  // reached the sentence instead of some other card's.
+  cardText: (cardId) => `text-${cardId}`,
+  deckName: (deck) => `deck-${deck}`,
 };
 
 function narrateOne(event: GameEvent): ReturnType<typeof narrate> {
@@ -135,6 +140,41 @@ describe("narrate", () => {
         params: { payer: "Dan", owner: "Ruti", amount: 60 },
       },
     ]);
+  });
+
+  it("speaks the card's own sentence, not merely the deck it came from (MON-709)", () => {
+    const drafts = narrateOne({
+      type: "card_drawn",
+      player: 0,
+      deck: "chance",
+      card_id: "card.chance.advance_to_go",
+    });
+
+    // The instruction on the card is the half of the draw a screen-reader user would otherwise
+    // never receive: the board shows it, the log names only the deck.
+    expect(drafts).toEqual([
+      {
+        politeness: "polite",
+        key: "a11y.card_drawn",
+        params: {
+          name: "Ruti",
+          deck: "deck-chance",
+          card: "text-card.chance.advance_to_go",
+        },
+      },
+    ]);
+  });
+
+  it("keeps a draw polite — drawing a card does not change who is acting", () => {
+    const drafts = narrateOne({
+      type: "card_drawn",
+      player: 1,
+      deck: "community_chest",
+      card_id: "card.chest.bank_error",
+    });
+
+    expect(drafts[0]?.politeness).toBe("polite");
+    expect(drafts[0]?.params).toMatchObject({ deck: "deck-community_chest" });
   });
 
   it.each(["auction", "debt_settlement", "trade_review"] satisfies Phase[])(

@@ -11,11 +11,11 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Command } from "@/api";
+import type { Command, Phase } from "@/api";
 import { makeBoard, makeTile } from "@/test/fixtures";
 import { COMMAND_KINDS, TERMINAL_COMMANDS } from "@/theme";
 
-import { ActionBar, groupCommands } from "./ActionBar";
+import { ActionBar, groupCommands, zoneCommands } from "./ActionBar";
 import { baseLabelKey, labelKeyFor } from "./actionCommand";
 
 const BOARD = makeBoard({
@@ -45,8 +45,47 @@ function commandButtons(): readonly HTMLElement[] {
     .filter((button) => button.dataset.commandKind !== undefined);
 }
 
+/** One chit per command — the group toggles, which stand for several, excluded. */
+function chits(): readonly HTMLElement[] {
+  return commandButtons().filter((button) => button.dataset.group === undefined);
+}
+
+/**
+ * Open everything the bar has folded, until nothing reports itself collapsed.
+ *
+ * Bounded rather than `while (true)`: a fold that reports `aria-expanded="false"` and does not open is
+ * exactly the defect the reachability suite is looking for, and it should fail as an assertion rather
+ * than hang the run.
+ */
+async function revealEverything(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    const folded = screen.queryAllByRole("button", { expanded: false });
+    if (folded.length === 0) {
+      return;
+    }
+    for (const button of folded) {
+      await userEvent.click(button);
+    }
+  }
+  expect(
+    screen.queryAllByRole("button", { expanded: false }),
+    "something stayed folded after four rounds of opening it",
+  ).toHaveLength(0);
+}
+
+/** Answer a MON-405 confirm dialog affirmatively, if one is up. */
+async function proceedThroughAnyConfirm(): Promise<void> {
+  const proceed = document.querySelector<HTMLButtonElement>('[data-confirm="proceed"]');
+  if (proceed !== null) {
+    await userEvent.click(proceed);
+  }
+}
+
 describe("one button per legal command", () => {
-  it("renders exactly the legal set and nothing else", () => {
+  it("renders exactly the legal set and nothing else", async () => {
+    // The set, not the DOM order — which is the property this file now states. `propose_trade` is an
+    // estate command and `roll_dice`/`end_turn` are turn flow, so with both zones occupied the estate
+    // one arrives folded; opening it must produce the third chit and no fourth.
     renderBar([
       { kind: "roll_dice", player: 0 },
       { kind: "propose_trade", player: 0, offer: EMPTY_OFFER },
@@ -55,9 +94,13 @@ describe("one button per legal command", () => {
 
     expect(commandButtons().map((button) => button.dataset.commandKind)).toEqual([
       "roll_dice",
-      "propose_trade",
       "end_turn",
     ]);
+
+    await revealEverything();
+    expect(new Set(commandButtons().map((button) => button.dataset.commandKind))).toEqual(
+      new Set(["roll_dice", "end_turn", "propose_trade"]),
+    );
   });
 
   it("keeps the engine's order rather than a notion of importance", () => {
@@ -331,6 +374,376 @@ describe("the confirm step", () => {
   });
 });
 
+/**
+ * MON-UX1: the bar splits into two labelled zones, and this is the suite that has to be convincing.
+ *
+ * `docs/UX_ACTION_PROMINENCE.md` §5. The claim the old suite made — DOM order equals array order — is
+ * gone on purpose, and the claim replacing it is stronger and harder to satisfy by accident: **every
+ * command the engine offered is present and operable**. That is asserted by opening every fold,
+ * counting the chits, then clicking each one and comparing what arrived at `onCommand` against the
+ * input *by identity*.
+ *
+ * The positions are the shape `legal_commands` has when each phase is live, including the alphabetical
+ * interleaving `legality.py`'s `_sort_key` produces — which is the thing that put `mortgage_property`
+ * above `roll_dice` and started this.
+ */
+const POSITIONS: readonly { readonly phase: Phase; readonly commands: readonly Command[] }[] = [
+  {
+    phase: "awaiting_roll",
+    commands: [
+      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 3 },
+      { kind: "roll_dice", player: 0 },
+      { kind: "sell_house", player: 0, tile: 1, demolish_hotel: false },
+      { kind: "unmortgage_property", player: 0, tile: 6 },
+    ],
+  },
+  {
+    phase: "awaiting_end_turn",
+    commands: [
+      { kind: "end_turn", player: 0, elapsed_seconds: null },
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "sell_house", player: 0, tile: 3, demolish_hotel: false },
+      { kind: "unmortgage_property", player: 0, tile: 6 },
+    ],
+  },
+  {
+    phase: "awaiting_purchase_decision",
+    commands: [
+      { kind: "buy_property", player: 0 },
+      { kind: "decline_purchase", player: 0 },
+    ],
+  },
+  {
+    phase: "jail_decision",
+    commands: [
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "pay_jail_fine", player: 0 },
+      { kind: "roll_for_jail", player: 0 },
+      { kind: "use_jail_card", player: 0 },
+    ],
+  },
+  {
+    phase: "auction",
+    commands: [
+      { kind: "mortgage_property", player: 1, tile: 1 },
+      { kind: "mortgage_property", player: 1, tile: 3 },
+      { kind: "place_bid", player: 1, amount: 120 },
+      { kind: "sell_house", player: 1, tile: 6, demolish_hotel: false },
+      { kind: "withdraw_from_auction", player: 1 },
+    ],
+  },
+  {
+    // The position the whole feature could have broken: raising cash *is* the point here, and every
+    // way of doing it has to be in front of the debtor rather than behind a fold.
+    phase: "debt_settlement",
+    commands: [
+      { kind: "declare_bankruptcy", player: 2 },
+      { kind: "mortgage_property", player: 2, tile: 1 },
+      { kind: "mortgage_property", player: 2, tile: 3 },
+      { kind: "propose_trade", player: 2, offer: EMPTY_OFFER },
+      { kind: "sell_house", player: 2, tile: 6, demolish_hotel: false },
+    ],
+  },
+  {
+    phase: "trade_review",
+    commands: [
+      { kind: "cancel_trade", player: 0 },
+      { kind: "respond_to_trade", player: 1, accept: true },
+      { kind: "respond_to_trade", player: 1, accept: false },
+    ],
+  },
+];
+
+describe("nothing the engine offered can become unreachable", () => {
+  for (const position of POSITIONS) {
+    it(`offers and delivers every legal command in ${position.phase}`, async () => {
+      const received: Command[] = [];
+      render(
+        <ActionBar
+          commands={position.commands}
+          onCommand={(command) => {
+            received.push(command);
+          }}
+          board={BOARD}
+          jailFine={50}
+          phase={position.phase}
+        />,
+      );
+
+      await revealEverything();
+
+      // Presence. A zoning bug that dropped a whole zone's members fails here.
+      expect(chits(), `${position.phase}: a chit is missing`).toHaveLength(
+        position.commands.length,
+      );
+
+      // Operability, which is what "reachable" has to mean. Identity, not shape: a chit bound to a
+      // reconstructed command would pass a structural comparison and fail this.
+      for (const chit of chits()) {
+        await userEvent.click(chit);
+        await proceedThroughAnyConfirm();
+      }
+      expect(new Set(received)).toEqual(new Set(position.commands));
+    });
+  }
+
+  it("puts the raising moves in front of a debtor rather than behind a fold", () => {
+    const debt = POSITIONS.find((position) => position.phase === "debt_settlement");
+    render(
+      <ActionBar
+        commands={debt?.commands ?? []}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        phase="debt_settlement"
+      />,
+    );
+    // Open on arrival, with no gesture at all — the whole reason the emphasis table exists.
+    expect(screen.getByRole("button", { name: /properties/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    // What may still be folded is a *kind* group — two mortgageable squares behind one affordance,
+    // which is the pre-existing "which of my streets" disclosure and not the zone. The zone itself is
+    // never among them.
+    for (const folded of screen.queryAllByRole("button", { expanded: false })) {
+      expect(folded.dataset.group, "the estate zone stayed folded in debt settlement").toBe("true");
+    }
+  });
+});
+
+describe("the two zones", () => {
+  const flowAndEstate: readonly Command[] = [
+    { kind: "build_house", player: 0, tile: 1 },
+    { kind: "mortgage_property", player: 0, tile: 3 },
+    { kind: "roll_dice", player: 0 },
+  ];
+
+  /** The estate zone's affordance. `data-zone` marks it; it carries no `data-command-kind`. */
+  function fold(): HTMLElement {
+    const element = document.querySelector<HTMLElement>('[data-zone="portfolio"]');
+    expect(element, "the estate zone has no affordance").not.toBeNull();
+    return element as HTMLElement;
+  }
+
+  it("shows the turn's own move first and folds the estate away behind a label", () => {
+    renderBar(flowAndEstate);
+
+    // The complaint, inverted: in the engine's own order `build_house` and `mortgage_property` both
+    // precede `roll_dice`, because the sort is alphabetical by kind.
+    expect(chits().map((button) => button.dataset.commandKind)).toEqual(["roll_dice"]);
+    expect(fold()).toHaveAttribute("aria-expanded", "false");
+    expect(fold()).toHaveTextContent("Your properties");
+    // The count is the legal set's, so a fold can never under-report what it holds.
+    expect(fold()).toHaveTextContent("2 moves");
+  });
+
+  it("names both halves, as headings a screen reader can navigate by", () => {
+    renderBar(flowAndEstate);
+    expect(screen.getByRole("heading", { name: "Waiting on you" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Your properties/ })).toBeInTheDocument();
+    // Under the bar's own h2, not beside it.
+    expect(screen.getByRole("heading", { name: "Moves" }).tagName).toBe("H2");
+    expect(screen.getByRole("heading", { name: "Waiting on you" }).tagName).toBe("H3");
+  });
+
+  it("stays a flat list when only one zone is occupied", () => {
+    // A purchase decision, an auction, a trade review: two headings over one button is scaffolding to
+    // read past, so the bar renders exactly what it always did.
+    renderBar([
+      { kind: "buy_property", player: 0 },
+      { kind: "decline_purchase", player: 0 },
+    ]);
+    expect(document.querySelector("[data-zone]")).toBeNull();
+    expect(screen.queryAllByRole("heading", { level: 3 })).toHaveLength(0);
+    expect(chits()).toHaveLength(2);
+  });
+
+  it("stays a flat list when the estate is all there is", () => {
+    // Nothing to demote it relative to, so nothing is folded — and this is the case the existing
+    // grouping tests all render.
+    renderBar([
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 3 },
+    ]);
+    expect(document.querySelector('[data-zone="portfolio"]')).toBeNull();
+  });
+
+  it("never folds the flow zone", () => {
+    renderBar(flowAndEstate);
+    expect(document.querySelector('[data-zone="flow"]')).toBeNull();
+  });
+
+  it("keeps the engine's order inside a zone", () => {
+    renderBar([
+      { kind: "end_turn", player: 0, elapsed_seconds: null },
+      { kind: "pay_jail_fine", player: 0 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
+    ]);
+    // Only the *interleaving* of the two zones changes. Relative order within one is untouched.
+    expect(chits().map((button) => button.dataset.commandKind)).toEqual([
+      "end_turn",
+      "pay_jail_fine",
+    ]);
+  });
+
+  it("sends no command when the fold itself is pressed", async () => {
+    const onCommand = renderBar(flowAndEstate);
+    await userEvent.click(fold());
+    expect(onCommand).not.toHaveBeenCalled();
+    expect(fold()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes on Escape and hands focus back to the fold", async () => {
+    renderBar(flowAndEstate);
+    await userEvent.click(fold());
+    await userEvent.keyboard("{Escape}");
+    expect(fold()).toHaveAttribute("aria-expanded", "false");
+    // The collapse and the focus are guaranteed to be in the same place, which is how focus cannot
+    // reach `<body>` — the failure this repo has shipped twice.
+    expect(fold()).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("opens on arrival when the phase makes the estate the point, and never shuts itself again", () => {
+    const { rerender } = render(
+      <ActionBar
+        commands={flowAndEstate}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        phase="debt_settlement"
+      />,
+    );
+    expect(fold()).toHaveAttribute("aria-expanded", "true");
+
+    // Emphasis is monotonic: the debt is settled, the phase moves on, and the zone stays open rather
+    // than unmounting a chit that might have focus.
+    rerender(
+      <ActionBar
+        commands={flowAndEstate}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        phase="awaiting_roll"
+      />,
+    );
+    expect(fold()).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("respects a player who folds the estate away mid-debt", async () => {
+    render(
+      <ActionBar
+        commands={flowAndEstate}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        phase="debt_settlement"
+      />,
+    );
+    await userEvent.click(fold());
+    expect(fold()).toHaveAttribute("aria-expanded", "false");
+    // They asked. The commands are one keystroke away and the count still says what is inside.
+    expect(fold()).toHaveTextContent("2 moves");
+  });
+
+  it("disables nothing, folded or open", async () => {
+    renderBar(flowAndEstate);
+    await revealEverything();
+    for (const button of screen.getAllByRole("button")) {
+      expect(button).not.toBeDisabled();
+      expect(button).not.toHaveAttribute("aria-disabled");
+    }
+  });
+
+  it("gives the fold the same hit-target floor as a chit", () => {
+    renderBar(flowAndEstate);
+    // `.target` is what `data-comfort` scales — 44 px, or 56 in Kids Mode. A control that opted out
+    // of the class would be a 20 px row for a six-year-old.
+    expect(fold().className).toContain("target");
+  });
+
+  it("carries the hint's badge when the marked command is folded away", () => {
+    const houses: readonly Command[] = [
+      { kind: "roll_dice", player: 0 },
+      { kind: "build_house", player: 0, tile: 1 },
+    ];
+    render(
+      <ActionBar
+        commands={houses}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={houses[1]}
+        phase="awaiting_roll"
+      />,
+    );
+    // Exactly as a collapsed *kind* group carries it: the badge is invisible until the fold is opened,
+    // which is the one state a child most needs it in.
+    expect(fold().dataset.hinted).toBe("true");
+    expect(within(fold()).getByTestId("hint-badge")).toHaveTextContent("Suggested");
+  });
+
+  it("does not mark the fold when the hint points at something in the open", () => {
+    const commands: readonly Command[] = [
+      { kind: "roll_dice", player: 0 },
+      { kind: "build_house", player: 0, tile: 1 },
+    ];
+    render(
+      <ActionBar
+        commands={commands}
+        onCommand={vi.fn()}
+        board={BOARD}
+        jailFine={50}
+        hinted={commands[0]}
+        phase="awaiting_roll"
+      />,
+    );
+    expect(fold().dataset.hinted).toBe("false");
+  });
+});
+
+describe("zoneCommands", () => {
+  const mixed: readonly Command[] = [
+    { kind: "build_house", player: 0, tile: 1 },
+    { kind: "mortgage_property", player: 0, tile: 1 },
+    { kind: "roll_dice", player: 0 },
+    { kind: "sell_house", player: 0, tile: 3, demolish_hotel: false },
+  ];
+
+  it("loses nothing it was given", () => {
+    const flattened = zoneCommands(mixed).flatMap((zone) => zone.commands);
+    expect(flattened).toHaveLength(mixed.length);
+    expect(new Set(flattened)).toEqual(new Set(mixed));
+  });
+
+  it("puts flow first and preserves the engine's order inside each zone", () => {
+    const zones = zoneCommands(mixed);
+    expect(zones.map((zone) => zone.zone)).toEqual(["flow", "portfolio"]);
+    expect(zones[0]?.commands).toEqual([mixed[2]]);
+    expect(zones[1]?.commands).toEqual([mixed[0], mixed[1], mixed[3]]);
+  });
+
+  it("omits a zone nothing landed in", () => {
+    expect(zoneCommands([{ kind: "roll_dice", player: 0 }]).map((zone) => zone.zone)).toEqual([
+      "flow",
+    ]);
+    expect(zoneCommands([])).toHaveLength(0);
+  });
+
+  it("still groups a tile-scoped kind inside its zone", () => {
+    const zones = zoneCommands([
+      { kind: "roll_dice", player: 0 },
+      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "build_house", player: 0, tile: 3 },
+    ]);
+    expect(zones[1]?.groups).toHaveLength(1);
+    expect(zones[1]?.groups[0]?.collapsible).toBe(true);
+  });
+});
+
 describe("the bar says nothing aloud", () => {
   it("renders no live region, and no role that implies one", async () => {
     const { container } = render(
@@ -345,9 +758,11 @@ describe("the bar says nothing aloud", () => {
         jailFine={50}
       />,
     );
-    // Opened states included: a dialog and a disclosure are exactly where a second live region
-    // tends to get added. There is one Announcer in the product and this is not it (GAP D1/G-54).
-    await userEvent.click(screen.getByRole("button", { expanded: false }));
+    // Opened states included: a dialog and both kinds of disclosure — the estate zone and the
+    // collapsed `build_house` group inside it — are exactly where a second live region tends to get
+    // added, and the zone's expand/collapse is the newest candidate. There is one Announcer in the
+    // product and this is not it (GAP D1/G-54).
+    await revealEverything();
     await userEvent.click(screen.getByRole("button", { name: "Give up" }));
 
     expect(container.querySelectorAll("[aria-live]")).toHaveLength(0);

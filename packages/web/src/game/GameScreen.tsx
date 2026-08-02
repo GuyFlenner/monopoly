@@ -43,7 +43,7 @@
  * board rather than shrinking beside it, because a 320 px board is already the whole width.
  */
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { SCREEN_HEADING_ATTRIBUTE, useEventNarration } from "@/a11y";
@@ -65,6 +65,7 @@ import type { GroupNameScope } from "@/i18n/groupNames";
 import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
+import { CardReveal } from "@/panels/CardReveal";
 import { CompareTray, PinToggle } from "@/panels/CompareTray";
 import { EventLog } from "@/panels/EventLog";
 import { noteLines } from "@/panels/EventLogLines";
@@ -76,8 +77,11 @@ import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
 import { ReplayButton } from "@/replay";
 import { MuteToggle, useSoundCues } from "@/sound";
-import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "@/theme";
+import { ACTION_THEME, COMFORT_ATTRIBUTE, Icon, KIDS_COMFORT } from "@/theme";
 
+import { useAutoEndTurn } from "./autoEndTurn";
+import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
+import { useAutoEndTurnPreference } from "./autoEndTurnPreference";
 import { presentationFor, type Presentation } from "./presentation";
 import { SaveGameButton } from "./SaveGameButton";
 import { useUiStore } from "./uiStore";
@@ -87,6 +91,9 @@ export interface GameScreenProps {
   /** Leave this game and go back to the setup screen. */
   readonly onLeave: () => void;
 }
+
+/** A stable empty seat list, so the auto-advance effect's deps do not change on every render. */
+const NO_PLAYERS: readonly PlayerView[] = [];
 
 /*
  * `useReasonText` and `FailureNote` used to live here, and moved to `panels/States.tsx` in MON-708.
@@ -108,11 +115,21 @@ export interface GameScreenProps {
 function Chrome({
   onLeave,
   comfort,
+  autoEndTurnSwitch = false,
   children,
 }: {
   readonly onLeave: () => void;
   /** `"kids"` steps the hit-target scale up; `undefined` leaves the 44 px floor in place. */
   readonly comfort?: string | undefined;
+  /**
+   * Offer the auto-end-turn switch.
+   *
+   * `false` while the first view is still in flight, because a preference about what happens after a
+   * purchase is not reachable-and-useful on a loading screen, and `false` in a kids game — where the
+   * feature is unconditionally on and a fourth switch would be one more thing between a six-year-old
+   * and the board. See `autoEndTurn.ts`.
+   */
+  readonly autoEndTurnSwitch?: boolean;
   readonly children: React.ReactNode;
 }): React.JSX.Element {
   const { t } = useTranslation();
@@ -140,6 +157,9 @@ function Chrome({
               decision — "less of the flourish, please" — and a player looking for one will look
               here for the other. The store behind it is module-level (MON-706). */}
           <MuteToggle />
+          {/* Third of the "less of this, please" switches, beside the other two for the same reason
+              they are beside each other: a player looking for one will look here for the rest. */}
+          {autoEndTurnSwitch && <AutoEndTurnToggle />}
           {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
               structurally rather than by care: this control writes to i18next and the document
               element, and the game reaches this package as a projection cached by TanStack Query
@@ -293,6 +313,15 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const motion = useAnimationQueue();
 
   const playersHeadingId = useId();
+  /*
+    Where the focus goes when the card reveal leaves the screen (MON-709).
+
+    The card is transient by design — it is dismissed, skipped, or it simply times out — and a control
+    that vanishes with the focus inside it drops that focus onto `<body>` in the middle of a turn. The
+    skip button is the natural landing place: always mounted, directly under the board, and about the
+    same thing the card's dismiss control is about. See `CardReveal.tsx` and `SkipMotionButton.tsx`.
+  */
+  const skipButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const selectedPlayer = useUiStore((ui) => ui.selectedPlayer);
   const selectPlayer = useUiStore((ui) => ui.selectPlayer);
@@ -358,6 +387,34 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   );
 
   /**
+   * Hand the dice on after a purchase, so nobody has to press "I'm done" (owner request).
+   *
+   * Two things about this composition are load-bearing and neither is visible in the call:
+   *
+   * - **The decision is not here.** `autoEndTurn.ts` holds it, it is pure, and its entire rule is
+   *   "send the `end_turn` that is in `legalCommands`, or send nothing". That guard is what gives the
+   *   doubles rule, the interrupt rules and the jail rules for free — after buying on doubles the
+   *   engine does not offer `end_turn`, so nothing happens and the player rolls again.
+   * - **It watches the committed event log**, which is what keeps the purchase perceptible: by the
+   *   time a `property_acquired` is in `events`, the animation queue, the cue player and the narrator
+   *   have all had it. Chaining off `send`'s promise instead would let the second `setQueryData`
+   *   overtake the first view's events and silently drop the purchase's beat and sentence.
+   *
+   * `presentation.kids` forces it on: fewer obligatory clicks is most of the point of a kids game, and
+   * the chrome hides the switch there rather than offering a six-year-old a fourth toggle.
+   */
+  const { autoEndTurn: autoEndTurnPreferred } = useAutoEndTurnPreference();
+  const autoEndTurnEnabled = presentation.kids || autoEndTurnPreferred;
+  useAutoEndTurn({
+    events,
+    legalCommands,
+    players: state?.players ?? NO_PLAYERS,
+    enabled: autoEndTurnEnabled,
+    sending: status.isSending,
+    send: dispatch,
+  });
+
+  /**
    * The screen's translate.
    *
    * `useCopy` prefers the simpler `kids.*` wording where the catalogue has a twin and is exactly `t`
@@ -391,6 +448,18 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
       return i18n.exists(scoped) ? t(scoped) : t("label.unknown_square");
     },
     [board, t, i18n],
+  );
+
+  /**
+   * A seat's display name. A lookup in the projection, the same one `useEventNarration` makes.
+   *
+   * The fallback is the id rather than an invented name, so a seat this screen has not been told
+   * about shows up as a number to investigate instead of as plausible text.
+   */
+  const playerName = useCallback(
+    (playerId: number) =>
+      state?.players.find((player) => player.id === playerId)?.name ?? String(playerId),
+    [state],
   );
 
   /** The live frame is the top of the stack — the engine's own `top_interrupt`. */
@@ -484,7 +553,15 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   }
 
   return (
-    <Chrome onLeave={onLeave} comfort={presentation.kids ? KIDS_COMFORT : undefined}>
+    // Both sides of this line arrived at once: MON-711 added the auto-end-turn switch to the chrome,
+    // and MON-703 moved the connection note and the command failure *out* of the chrome and into
+    // `<main>` below, because as bare children they sat outside every landmark. Both are kept — the
+    // switch is chrome, the two sentences are the game's.
+    <Chrome
+      onLeave={onLeave}
+      comfort={presentation.kids ? KIDS_COMFORT : undefined}
+      autoEndTurnSwitch={!presentation.kids}
+    >
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
         <main className="flex min-w-0 flex-col gap-3">
           {/*
@@ -530,32 +607,69 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             square by the time the sheet describing it appears. `<FastForward>` adds no role and no
             tab stop; the real affordance is the button below it.
           */}
-          <FastForward onSkip={motion.skip}>
-            <Board
-              board={board}
-              state={state}
-              motion={boardMotion}
-              actionsRegionId={ACTIONS_REGION_ID}
-              onOpenTile={selectTile}
-            >
-              {/* The 9 x 9 interior well, which `Board` takes `children` for. */}
-              <div className="flex flex-col items-center gap-2">
-                <TurnSummary
-                  players={state.players}
-                  currentId={state.current_player_id}
-                  turnNumber={state.turn_number}
-                  cashPulse={cashPulse(state.current_player_id)}
-                  t={translate}
-                />
-                {/*
+          {/*
+            The board and the card layer share one positioning context, and the card is deliberately
+            a **sibling of** `<FastForward>` rather than a child of it (MON-709).
+
+            That is a keyboard matter, not a layout preference. `<FastForward>` fast-forwards on any
+            keydown in its subtree, so a dismiss button inside it could never be reached: pressing Tab
+            to get there would finish the timeline and take the card away first. Outside it, tabbing to
+            the card works, and a click on the *board* still fast-forwards — which is the behaviour
+            MON-701 asked for and this does not touch.
+          */}
+          <div className="relative">
+            <FastForward onSkip={motion.skip}>
+              <Board
+                board={board}
+                state={state}
+                motion={boardMotion}
+                actionsRegionId={ACTIONS_REGION_ID}
+                onOpenTile={selectTile}
+              >
+                {/* The 9 x 9 interior well, which `Board` takes `children` for. */}
+                <div className="flex flex-col items-center gap-2">
+                  <TurnSummary
+                    players={state.players}
+                    currentId={state.current_player_id}
+                    turnNumber={state.turn_number}
+                    cashPulse={cashPulse(state.current_player_id)}
+                    t={translate}
+                  />
+                  {/*
                   The switch lives in the chrome, so the tray does not draw a second one. The settle
                   comes from the event stream rather than from a change in `state.dice`, which is
                   what makes two identical consecutive rolls tumble twice.
                 */}
-                <DiceTray dice={state.dice} withSkipToggle={false} settleNonce={motion.dice} />
-              </div>
-            </Board>
-          </FastForward>
+                  <DiceTray dice={state.dice} withSkipToggle={false} settleNonce={motion.dice} />
+                </div>
+              </Board>
+            </FastForward>
+
+            {/*
+              The card a player has just drawn (MON-709), over the board for as long as the queue
+              holds the beat.
+
+              `motion.card` is the animation frame's own field, so this is presentation lag and
+              nothing else: it is `null` whenever the queue is idle, and there is no `state` field
+              behind it to disagree with. Note what is *not* here — no gate on the action bar, no
+              `disabled`, no `await`. The layer is `pointer-events-none` except for the card itself,
+              so the squares underneath stay clickable and a player can act straight through the
+              reveal.
+
+              Dismissing is `motion.skip`, deliberately the same call the skip button makes: "put
+              this card down" and "catch up" are one instruction, and a second mechanism with a timer
+              of its own is how two clocks end up disagreeing about what is on screen.
+            */}
+            {motion.card !== null && (
+              <CardReveal
+                card={motion.card}
+                playerName={playerName(motion.card.player)}
+                kids={presentation.kids}
+                onDismiss={motion.skip}
+                returnFocusRef={skipButtonRef}
+              />
+            )}
+          </div>
 
           {/*
             The visible skip. A different thing from the chrome's `<SkipAnimationsToggle>`: that one
@@ -563,7 +677,12 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             unavailable rather than vanishing, so pressing it never drops the keyboard focus into the
             void mid-turn — see `SkipMotionButton.tsx`.
           */}
-          <SkipMotionButton playing={motion.playing} onSkip={motion.skip} className="self-center" />
+          <SkipMotionButton
+            playing={motion.playing}
+            onSkip={motion.skip}
+            buttonRef={skipButtonRef}
+            className="self-center"
+          />
 
           {squareNote !== null && (
             <div className="bg-tile text-ink border-hairline flex flex-col gap-1 rounded-xl border p-3 text-sm">
@@ -602,9 +721,10 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             `legalCommands` verbatim, and `send` as the sink. The two together are the whole of
             ADR-005 on this side of the wire.
 
-            `kids`, `auctions` and `hinted` change what a chit *says* and how one is *marked*. None of
-            them can add or remove a button: the set is `commands`, unfiltered, and the hint is an
-            element of it.
+            `kids`, `auctions` and `hinted` change what a chit *says* and how one is *marked*, and
+            `phase` decides whether the estate zone arrives folded. None of the four can add or remove
+            a button: the set is `commands`, unfiltered, and the hint is an element of it. See that
+            file's docstring and `docs/UX_ACTION_PROMINENCE.md` for the property as it now stands.
           */}
           <ActionBar
             id={ACTIONS_REGION_ID}
@@ -615,23 +735,8 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             kids={presentation.kids}
             auctions={presentation.auctions}
             hinted={hintedCommand}
+            phase={state.phase}
           />
-
-          {/*
-            Offering a trade is not an enumerable command — `legality.py` never enumerates
-            `ProposeTrade`, because the drafts are unbounded — so the builder needs an affordance
-            of its own. It is *not* gated on `ruleset.trading_enabled`: whether a trade may be
-            proposed is the engine's answer, and the validator gives it inside the panel.
-          */}
-          <button
-            type="button"
-            onClick={() => {
-              openPanel("trade");
-            }}
-            className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
-          >
-            {translate("action.propose_trade")}
-          </button>
 
           <section aria-labelledby={playersHeadingId} className="flex flex-col gap-2">
             <h2
@@ -678,6 +783,31 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
               cashPulse={cashPulse(shownPlayer.id)}
               actions={<PinToggle playerId={shownPlayer.id} name={shownPlayer.name} />}
             />
+
+            {/*
+              Offering a trade is not an enumerable command — `legality.py` never enumerates
+              `ProposeTrade`, because the drafts are unbounded — so the builder needs an affordance
+              of its own. It is *not* gated on `ruleset.trading_enabled`: whether a trade may be
+              proposed is the engine's answer, and the validator gives it inside the panel.
+
+              Below the property card rather than directly under the action bar, where it used to sit
+              at full weight and read as a fifth move nobody makes (owner feedback, 2026-07-31). A
+              trade offers the things the card above it has just listed, which is
+              `docs/UX_ACTION_PROMINENCE.md`'s option (d) at the level it survives — after the card
+              rather than inside it, so it makes no claim about the *seat* being shown. The glyph is
+              `ACTION_THEME.propose_trade`'s own, so the icon-and-text pair every chit has had since
+              MON-405 now holds for the one affordance that was still text alone.
+            */}
+            <button
+              type="button"
+              onClick={() => {
+                openPanel("trade");
+              }}
+              className="target bg-tile text-ink border-hairline flex items-center gap-2 self-start rounded-xl border px-4 py-2 text-sm font-semibold"
+            >
+              <Icon name={ACTION_THEME.propose_trade.icon} size={16} aria-hidden />
+              <span>{translate("action.propose_trade")}</span>
+            </button>
           </section>
 
           <EventLog events={events} players={state.players} board={board} />

@@ -187,10 +187,96 @@ describe("the projected numbers win — the falsifier", () => {
 });
 
 describe("holdings", () => {
-  it("shows every colour set, in the order the projection sent them", () => {
+  /** The nested fold holding the sets this player has nothing in. */
+  function unstarted(): HTMLElement {
+    const element = screen.getByTestId("dossier-unstarted");
+    return element;
+  }
+
+  /** The group rows that are *not* inside that fold — the sets the player is actually in. */
+  function heldRows(): readonly HTMLElement[] {
+    return screen
+      .getAllByTestId("group-row")
+      .filter((row) => row.closest('[data-testid="dossier-unstarted"]') === null);
+  }
+
+  it("shows only the sets the player holds something in", () => {
+    // The owner's second report: the card listed all ten bands, including the seven a mid-game player
+    // owns nothing in, and those pushed the real holdings out of a fold that exists *because* the card
+    // left no room for the history. `docs/UX_ACTION_PROMINENCE.md` §4.
+    const player = seat({
+      tiles_owned: [1, 3, 6],
+      group_holdings: allGroups([
+        { group: "brown", owned: 2, total: 2, complete: true },
+        { group: "light_blue", owned: 1, total: 3 },
+      ]),
+    });
+    renderDossier(player, propertiesAt({ 1: property(), 3: property(), 6: property() }));
+
+    expect(heldRows().map((row) => row.dataset.group)).toEqual(["brown", "light_blue"]);
+  });
+
+  it("keeps the untouched sets reachable, folded, in the projection's order", () => {
+    // Not dropped. "Which colours has nobody here started" is a real question around turn ten, and
+    // answering it by counting the board is worse than answering it in one keystroke here.
+    const player = seat({
+      tiles_owned: [1],
+      group_holdings: allGroups([{ group: "brown", owned: 1, total: 2 }]),
+    });
+    renderDossier(player, propertiesAt({ 1: property() }));
+
+    expect(unstarted()).not.toHaveAttribute("open");
+    const inside = within(unstarted())
+      .getAllByTestId("group-row")
+      .map((row) => row.dataset.group);
+    expect(inside).toEqual(GROUP_ORDER.filter((group) => group !== "brown"));
+  });
+
+  it("still accounts for every set the projection sent, between the two lists", () => {
+    // The property that makes the filter safe: a partition, not a filter. Nothing can fall out.
+    const player = seat({
+      tiles_owned: [6],
+      group_holdings: allGroups([{ group: "light_blue", owned: 1, total: 3 }]),
+    });
+    renderDossier(player, propertiesAt({ 6: property() }));
+
+    const all = screen.getAllByTestId("group-row").map((row) => row.dataset.group);
+    expect(new Set(all)).toEqual(new Set(GROUP_ORDER));
+    expect(all).toHaveLength(GROUP_ORDER.length);
+  });
+
+  it("shows no set at all for a player who has bought nothing", () => {
     renderDossier(seat());
-    const rows = screen.getAllByTestId("group-row");
-    expect(rows.map((row) => row.dataset.group)).toEqual([...GROUP_ORDER]);
+    expect(heldRows()).toHaveLength(0);
+    // …and the eight are one keystroke away rather than gone.
+    expect(within(unstarted()).getAllByTestId("group-row")).toHaveLength(GROUP_ORDER.length);
+  });
+
+  it("keeps a set whose deed the roll-up has not caught up with", () => {
+    // `owned > 0` **or** a deed was filed here. Losing a holding is a worse failure than showing one
+    // without a fraction, which is the same argument the railroads-and-utilities list makes. A roll-up
+    // that says zero while a square is filed under the band must not hide the square.
+    const player = seat({
+      tiles_owned: [6],
+      group_holdings: allGroups([{ group: "light_blue", owned: 0, total: 3 }]),
+    });
+    renderDossier(player, propertiesAt({ 6: property() }));
+
+    expect(heldRows().map((row) => row.dataset.group)).toEqual(["light_blue"]);
+    expect(within(heldRows()[0] as HTMLElement).getByText("Oriental Avenue")).toBeInTheDocument();
+  });
+
+  it("keeps the completion figures on the sets it does show", () => {
+    // The teaching moment stays. It is `0 of 3` that says nothing, not `2 of 3`.
+    const player = seat({
+      tiles_owned: [1, 3],
+      group_holdings: allGroups([{ group: "brown", owned: 2, total: 2, complete: true }]),
+    });
+    renderDossier(player, propertiesAt({ 1: property(), 3: property() }));
+
+    const brown = heldRows()[0] as HTMLElement;
+    expect(within(brown).getByTestId("group-progress")).toHaveTextContent("Complete set");
+    expect(within(brown).getByTestId("set-pips").children).toHaveLength(2);
   });
 
   it("names a set and files its squares underneath", () => {
@@ -213,16 +299,20 @@ describe("holdings", () => {
     expect(within(blue).getByText("Oriental Avenue")).toBeInTheDocument();
   });
 
-  it("draws houses as pips and a hotel as one block, off the square's own `houses`", () => {
+  it("draws the board's own house and hotel figures, off the square's own `houses`", () => {
     const player = seat({ tiles_owned: [1, 3] });
     renderDossier(player, propertiesAt({ 1: property({ houses: 3 }), 3: property({ houses: 5 }) }));
 
     const rows = screen.getAllByTestId("deed-development");
     expect(rows[0]?.dataset.houses).toBe("3");
     expect(rows[0]?.dataset.hotel).toBe("false");
-    expect(rows[0]?.querySelectorAll(".kesef-deed-house")).toHaveLength(3);
+    // The same `data-level` a board square's figures carry (MON-710): one vocabulary in both
+    // places, so a hotel in the wallet is the shape a player already learned on the street.
+    expect(rows[0]?.querySelectorAll('[data-level="house"]')).toHaveLength(3);
+    expect(rows[0]?.querySelectorAll('[data-level="hotel"]')).toHaveLength(0);
     expect(rows[1]?.dataset.hotel).toBe("true");
-    expect(rows[1]?.querySelectorAll(".kesef-deed-hotel")).toHaveLength(1);
+    expect(rows[1]?.querySelectorAll('[data-level="hotel"]')).toHaveLength(1);
+    expect(rows[1]?.querySelectorAll('[data-level="house"]')).toHaveLength(0);
   });
 
   it("flags a mortgaged square in words, not only with a symbol", () => {
@@ -460,12 +550,25 @@ describe("robustness", () => {
     // Only the deed list folds — the figures stay open, because cash and net worth are what a player
     // checks between moves, and the deed list is the part that grows and squeezes the log by turn
     // thirty.
-    /** The one `<details>` in the card. */
+    /**
+     * The outer `<details>` — the deed list's own fold.
+     *
+     * `querySelector` takes the first in document order, which is this one; the nested fold holding
+     * the untouched sets is inside it and is reached by its test id instead.
+     */
     function fold(): HTMLDetailsElement {
       const element = screen.getByTestId("player-dossier").querySelector("details");
       expect(element, "the deed list is not inside a <details>").not.toBeNull();
       return element as HTMLDetailsElement;
     }
+
+    it("nests the untouched sets inside it, so one fold hides the whole list", () => {
+      const player = seat({ tiles_owned: [1] });
+      renderDossier(player, propertiesAt({ 1: property() }));
+      // Otherwise the "sets with no properties" row would sit outside the fold and be the one thing a
+      // closed card still showed, which is the opposite of the point.
+      expect(fold().contains(screen.getByTestId("dossier-unstarted"))).toBe(true);
+    });
 
     it("starts closed, with the figures still showing", () => {
       const player = seat({ tiles_owned: [1, 3] });

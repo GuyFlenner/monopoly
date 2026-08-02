@@ -29,6 +29,12 @@
  * goes up is a value a component can use as a React `key` to replay a CSS animation (the idiom
  * `DiceTray`'s `Die` established), and it never resets — so going idle cannot make a figure pulse a
  * second time for a payment that finished a minute ago.
+ *
+ * The card (MON-709) is the exception that proves the contract rather than breaking it. It is content,
+ * not a counter, so it *is* cleared — when its own step ends, when the timeline is skipped, and again
+ * when the queue drains. That is the same rule as the token overrides, for the same reason: an idle
+ * queue must assert nothing. Its `nonce` is an ordinary beat, and it is there so that drawing the same
+ * card twice reads as two draws.
  */
 
 import {
@@ -36,11 +42,40 @@ import {
   DEFAULT_BUDGET_MS,
   DEFAULT_DURATIONS,
   destinationOf,
+  readingAllowanceMs,
   totalMs,
+  type CardRevealStep,
+  type Deck,
   type TimelineDurations,
   type TimelineStep,
   type TokenMoveStep,
 } from "./timeline";
+
+/**
+ * The card the board is holding up right now (MON-709).
+ *
+ * Content rather than a beat, which makes it the one field in a {@link MotionFrame} that is not a
+ * number — and it is `null` whenever no card is in flight, including the whole time the queue is idle.
+ * Everything on it was copied off the event stream by `timeline.ts`; nothing here computes a figure,
+ * translates a key, or decides what a card means.
+ */
+export interface RevealedCard {
+  /**
+   * Monotonic, one per reveal.
+   *
+   * The same purpose as the other beats: a React `key`, so drawing the same card twice in a row
+   * replays the entrance rather than leaving a card that was already on screen sitting still.
+   */
+  readonly nonce: number;
+  /** Who drew it. A seat id, for a name lookup in `state.players` — six seats, six possible owners. */
+  readonly player: number;
+  readonly deck: Deck;
+  /** The engine's i18n key for the card text. The catalogue owns the sentence (ADR-003). */
+  readonly cardId: string;
+  /** What the draw moved, or `null` when the events stated no figure. Never derived. */
+  readonly delta: number | null;
+  readonly balance: number | null;
+}
 
 /**
  * What the screen should show right now.
@@ -57,6 +92,8 @@ export interface MotionFrame {
   readonly buildings: ReadonlyMap<number, number>;
   /** A monotonic beat, bumped when the dice should settle. */
   readonly dice: number;
+  /** The card being held up, or `null`. Never set while the queue is idle. */
+  readonly card: RevealedCard | null;
   /** Steps still to play, counting the one in flight. Zero means the screen matches the truth. */
   readonly remaining: number;
 }
@@ -73,6 +110,7 @@ export const STILL: MotionFrame = {
   cash: new Map(),
   buildings: new Map(),
   dice: 0,
+  card: null,
   remaining: 0,
 };
 
@@ -104,6 +142,15 @@ export class MotionQueue {
   private readonly cash = new Map<number, number>();
   private readonly buildings = new Map<number, number>();
   private diceBeat = 0;
+  private cardBeat = 0;
+  /**
+   * The card on screen, or `null`.
+   *
+   * Held rather than derived from `active` so that the *content* of the card and the *timing* of its
+   * step stay one decision: it is set when the step begins and cleared when it ends, which is the
+   * whole of "the card is up while its beat is playing".
+   */
+  private revealed: RevealedCard | null = null;
 
   constructor(options: MotionQueueOptions = {}) {
     this.durations = options.durations ?? DEFAULT_DURATIONS;
@@ -127,6 +174,9 @@ export class MotionQueue {
       cash: new Map(this.cash),
       buildings: new Map(this.buildings),
       dice: this.diceBeat,
+      // Frozen at construction and replaced wholesale, never mutated, so a component may compare it
+      // by identity exactly as it compares the maps.
+      card: this.revealed,
       remaining: this.remaining,
     };
   }
@@ -145,7 +195,10 @@ export class MotionQueue {
     if (steps.length > 0) {
       this.queued = [...this.queued, ...steps];
     }
-    if (totalMs(this.queued) > this.budgetMs) {
+    // The allowance is the *reading* time a card asks for, granted here for the same reason `plan`
+    // grants it: a card's dwell is not flourish, and a batch must not lose a token's walk to it. See
+    // `readingAllowanceMs`.
+    if (totalMs(this.queued) > this.budgetMs + readingAllowanceMs(this.queued, this.durations)) {
       this.queued = [...compress(this.queued, this.durations)];
     }
     this.hold();
@@ -190,6 +243,10 @@ export class MotionQueue {
           // Nothing left. Drop the overrides so every piece is drawn from the projection again, and
           // forget the clock so the next batch starts when it arrives rather than in the past.
           this.tokens.clear();
+          // `finish` has already cleared the card; clearing it again makes "idle means nothing is
+          // overridden" an invariant of one line rather than a consequence of two, and a test can
+          // assert it without knowing which step drained last.
+          this.revealed = null;
           this.endedAt = null;
           return;
         }
@@ -253,6 +310,11 @@ export class MotionQueue {
     this.active = null;
     this.endedAt = null;
     this.tokens.clear();
+    // The card goes with it, which is what makes "put this card down" and "catch up" one gesture
+    // rather than two mechanisms with two timers (MON-709). Nothing is lost by it: the card said the
+    // engine's own sentence, the figure it showed came off an event that is in the log, and the
+    // dossier has been showing the new balance the whole time.
+    this.revealed = null;
   }
 
   /** Bump the beat a step is responsible for, and place a piece on the first square of its walk. */
@@ -270,15 +332,42 @@ export class MotionQueue {
       case "building_pop":
         this.buildings.set(step.tile, (this.buildings.get(step.tile) ?? 0) + 1);
         return;
+      case "card_reveal":
+        this.cardBeat += 1;
+        this.revealed = revealedFrom(step, this.cardBeat);
+        return;
     }
   }
 
-  /** A finished walk leaves its piece on the destination until the whole timeline drains. */
+  /**
+   * A finished walk leaves its piece on the destination until the whole timeline drains; a finished
+   * card comes off the board.
+   *
+   * The asymmetry is the idle contract at work. A token override outlives its step because the piece
+   * has to stand somewhere until the projection takes over, and the projection agrees with it. A card
+   * has no counterpart in the projection at all — `GameStateView` does not carry "the card showing" —
+   * so keeping it up after its beat would be this class inventing a fact and holding it indefinitely.
+   */
   private finish(step: TimelineStep): void {
     if (step.kind === "token_move") {
       this.tokens.set(step.player, destinationOf(step));
     }
+    if (step.kind === "card_reveal") {
+      this.revealed = null;
+    }
   }
+}
+
+/** A step's card content, plus the beat that makes it a fresh reveal. A copy, not a computation. */
+function revealedFrom(step: CardRevealStep, nonce: number): RevealedCard {
+  return {
+    nonce,
+    player: step.player,
+    deck: step.deck,
+    cardId: step.cardId,
+    delta: step.delta,
+    balance: step.balance,
+  };
 }
 
 /**

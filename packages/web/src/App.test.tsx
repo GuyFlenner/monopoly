@@ -32,6 +32,9 @@ import type { Command, GameView, RentQuote } from "./api";
 // app harness should learn.
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
+// The file rather than the barrel: the preference is not part of `@/game`'s public surface, and a
+// test reaching for its storage key is exactly the caller that should have to say where it lives.
+import { AUTO_END_TURN_STORAGE_KEY, forgetCachedAutoEndTurn } from "./game/autoEndTurnPreference";
 import {
   BOARDS,
   type Edge,
@@ -46,7 +49,7 @@ import {
   sockets,
   UNNAMED_BOARD,
 } from "./test/appHarness";
-import { KIDS_RULESET, makeView } from "./test/fixtures";
+import { KIDS_RULESET, loggedEvent, makeView } from "./test/fixtures";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
@@ -602,6 +605,146 @@ describe("App — the game screen", () => {
     const dossier = screen.getByTestId("player-dossier");
     expect(dossier).toHaveAttribute("data-player", "1");
     expect(dossier).toHaveAttribute("data-current", "false");
+  });
+
+  /**
+   * Handing the dice on after a purchase, asserted over the mounted app.
+   *
+   * `autoEndTurn.test.ts` owns the decision, which is pure and has a unit test per branch. What it
+   * cannot own is the *wire*, and the wire is where this feature can fail while every unit test
+   * stays green: the effect has to see a committed event log, take the `end_turn` **out of the
+   * engine's own list**, and post it once. So the fixture is a whole game and the assertion is on
+   * what reached the server.
+   *
+   * The two tests are a pair on purpose. The first proves a turn ends by itself; the second proves
+   * it does *not* when the engine did not offer `end_turn` — which is the doubles case, and the one
+   * a "helpful" doubles check in the client would get subtly wrong. Neither test knows what doubles
+   * are, which is the point: the client cannot know, and does not.
+   */
+  describe("ending a turn the player has finished with", () => {
+    const BOUGHT = loggedEvent(7, {
+      type: "property_acquired",
+      player: 0,
+      tile: 1,
+      price: 60,
+      via: "purchase",
+    });
+
+    const BUY: Command = { kind: "buy_property", player: 0 };
+
+    /**
+     * A game standing on an unowned square, whose purchase returns `next`.
+     *
+     * The purchase is *driven*, not loaded: the test clicks the chit, the POST answers with the view
+     * the engine produced, and the effect sees the log the way a player would make it. Handing the
+     * app a finished purchase in its first GET would test a reload instead, and a reload is not what
+     * "buying ends your turn" is about.
+     */
+    function buying(next: GameView): Edge {
+      return makeEdge({
+        "GET /api/boards": ok(BOARDS),
+        "GET /api/rulesets": ok(RULESETS),
+        "GET /api/games/g1": ok(gameView({ phase: "awaiting_purchase_decision" }, [BUY])),
+        // First POST is the purchase; any further one is the turn ending, and the same view answers
+        // both — what matters is which commands were *sent*.
+        "POST /api/games/g1/commands": ok(next),
+      });
+    }
+
+    async function buy(): Promise<void> {
+      await userEvent.click(await screen.findByRole("button", { name: "Buy this square" }));
+    }
+
+    /** The commands that reached the server, unwrapped from the request envelope. */
+    function commandsPosted(edge: Edge): readonly unknown[] {
+      return edge.calls
+        .filter((call) => call.method === "POST" && call.path.endsWith("/commands"))
+        .map((call) => (call.body as { command: unknown }).command);
+    }
+
+    it("posts end_turn itself once the purchase is in the log", async () => {
+      const edge = buying(gameView({ phase: "awaiting_end_turn" }, [END_TURN], [BOUGHT]));
+      openGameUrl("g1");
+      renderApp(edge);
+      await screen.findByTestId("board-grid");
+      await buy();
+
+      await waitFor(() => {
+        expect(commandsPosted(edge)).toEqual([
+          { kind: "buy_property", player: 0 },
+          { kind: "end_turn", player: 0 },
+        ]);
+      });
+    });
+
+    it("posts it exactly once, however many times the view is committed again", async () => {
+      // The idempotence guard is a `seq` the effect remembers. Without it, every refetch of a view
+      // whose log still contains the purchase would end the turn again — on somebody else's turn.
+      const edge = buying(gameView({ phase: "awaiting_end_turn" }, [END_TURN], [BOUGHT]));
+      openGameUrl("g1");
+      renderApp(edge);
+      await screen.findByTestId("board-grid");
+      await buy();
+      await waitFor(() => {
+        expect(commandsPosted(edge)).toHaveLength(2);
+      });
+
+      // The purchase, arriving *again* over the socket — a reconnect's backlog, which is the exact
+      // shape that would end a turn twice if the effect keyed on "there is a purchase in the log"
+      // rather than on which one it has already acted on.
+      act(() => {
+        sockets[0]?.onmessage?.({ data: JSON.stringify(BOUGHT) });
+      });
+      // A later, harmless frame gives the effect a full commit to misbehave in, and gives this test
+      // something observable to wait for instead of a sleep.
+      act(() => {
+        sockets[0]?.onmessage?.({
+          data: JSON.stringify(
+            loggedEvent(BOUGHT.seq + 1, { type: "turn_started", player: 1, turn_number: 2 }),
+          ),
+        });
+      });
+      await waitFor(() => {
+        expect(screen.getByRole("region", { name: "What's happened" }).textContent).toContain(
+          "Turn 2",
+        );
+      });
+
+      expect(commandsPosted(edge)).toHaveLength(2);
+    });
+
+    it("sends nothing when the engine did not offer end_turn — the doubles case", async () => {
+      // Same purchase, same log; the engine came back at `awaiting_roll` because the move roll was
+      // doubles, so `end_turn` is simply not in the list. The client never learns why.
+      const edge = buying(gameView({ phase: "awaiting_roll" }, [ROLL], [BOUGHT]));
+      openGameUrl("g1");
+      renderApp(edge);
+      await screen.findByTestId("board-grid");
+      await buy();
+
+      // Positive first: the purchase itself went, and the app is showing the game it produced.
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Roll the dice" })).toBeInTheDocument();
+      });
+      expect(commandsPosted(edge)).toEqual([{ kind: "buy_property", player: 0 }]);
+    });
+
+    it("leaves the turn alone when the player has switched the behaviour off", async () => {
+      globalThis.localStorage.setItem(AUTO_END_TURN_STORAGE_KEY, "false");
+      forgetCachedAutoEndTurn();
+      const edge = buying(gameView({ phase: "awaiting_end_turn" }, [END_TURN], [BOUGHT]));
+      openGameUrl("g1");
+      renderApp(edge);
+      await screen.findByTestId("board-grid");
+      await buy();
+
+      // The button the player is now expected to press is on screen, and it is the only thing that
+      // can send the command.
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "End turn" })).toBeInTheDocument();
+      });
+      expect(commandsPosted(edge)).toEqual([{ kind: "buy_property", player: 0 }]);
+    });
   });
 
   /**

@@ -1,7 +1,7 @@
 /**
- * The animation queue, as one import (MON-701).
+ * The animation queue, as one import (MON-701, MON-709).
  *
- * Four beats, one subscription, and a timeline that can be reasoned about without a browser. The
+ * Five beats, one subscription, and a timeline that can be reasoned about without a browser. The
  * layering is the one `a11y/` and `sound/` already use: a pure table (`timeline.ts`), a pure state
  * machine over an injected clock (`queue.ts`), a hook that subscribes once (`useAnimationQueue.ts`),
  * and presentational leaves that own no decisions (`Beat.tsx`, `SkipMotionButton.tsx`,
@@ -15,23 +15,27 @@ export { Pop, Pulse } from "./Beat";
 export { FastForward } from "./FastForward";
 export type { FastForwardProps } from "./FastForward";
 export { MotionQueue, STILL } from "./queue";
-export type { MotionFrame, MotionQueueOptions } from "./queue";
+export type { MotionFrame, MotionQueueOptions, RevealedCard } from "./queue";
 export { SkipMotionButton } from "./SkipMotionButton";
 export type { SkipMotionButtonProps } from "./SkipMotionButton";
 export {
+  cardFigure,
   compress,
   DEFAULT_BUDGET_MS,
   DEFAULT_DURATIONS,
   destinationOf,
   instantly,
   plan,
+  readingAllowanceMs,
   stepFor,
   totalMs,
   walk,
 } from "./timeline";
 export type {
   BuildingPopStep,
+  CardRevealStep,
   CashPulseStep,
+  Deck,
   DiceSettleStep,
   PlanOptions,
   TimelineDurations,

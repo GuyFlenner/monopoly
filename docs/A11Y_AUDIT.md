@@ -223,19 +223,25 @@ worth restating so a future reader does not mistake them for gaps:
 | `e2e/persistence.spec.ts` | 5 | the save file is real; the mute survives a reload; D1's current behaviour |
 
 **Totals after this branch**, with `origin/main` merged in (MON-805's local engine, MON-503's group
-names): **68 Vitest files / 1178 tests, 48 Playwright tests**, the latter run twice end to end against
-the real stack — uvicorn plus Vite — rather than once.
+names, and MON-709/710/711): **75 Vitest files / 1316 tests, 49 Playwright tests**, the latter run end
+to end against the real stack — uvicorn plus Vite — rather than against a fake edge.
 
-## 7. One overlap to reconcile at merge time
+## 7. The building marks were superseded before this branch merged — resolved
 
-MON-710 lands the building marks **again**, and better: it replaces the two coloured blocks with
-house and hotel *silhouettes*, moves the fills from `theme/surfaces.ts` to `theme/buildings.ts`, and
-gates them on the non-text floor against the card face plus greyscale separation *from each other*.
-That supersedes §3's building-mark paragraph, which describes the marks this audit rescued into the
-theme — the rescue is what made the measurement possible, and MON-710 is what the measurement then
-asked for.
+MON-710 landed first and did the same job better: it replaced the two coloured blocks with house and
+hotel **silhouettes**, moved the fills to `theme/buildings.css` where they vary by theme, and gates
+them on the non-text floor against the card face *plus* greyscale separation from each other.
 
-Both branches touch `theme/contrast.test.ts` and `theme/index.ts`, so whichever merges second needs a
-reconciliation rather than an automatic merge: keep `BUILDING_FILL` and the silhouettes, drop
-`BUILDING_MARK` and `--color-house` / `--color-hotel`. Noted here rather than left to a merge conflict
-to explain, because the two changes agree about everything except which module owns the colour.
+So §3's building-mark paragraph describes a rescue rather than the current code. It is left standing
+because the rescue is the part that mattered: those colours were literals in two stylesheets and named
+in no TypeScript module, which is why nothing had ever measured them and why nobody knew `#1f7a3d`
+reads at 2.53:1 on a dark card. Naming them is what made the measurement possible, and the measurement
+is what MON-710 then acted on.
+
+`BUILDING_MARK`, `BUILDING_MARK_CSS_VAR` and the `--color-house` / `--color-hotel` tokens are **gone**
+from this branch as of the merge; `BUILDING_FILL` in `theme/buildings.tsx` is the one owner of a
+building's colour, and `contrast.test.ts` measures it per theme. One behavioural difference is worth
+recording: this audit asserted that the two marks *collide* in greyscale and are separated by shape,
+because two same-sized rectangles had no other channel. MON-710's figures are separated by silhouette
+**and** clear 24 greyscale steps from each other, so the collision assertion was not merely moved — it
+stopped being true, in the good direction.

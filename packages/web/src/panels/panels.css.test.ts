@@ -85,8 +85,9 @@ describe("the painted surfaces keep their keyline", () => {
       ".kesef-chit",
       ".kesef-spine",
       ".kesef-setpip",
-      ".kesef-deed-house",
-      ".kesef-deed-hotel",
+      // The buildings' keyline moved with the figures to `theme/buildings.css`, where
+      // `buildings.css.test.ts` makes the same assertion about `.kesef-building > path` (MON-710).
+      // What is left here is only how big a deed row draws them.
       ".kesef-deed-mortgage",
     ]) {
       const body = new RegExp(`\\${rule}\\s*\\{([\\s\\S]*?)\\}`).exec(DECLARATIONS);
