@@ -75,6 +75,12 @@ export function EventLog({
         return i18n.exists(key) ? t(key) : t("log.unknown_tile");
       },
       translate: (key, params) => t(key, params ?? {}),
+      // The board a group's name may come from. On the Israeli board `rent.note.full_group_doubled`
+      // says "the whole Tel Aviv set" rather than "the whole dark blue set", because that board's
+      // catalogue names each group after its city — see `i18n/groupNames.ts`. `exists` is the guard
+      // that lets the classic board stay silent instead of throwing.
+      boardId: board?.id,
+      exists: i18n.exists.bind(i18n),
     }),
     [players, board, t, i18n],
   );

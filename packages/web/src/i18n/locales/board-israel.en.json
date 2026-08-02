@@ -42,5 +42,15 @@
       "t38": "Luxury Tax",
       "t39": "Dizengoff St."
     }
+  },
+  "group": {
+    "brown": "Eilat",
+    "light_blue": "Tiberias",
+    "pink": "Be'er Sheva",
+    "orange": "Netanya",
+    "red": "Ramat Gan",
+    "yellow": "Jerusalem",
+    "green": "Haifa",
+    "dark_blue": "Tel Aviv"
   }
 }
