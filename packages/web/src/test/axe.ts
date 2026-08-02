@@ -55,3 +55,32 @@ export async function expectAxeClean(container: Element): Promise<void> {
   });
   expect(results.violations.map(describe)).toEqual([]);
 }
+
+/**
+ * Assert that a **whole screen** has no axe violations, with `region` switched back on (MON-703).
+ *
+ * The difference from {@link expectAxeClean} is one rule, and it is the reason this function exists
+ * rather than a flag on that one. `region` — "all page content is contained by landmarks" — is the
+ * only rule in the set whose answer depends on the shell, so it is the only rule a component test
+ * *has* to switch off and the only rule a screen sweep genuinely adds. Turning it off everywhere
+ * would leave the product with no assertion at all that its content sits inside `<main>`, `<header>`
+ * and `<aside>`; turning it on in a component test would report the absence of a shell the test
+ * deliberately did not mount.
+ *
+ * `color-contrast` stays off for the reason in this module's docstring: jsdom computes no colours,
+ * and the honest home for a ratio is the arithmetic in `theme/contrast.test.ts`.
+ *
+ * Pass `document.body`, not a render container: the Announcer's two live regions and any portalled
+ * dialog are siblings of the container, and a landmark audit that cannot see them is measuring a
+ * different page from the one a player gets.
+ */
+export async function expectAxeCleanScreen(container: Element): Promise<void> {
+  const results: AxeResults = await axe.run(container, {
+    rules: {
+      // jsdom computes no colours; asserted numerically in `theme/contrast.test.ts`.
+      "color-contrast": { enabled: false },
+    },
+    resultTypes: ["violations"],
+  });
+  expect(results.violations.map(describe)).toEqual([]);
+}

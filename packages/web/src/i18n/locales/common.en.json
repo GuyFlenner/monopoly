@@ -445,6 +445,7 @@
     "empty": "This game has no events to step through yet.",
     "first": "First",
     "forward": "Forward",
+    "history": "History up to here",
     "last": "Last",
     "nothing_yet": "Nothing has happened yet. Step forward to watch the game unfold.",
     "open": "Watch the replay",

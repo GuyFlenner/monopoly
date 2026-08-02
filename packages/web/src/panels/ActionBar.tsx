@@ -868,8 +868,8 @@ export function ActionBar({
     // `tabIndex={-1}` so `Board`'s "skip to actions" link moves focus here rather than only
     // scrolling: a fragment link cannot focus a target that is not focusable.
     <section
-      id={id}
       ref={region}
+      id={id}
       tabIndex={-1}
       aria-labelledby={headingId}
       onFocusCapture={() => {

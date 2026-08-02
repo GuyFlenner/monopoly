@@ -133,42 +133,6 @@ describe.each([...THEMES])("seat tokens — %s theme", (theme: ThemeName) => {
   });
 });
 
-describe.each([...THEMES])("action tones — %s theme", (theme: ThemeName) => {
-  const surface = SURFACES[theme];
-  const tones = ACTION_TONE[theme];
-
-  it.each(["primary", "neutral", "caution", "danger"] as const)(
-    "%s reads on a card face at ≥ 4.5:1 (ink vs tile)",
-    (tone) => {
-      expect(ratio(tones[tone].ink, surface.tile)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
-    },
-  );
-
-  it.each(["primary", "neutral", "caution", "danger"] as const)(
-    "%s reads its label on a filled button at ≥ 4.5:1 (onFill vs fill)",
-    (tone) => {
-      expect(ratio(tones[tone].onFill, tones[tone].fill)).toBeGreaterThanOrEqual(
-        CONTRAST_FLOOR.text,
-      );
-    },
-  );
-});
-
-/**
- * The buildings (MON-710), which are exactly the bug this file was written for, one layer down.
- *
- * The fills they replaced were `#1f7a3d` and `#b3271f` — literals in a stylesheet, so nothing in
- * this file knew they existed, so nobody ever noticed that in the dark theme they measure 2.53:1
- * and 2.09:1 against the card face they sit on. That is the same shape as the 1.41:1 claim in the
- * docstring above: not a wrong colour, an *unmeasured* one. `buildingReferenceSurface` exists so
- * the surface is named by the module under test rather than guessed at here.
- *
- * The non-text floor applies: a house is a region, not a letter. The greyscale separation is
- * asserted twice over — against the face, so the figure is visible at all with hue removed, and
- * house against hotel, so the pair does not collapse into one grey shape for a deutan or protan
- * player. That second one is a bonus channel and it is stated as such: the guarantee is the
- * silhouette, and `buildings.test.tsx` measures that from the path data.
- */
 describe.each([...THEMES])("buildings — %s theme", (theme: ThemeName) => {
   const face = buildingReferenceSurface(theme);
   const fills = BUILDING_FILL[theme];

@@ -536,7 +536,22 @@ export function PlayerDossier({
   const unstarted = player.group_holdings.filter((holdings) => !held.includes(holdings));
 
   return (
-    <section
+    /*
+      `role="group"`, not a `<section>` — MON-703's audit finding.
+
+      A named `<section>` is the **region** landmark, and landmarks are a page-level navigation aid:
+      one per major area, each with a distinct name. This card can be on screen five times at once —
+      the aside's copy, up to three in the compare tray, and one inside a trade panel — and two of
+      those are the *same seat*, so the same name appeared twice and axe reported `landmark-unique`.
+      Five regions named "Ruti's properties" is not navigation, it is a landmark list nobody can use.
+
+      `role="group"` keeps everything that mattered: the label is still the card's accessible name, so
+      a screen reader still says whose properties these are on entering it. What it gives up is a place
+      in the landmark list, which is exactly the part that was wrong. The screen's own landmarks —
+      `<header>`, `<main>`, `<aside>` — are unaffected and are where a player actually navigates.
+    */
+    <div
+      role="group"
       data-testid="player-dossier"
       data-player={player.id}
       data-current={isCurrent}
@@ -552,7 +567,14 @@ export function PlayerDossier({
         .filter(Boolean)
         .join(" ")}
     >
-      <header className="flex items-center gap-3">
+      {/*
+        A `<div>` rather than a `<header>`, and the reason is the root above: `<header>` maps to the
+        **banner** landmark unless a sectioning element (`article`/`aside`/`nav`/`section`) encloses
+        it. It used to be enclosed by this card's own `<section>`; now that the card is a `<div>`, a
+        `<header>` here would become a page banner whenever the card is rendered inside a dialog —
+        which is precisely where the trade panel puts it.
+      */}
+      <div className="flex items-center gap-3">
         {seat !== undefined && (
           <Token
             seat={seat}
@@ -572,7 +594,7 @@ export function PlayerDossier({
         {/* The owner's controls, at the inline end of the header. A slot, so this card holds no
             opinion about what pinning is (MON-702). */}
         {actions !== undefined && <div className="flex shrink-0 items-center">{actions}</div>}
-      </header>
+      </div>
 
       <div
         className={`border-current/15 grid grid-cols-2 gap-3 border-y py-2 ${compact ? "" : "sm:grid-cols-4"}`}
@@ -718,6 +740,6 @@ export function PlayerDossier({
           </div>
         )}
       </details>
-    </section>
+    </div>
   );
 }

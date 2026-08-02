@@ -37,6 +37,11 @@ export function SaveGameButton({ port, className }: SaveGameButtonProps): React.
   const [failure, setFailure] = useState<ApiError | null>(null);
 
   const download = useCallback(async () => {
+    if (saving) {
+      // Re-entry guard, and the reason this button is not `disabled` while a save is in flight — see
+      // the JSX below.
+      return;
+    }
     setSaving(true);
     setFailure(null);
     try {
@@ -50,18 +55,28 @@ export function SaveGameButton({ port, className }: SaveGameButtonProps): React.
     } finally {
       setSaving(false);
     }
-  }, [client, gameId, port]);
+  }, [client, gameId, port, saving]);
 
   return (
     <>
+      {/*
+        `aria-disabled` while a save is in flight, never `disabled` — MON-703's audit finding, and the
+        same rule `animation/SkipMotionButton.tsx` states at length.
+
+        A `disabled` element cannot hold focus, so pressing this button used to hand the keyboard back
+        to `<body>`: a player who saved mid-game was silently returned to the top of the tab order, and
+        a screen-reader user was told nothing, because nothing had focus to announce. Reporting itself
+        unavailable keeps the focus ring where the player left it, and the double-download this guarded
+        against is guarded in `download` instead, where "already in flight" is actually known.
+      */}
       <button
         type="button"
-        disabled={saving}
+        aria-disabled={saving}
         data-testid="save-game"
         onClick={() => {
           void download();
         }}
-        className={`target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold disabled:opacity-60 ${className ?? ""}`}
+        className={`target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold aria-disabled:opacity-60 ${className ?? ""}`}
       >
         {saving ? t("save.saving") : t("save.download")}
       </button>

@@ -17,189 +17,43 @@
  * 6. **Holdings are public.** A non-current player's dossier is reachable on somebody else's turn.
  *
  * The fakes go in at the edge — a `fetch` and a socket factory handed to a real `ApiClient` — so
- * every test drives the real client, the real query cache and the real event queue.
+ * every test drives the real client, the real query cache and the real event queue. That scaffolding
+ * lives in `test/appHarness.tsx` since MON-703, because the accessibility sweep needs the same
+ * mounted app and two fake edges would drift.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "./App";
-import { ApiClient, type FetchLike, type SocketLike } from "./api";
-import type {
-  BoardSummary,
-  Command,
-  GameStateView,
-  GameView,
-  LoggedEvent,
-  RentQuote,
-  RulesetView,
-} from "./api";
+import type { Command, GameView, RentQuote } from "./api";
+// Straight from the fixtures rather than through the harness: the Israeli-board rent test builds a
+// board of its own — forty remapped `name_key`s — which is a fixture concern and not one the shared
+// app harness should learn.
 import { makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
 // The file rather than the barrel: the preference is not part of `@/game`'s public surface, and a
 // test reaching for its storage key is exactly the caller that should have to say where it lives.
 import { AUTO_END_TURN_STORAGE_KEY, forgetCachedAutoEndTurn } from "./game/autoEndTurnPreference";
-import { KIDS_VIEW, UNIVERSAL_VIEW } from "./panels/SetupScreenFixtures";
+import {
+  BOARDS,
+  type Edge,
+  gameEdge,
+  gameView,
+  makeEdge,
+  ok,
+  openGameUrl,
+  refusal,
+  renderApp,
+  RULESETS,
+  sockets,
+  UNNAMED_BOARD,
+} from "./test/appHarness";
 import { KIDS_RULESET, loggedEvent, makeView } from "./test/fixtures";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
-// --- The fake edge ----------------------------------------------------------
-
-/** The sockets the app opened, so a test can drop one. */
-const sockets: FakeSocket[] = [];
-
-class FakeSocket implements SocketLike {
-  onopen: ((event: unknown) => void) | null = null;
-  onmessage: ((event: { data: unknown }) => void) | null = null;
-  onerror: ((event: unknown) => void) | null = null;
-  onclose: ((event: { code: number; reason: string; wasClean: boolean }) => void) | null = null;
-  closed = false;
-
-  constructor(readonly url: string) {
-    sockets.push(this);
-  }
-
-  close(): void {
-    this.closed = true;
-  }
-}
-
-interface Reply {
-  readonly status: number;
-  readonly body: unknown;
-}
-
-function ok(body: unknown): Reply {
-  return { status: 200, body };
-}
-
-function refusal(
-  status: number,
-  reasonKey: string,
-  params: Record<string, string | number> = {},
-): Reply {
-  return { status, body: { reason_key: reasonKey, params } };
-}
-
-/**
- * `Method /path` (query stripped) -> reply. A request with no route is a test bug, and says so.
- *
- * A route may name **several** replies, consumed in order and then repeated for any further calls.
- * That is what lets a test drive two commands whose views differ — the auto-end-turn tests post to
- * `/commands` twice, once for the purchase and once for the turn that follows it, and the whole
- * feature is about the second one being sent by the app rather than by a player.
- */
-type Routes = Readonly<Record<string, Reply | readonly Reply[]>>;
-
-interface Edge {
-  readonly client: ApiClient;
-  readonly calls: { method: string; path: string; body: unknown }[];
-}
-
-function makeEdge(routes: Routes, options: { readonly hang?: boolean } = {}): Edge {
-  const calls: { method: string; path: string; body: unknown }[] = [];
-  /** How many times each route has answered, for the sequenced form. */
-  const served = new Map<string, number>();
-  const doFetch: FetchLike = (input, init) => {
-    const method = init?.method ?? "GET";
-    const path = input.split("?")[0] ?? input;
-    calls.push({
-      method,
-      path,
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
-    });
-    if (options.hang === true) {
-      return new Promise<Response>(() => undefined);
-    }
-    const route = `${method} ${path}`;
-    const configured = routes[route];
-    if (configured === undefined) {
-      return Promise.reject(new Error(`no route for ${route}`));
-    }
-    // The last reply repeats rather than running out, so a test only has to spell out the calls it
-    // actually cares about telling apart.
-    let reply: Reply;
-    if (Array.isArray(configured)) {
-      const nth = served.get(route) ?? 0;
-      served.set(route, nth + 1);
-      reply = configured[Math.min(nth, configured.length - 1)] as Reply;
-    } else {
-      reply = configured as Reply;
-    }
-    return Promise.resolve({
-      ok: reply.status >= 200 && reply.status < 300,
-      status: reply.status,
-      json: () => Promise.resolve(reply.body),
-    } as unknown as Response);
-  };
-
-  return {
-    calls,
-    client: new ApiClient({
-      baseUrl: "/api",
-      fetch: doFetch,
-      createSocket: (url) => new FakeSocket(url),
-      origin: "http://localhost/",
-    }),
-  };
-}
-
-// --- Fixtures ---------------------------------------------------------------
-
-const BOARDS: readonly BoardSummary[] = [
-  {
-    id: "classic",
-    name_key: "board.classic.name",
-    tile_count: 40,
-    ownable_count: 28,
-    catalogue_ready: true,
-  },
-];
-
-/** A board the picker must not offer: its forty square names resolve to nothing (MON-419). */
-const UNNAMED_BOARD: BoardSummary = {
-  id: "atlantis",
-  name_key: "board.classic.name",
-  tile_count: 40,
-  ownable_count: 28,
-  catalogue_ready: false,
-};
-
-/** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
-const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
-
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 const END_TURN: Command = { kind: "end_turn", player: 0 };
-
-/** A real forty-square ring, so every square name resolves in the catalogue (G-F17). */
-function gameView(
-  overrides: Partial<GameStateView> = {},
-  commands: readonly Command[] = [],
-  events: readonly LoggedEvent[] = [],
-): GameView {
-  return makeView({
-    board: makeRingBoard(),
-    state: makeRingState(overrides),
-    legal_commands: [...commands],
-    events: [...events],
-  });
-}
-
-function renderApp(edge: Edge): ReturnType<typeof render> {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <App client={edge.client} />
-    </QueryClientProvider>,
-  );
-}
-
-/** Put a game in the address bar, which is where the shell keeps it. */
-function openGameUrl(gameId: string): void {
-  globalThis.history.pushState({}, "", `/?game=${gameId}`);
-}
 
 beforeEach(() => {
   sockets.length = 0;
@@ -361,15 +215,6 @@ describe("App — the setup screen", () => {
 // --- The game screen --------------------------------------------------------
 
 describe("App — the game screen", () => {
-  function gameEdge(view: GameView): Edge {
-    return makeEdge({
-      "GET /api/boards": ok(BOARDS),
-      "GET /api/rulesets": ok(RULESETS),
-      "GET /api/games/g1": ok(view),
-      "POST /api/games/g1/commands": ok(view),
-    });
-  }
-
   describe("the rent a square would charge (MON-420)", () => {
     /**
      * Forty quotes, index-aligned with the ring, with one square priced.

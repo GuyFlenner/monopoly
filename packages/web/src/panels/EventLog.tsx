@@ -35,6 +35,19 @@ export interface EventLogProps {
   readonly board: BoardView | undefined;
   /** How many rows to keep in the DOM. The newest ones win. */
   readonly maxEntries?: number;
+  /**
+   * The heading key, and therefore this region's accessible name (MON-703).
+   *
+   * Defaults to `log.title` — "What's happened" — which is what the ledger beside the board is called.
+   * The replay viewer renders this same component over a slice of a *different* log, and two regions
+   * called "What's happened" on one page is `landmark-unique`: a landmark list with two identical
+   * entries cannot be navigated, and the one a player wanted was a coin toss. So the replay passes
+   * `replay.history` and the two names stay distinct, which is also the more honest label — the log in
+   * the panel is the history *up to the slider*, not what has happened.
+   *
+   * A key rather than a string, because a component in this package never receives prose.
+   */
+  readonly titleKey?: string;
 }
 
 /**
@@ -50,6 +63,7 @@ export function EventLog({
   players,
   board,
   maxEntries = DEFAULT_MAX_ENTRIES,
+  titleKey = "log.title",
 }: EventLogProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const headingId = useId();
@@ -96,7 +110,7 @@ export function EventLog({
         id={headingId}
         className="border-b border-dashed border-current/20 px-4 py-3 text-xs font-semibold uppercase tracking-[0.16em] opacity-70"
       >
-        {t("log.title")}
+        {t(titleKey)}
       </h2>
 
       {/*
@@ -138,7 +152,17 @@ function Entry({
   readonly exists: Exists;
 }): React.JSX.Element {
   return (
-    <li className="flex items-start gap-3 border-s-2 border-dashed border-current/20 py-2 ps-3">
+    /*
+      `data-log-key` is the same affordance a chit's `data-command-kind` is, and it exists for the
+      same reason (MON-707): the *sentence* on this row is translated, so a test that reads it can
+      only be written in one language, and the smoke MON-707 asks for has to pass in two. The key is
+      the line's identity and the catalogue is what turns it into prose — so an e2e spec can assert
+      that rent was charged in Hebrew without teaching a Playwright file any Hebrew.
+    */
+    <li
+      data-log-key={line.key}
+      className="flex items-start gap-3 border-s-2 border-dashed border-current/20 py-2 ps-3"
+    >
       <span
         aria-hidden="true"
         className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-current/10 text-xs"
@@ -171,7 +195,10 @@ function Entry({
 function TurnMarker({ line }: { readonly line: LogLine }): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <li className="flex items-center gap-3 py-3">
+    // `data-log-key` here as well as on an ordinary row: a turn boundary is a line in the log like any
+    // other, and a test counting "did that command produce anything" must not miss the one event
+    // whose whole purpose is to say the turn changed hands.
+    <li data-log-key={line.key} className="flex items-center gap-3 py-3">
       <span className="h-px flex-1 bg-current/25" />
       <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] opacity-80">
         {t(line.key, line.params)}

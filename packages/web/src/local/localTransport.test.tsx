@@ -26,6 +26,17 @@ async function settle(): Promise<void> {
   }
 }
 
+/** Poll until `done`, or fail loudly rather than hanging the suite. */
+async function waitUntil(done: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!done()) {
+    if (Date.now() > deadline) {
+      throw new Error("timed out waiting for the background work to finish");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 const SEATS = [
   { name: "Ruti", token: "cat", is_bot: false, bot_level: null, grammatical_gender: "f" as const },
   { name: "Dan", token: "dog", is_bot: false, bot_level: null, grammatical_gender: "m" as const },
@@ -154,7 +165,11 @@ describe("an ApiClient wired to the local transport", () => {
       elapsed_seconds: 0,
     });
     order.push("the command's own answer");
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    // Waited for as an *observable* rather than for a fixed 40 ms: two 5 ms steps beat that number
+    // on an idle machine and lose to it on a loaded one, which is a test that fails for a reason
+    // that has nothing to do with the claim. What is being asserted is the *order*, so the wait is
+    // "until both steps have happened".
+    await waitUntil(() => order.length === 3);
 
     // One move and then the step that reports done — both after the caller was already served.
     expect(order).toEqual(["the command's own answer", "bot step", "bot step"]);

@@ -175,11 +175,17 @@ function ReplayBody({
       {/*
         The written history, up to this position — the game screen's own log component over a slice.
         `maxEntries` is left at its default: the slice is already bounded by where the slider is.
+
+        `titleKey` is the one thing this copy does differently, and it is an accessibility fix rather
+        than a wording preference (MON-703): the log beside the board is already a region called
+        "What's happened", and a second region with that name is `landmark-unique` — two identical
+        entries in the landmark list, with no way to tell which is the replay's.
       */}
       <EventLog
         events={events.slice(0, position)}
         players={snapshot.state.players}
         board={snapshot.board}
+        titleKey="replay.history"
       />
     </div>
   );
