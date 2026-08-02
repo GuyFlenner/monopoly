@@ -503,23 +503,51 @@ function subjectOf(step: TimelineStep): string | null {
   }
 }
 
-/** Rung three: the same steps, taking no time. See the module docstring on why zero, not skipped. */
+/**
+ * Rung three: the same steps, taking no time. See the module docstring on why zero, not skipped.
+ *
+ * The card keeps its dwell, and that exception is the whole difference between *reduced motion* and
+ * *reduced information*. Zeroing the other four costs a player nothing — the piece is on its square,
+ * the die shows its face, the balance is on the dossier — because each of them decorates a fact the
+ * screen states anyway. A card at zero milliseconds is a sentence that was never shown: the log names
+ * only the deck, so for a sighted player who has asked for less motion the instruction they are about
+ * to be held to would appear nowhere at all. A player asked for a still board, not for a card they
+ * have to guess. It does not *move* either way — its entrance is already zero through
+ * `useMotionPreference().durationMs` — it simply stays long enough to be read, and can be put down at
+ * once (MON-709).
+ *
+ * A card nobody watched happen is a different question, and it is answered by dropping the step
+ * rather than by shortening it: see {@link PlanOptions.history}.
+ */
 export function instantly(steps: readonly TimelineStep[]): readonly TimelineStep[] {
-  return steps.map((step) => (step.durationMs === 0 ? step : { ...step, durationMs: 0 }));
+  return steps.map((step) =>
+    step.durationMs === 0 || step.kind === "card_reveal" ? step : { ...step, durationMs: 0 },
+  );
 }
 
 export interface PlanOptions {
   readonly durations?: TimelineDurations;
   readonly budgetMs?: number;
   /**
-   * Collapse everything to zero duration.
+   * Collapse the motion to zero duration.
    *
-   * Two callers set it, for two different reasons that want the same answer: the player asked for
-   * less motion (`board/motion.ts`), or these frames are **history** rather than news — a reload's
-   * `since=0` replay, or a gap the animation layer cannot honestly walk across. See
-   * `useAnimationQueue.ts`.
+   * Two callers set it, for two different reasons: the player asked for less motion
+   * (`board/motion.ts`), or these frames are **history** rather than news — a reload's `since=0`
+   * replay, or a gap the animation layer cannot honestly walk across. See `useAnimationQueue.ts`.
+   * The two answers differ in one place only, the card, so the history caller sets {@link history}
+   * as well.
    */
   readonly instant?: boolean;
+  /**
+   * These frames already happened and nobody watched them.
+   *
+   * Only the card reads this, because the card is the only step that outlives `instant`. Holding up
+   * a card drawn twenty turns ago — or, on a reload, forty cards in a row — would be the animation
+   * layer telling a player something is happening now when it happened before they arrived. So a
+   * historic draw produces no step at all, which is also what the log and the dossier already say
+   * about it: it is over.
+   */
+  readonly history?: boolean;
 }
 
 /**
@@ -541,7 +569,7 @@ export function plan(
     // empty list, which keeps this a linear pass over the batch rather than a quadratic one.
     const following = frame.event.type === "card_drawn" ? frames.slice(index + 1) : [];
     const step = stepFor(frame, durations, following);
-    if (step !== null) {
+    if (step !== null && !(options.history === true && step.kind === "card_reveal")) {
       beats.push(step);
     }
   }

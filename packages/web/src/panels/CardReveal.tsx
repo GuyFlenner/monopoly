@@ -50,7 +50,7 @@ import { useMotionPreference } from "@/board/motion";
 import { useCopy } from "@/i18n/copy";
 import { Icon } from "@/theme";
 
-import { cardBodyLanguage, DECK_ICON, figureKey } from "./cardReveal";
+import { cardBodyLanguage, DECK_ICON, figureKey } from "./cardSurface";
 import { DECK_KEYS } from "./EventLogLines";
 
 import "@/animation/animation.css";
@@ -201,7 +201,7 @@ export function CardReveal({
 
         {/*
           The card itself. `lang`/`dir` describe the language the text *is* in, which is not always
-          the page's — see the module docstring and `cardReveal.ts`.
+          the page's — see the module docstring and `cardSurface.ts`.
         */}
         <p
           data-testid="card-reveal-text"

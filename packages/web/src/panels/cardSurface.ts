@@ -83,6 +83,13 @@ export function cardBodyLanguage(
   text: string,
   locale: string,
 ): { readonly lang: Locale; readonly dir: Direction } | null {
+  // A language claim needs a letter to be about. `needsIsolation` counts digits as an LTR run — and
+  // is right to, because a weak run is exactly what reorders in a Hebrew sentence — but "50" is not
+  // English, and telling a screen reader it is would have it read the number out in the wrong
+  // language. Bidi and language are different questions; only this one is being asked here.
+  if (!/\p{L}/u.test(text)) {
+    return null;
+  }
   // `needsIsolation(value, "ltr")` asks "does this contain strong RTL", and vice versa. Reused rather
   // than re-derived so the script ranges live in exactly one place — see `i18n/bidi.ts` on why the
   // Hebrew and Arabic block boundaries are not what they look like.
@@ -92,7 +99,7 @@ export function cardBodyLanguage(
       ? "ltr"
       : null;
   if (script === null) {
-    // Digits and punctuation only. There is no language in it to declare, and no reordering to fix.
+    // Punctuation only, and no letter above to have caught it. Nothing to declare either way.
     return null;
   }
   const page = isLocale(locale) ? DIRECTION[locale] : "ltr";
