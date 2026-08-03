@@ -80,7 +80,10 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
   await expect(board).toBeVisible();
   expect(await board.locator("[data-tile-index]").count()).toBe(40);
 
-  // The game id is in the URL, which is what makes a reload rehydrate rather than abandon.
+  // The game id is in the URL. Note what this does *not* say: for a long time the comment here
+  // claimed the id "is what makes a reload rehydrate rather than abandon", and that was true of the
+  // server build the author had in mind and false of the artifact under test — this spec never
+  // reloaded, so nothing noticed. The reload is now its own test below (ADR-010).
   expect(new URL(page.url()).searchParams.get("game")).toBeTruthy();
 
   // A turn. The button exists because `legal_commands` said so — the UI renders what it is handed
@@ -99,4 +102,66 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
   // A Python traceback, a 404 for a wheel or a micropip refusal all arrive here. The page can look
   // fine and still have failed at something; this is what notices.
   expect(consoleErrors.filter((text) => /Traceback|micropip|PythonError/i.test(text))).toEqual([]);
+});
+
+/**
+ * The reload (ADR-010), which is the failure this surface existed to catch and did not.
+ *
+ * A session in this build is Python objects in the tab's Pyodide heap. Reload and the heap is new,
+ * so the store answers a truthful 404 for the game the URL names and the player is shown *"this
+ * game no longer exists"* — no crash, nothing in the console, and an evening's game gone. A tablet
+ * reloads a backgrounded tab on its own; a six-year-old presses things.
+ *
+ * It has to be tested *here*, against the built artifact and the real interpreter, because that is
+ * where the fact lives that makes it true — `src/local/rehydrate.test.ts` and the transport tests
+ * model a forgetful engine, and a model is exactly what missed this the first time.
+ */
+test("a reload continues the game rather than losing it", async ({ page }) => {
+  await page.goto("./");
+  await page.locator('label:has(input[name$="-locale"][value="en"])').click({ timeout: 240_000 });
+
+  const seats = page.getByTestId("setup-seats").getByRole("listitem");
+  await seats.nth(0).locator('input[type="text"]').fill("Ruti");
+  await seats.nth(1).locator('input[type="text"]').fill("Dan");
+  await page.locator('button[type="submit"]').click();
+  await expect(page.getByTestId("board-grid")).toBeVisible();
+
+  // Moves, so the reload has something to lose that a fresh game would not have: this plays on to
+  // a later turn, and "turn 1" is what a game dealt over the top of it would show.
+  const banner = page.getByTestId("turn-banner");
+  const turn = async (): Promise<number> =>
+    Number(/\d+/.exec((await banner.textContent()) ?? "")?.[0] ?? "0");
+  for (let move = 0; move < 8 && (await turn()) < 3; move += 1) {
+    for (const kind of ["roll_dice", "decline_purchase", "end_turn"]) {
+      const chit = page.locator(`[data-command-kind="${kind}"]:visible`);
+      if ((await chit.count()) === 0) continue;
+      await chit
+        .first()
+        .click({ timeout: 10_000 })
+        .catch(() => undefined);
+      const proceed = page.locator('[data-confirm="proceed"]');
+      if ((await proceed.count()) > 0) {
+        await proceed.click({ timeout: 10_000 }).catch(() => undefined);
+      }
+      break;
+    }
+  }
+  const before = await turn();
+  expect(
+    before,
+    "the game never got past turn one, so a reload could not lose anything",
+  ).toBeGreaterThan(1);
+
+  await page.reload();
+
+  // The whole claim: the board comes back, and it is the *same game* rather than a new one dealt
+  // over the top of it.
+  await expect(page.getByTestId("board-grid")).toBeVisible({ timeout: 240_000 });
+  // Asserted on the turn number and the seat's own name, not on the banner's words: the app opens
+  // in Hebrew and the language is deliberately not persisted (`e2e/locale.spec.ts`), so the same
+  // game says this in a different language after a reload.
+  await expect.poll(turn, { timeout: 60_000 }).toBe(before);
+  await expect(banner).toContainText("Ruti");
+  // And no refusal screen. "This game no longer exists" is exactly what a player saw before ADR-010.
+  await expect(page.getByTestId("game-error")).toHaveCount(0);
 });
