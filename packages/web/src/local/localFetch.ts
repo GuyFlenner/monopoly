@@ -27,6 +27,7 @@
 import type { FetchLike } from "@/api";
 
 import { parseEnvelope, type Envelope, type PyBridge } from "./bridge";
+import { gameIdOfPlainGet } from "./rehydrate";
 
 /** The prefix `ApiClient` puts in front of every path. `DEFAULT_BASE_URL` in `client.ts`. */
 export const DEFAULT_LOCAL_BASE_PATH = "/api";
@@ -52,6 +53,15 @@ export interface LocalFetchOptions {
    * caller's own move and must not wait for the bots, which is the whole of MON-304.
    */
   readonly onMutation?: (gameId: string) => void;
+  /**
+   * Asked when a plain `GET /games/{id}` answers 404, before the caller is told.
+   *
+   * Returning `true` means "the game is there now, ask again" — which is how the local build
+   * survives a reload without anything above this directory learning that its session lives in a
+   * heap that a refresh discards (ADR-010). Absent, a 404 is a 404, which is what the server build
+   * wants and what every existing test of this file expects.
+   */
+  readonly onMissingGame?: (gameId: string) => Promise<boolean>;
 }
 
 /** One matched route: the facade call to make, and the game it concerns. */
@@ -90,8 +100,31 @@ export function createLocalFetch(bridge: PyBridge, options: LocalFetchOptions = 
       return respond(unrouted(path));
     }
 
-    const envelope = parseEnvelope(await route.answer());
+    let envelope = parseEnvelope(await route.answer());
     throwIfAborted(signal);
+
+    /*
+      The reload, rescued (ADR-010).
+
+      A session in this build is Python objects in this tab's heap, so after a reload the store has
+      never heard of the game the URL names and answers a truthful 404. `onMissingGame` is given the
+      chance to put it back — from a `localStorage` snapshot in the real wiring — and the request is
+      asked again exactly once. Once, because a restore that did not work will not work on the
+      retry either, and a 404 that keeps retrying is a poll that never settles.
+
+      The route is re-run rather than the response faked: whatever `getGame` answers after the load
+      is the engine's own answer, including the `?since=` cursor handling this file knows nothing
+      about.
+    */
+    const missing = options.onMissingGame;
+    if (envelope.status === NOT_FOUND && missing !== undefined) {
+      const gameId = gameIdOfPlainGet(method, path);
+      if (gameId !== null && (await missing(gameId))) {
+        throwIfAborted(signal);
+        envelope = parseEnvelope(await route.answer());
+        throwIfAborted(signal);
+      }
+    }
     if (route.mutates !== undefined && envelope.status >= 200 && envelope.status < 300) {
       const gameId = route.mutates === "known" ? route.gameId : gameIdIn(envelope.body);
       if (gameId !== undefined) {

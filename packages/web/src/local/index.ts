@@ -24,6 +24,7 @@ import type { PyBridge } from "./bridge";
 import { loadPyodideBridge, type LoadEngineOptions } from "./engine";
 import { createLocalFetch } from "./localFetch";
 import { createLocalSocketFactory, LocalEventBus } from "./localSocket";
+import { browserSaveSlot, restoreGame, snapshotGame, type SaveSlot } from "./rehydrate";
 
 export type { BotStepResult, Envelope, EventBatch, PyBridge } from "./bridge";
 export { asBotStep, asEventBatch, MALFORMED_ENVELOPE_STATUS, parseEnvelope } from "./bridge";
@@ -44,6 +45,15 @@ export {
   LocalEventBus,
   LocalSocket,
 } from "./localSocket";
+export {
+  browserSaveSlot,
+  gameIdOfPlainGet,
+  LOCAL_SAVE_KEY,
+  restoreGame,
+  savedGameId,
+  snapshotGame,
+} from "./rehydrate";
+export type { SaveSlot } from "./rehydrate";
 export { LocalEngineGate } from "./LocalEngineGate";
 export type { LocalEngineGateProps } from "./LocalEngineGate";
 // Re-exported for completeness; `main.tsx` imports it from `./local/mode` directly, so that asking
@@ -56,7 +66,7 @@ export { isLocalEngineBuild, LOCAL_ENGINE } from "./mode";
  * Split from {@link startLocalEngine} so a test can build the whole transport over a fake bridge —
  * which is what `localTransport.test.ts` does, driving `ApiClient` itself rather than a stand-in.
  */
-export function localApiClient(bridge: PyBridge): ApiClient {
+export function localApiClient(bridge: PyBridge, slot: SaveSlot = browserSaveSlot()): ApiClient {
   const bus = new LocalEventBus(bridge);
   return new ApiClient({
     fetch: createLocalFetch(bridge, {
@@ -64,8 +74,21 @@ export function localApiClient(bridge: PyBridge): ApiClient {
       // bots' moves arrive behind it as socket frames, which is the whole of MON-304 and the reason
       // seating a computer does not turn a click into a three-second pause.
       onMutation: (gameId) => {
-        void bus.pump(gameId);
+        /*
+          Two snapshots per mutation, and both are wanted (ADR-010).
+
+          The first is the human's own move: a reload one second later must not lose it, and the
+          bots may take a second or two to answer. The second is after the pump drains, because a
+          snapshot taken when the human moved is a turn stale the moment a computer moves.
+
+          Neither is awaited, for the same reason the pump is not: insurance that delayed the game
+          it insures would be a poor trade.
+        */
+        void snapshotGame(bridge, gameId, slot);
+        void bus.pump(gameId).then(() => snapshotGame(bridge, gameId, slot));
       },
+      // The other half: put the game back when a reload has emptied the heap the session lived in.
+      onMissingGame: (gameId) => restoreGame(bridge, gameId, slot),
     }),
     createSocket: createLocalSocketFactory(bus),
   });

@@ -880,6 +880,34 @@ all — only the withdrawal, plus the selling and mortgaging that `AUCTION` alre
 The golden games shifted by exactly eight lines, all of them `"auction_minimum": "none"`, proven
 before regeneration.
 
+### MON-713 — A reload must not lose the game ✅ **DONE** (ADR-010)
+**Tier**: Opus · **Size**: S · *(found 2026-08-03 by probing the published artifact)*
+
+**The defect.** In the deployed build the engine runs in the tab, so a session is Python objects in
+the Pyodide heap. Reload and the heap is new: the store answers a truthful 404 for the game the URL
+names, and the player is shown *"המשחק הזה לא קיים יותר"*. No crash, nothing in the console, and the
+game gone. The **server** build rehydrates from the same URL, so the configuration nobody plays was
+fine and the configuration everybody plays was not.
+
+**How it hid.** The Pages smoke asserted the game id reaches the URL and said in a comment that this
+"is what makes a reload rehydrate rather than abandon" — a true sentence about the server build,
+written next to an artifact where it was false, and never tested because the spec never reloaded.
+That is the general lesson worth keeping: the deployed configuration had **one** smoke test while
+the development configuration had fifty-four.
+
+**The fix** is ADR-010: inside `src/local/` only, snapshot the game to `localStorage` after every
+mutation and after the bot pump, and restore it when a plain `GET /games/{id}` 404s. It reuses
+MON-704's save/load routes and MON-805's `onMutation` seam; nothing above `src/local/` changes, and
+the server build is untouched.
+
+**Measured on the artifact**: 2 ms median per snapshot, 4.2 KB payload, against ~900 ms for an easy
+bot's turn.
+
+**Known limitation, stated rather than hidden**: the event log does not survive, because the log
+belongs to the session and the save file is a `GameState`. After a reload the board, the money, the
+deeds and the turn are exactly right and *"What's happened"* starts fresh. Restoring it would be a
+contract change in the API both builds share.
+
 ---
 
 ## E4b — Contract gaps found while building the UI (M4)

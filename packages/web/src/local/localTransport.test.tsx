@@ -8,6 +8,7 @@ import type { PyBridge } from "./bridge";
 import { LOAD_STAGES } from "./engine";
 import { createFakeBridge, envelope } from "./fixtures";
 import { localApiClient } from "./index";
+import type { SaveSlot } from "./rehydrate";
 import { LocalEngineGate } from "./LocalEngineGate";
 
 /**
@@ -51,6 +52,122 @@ const NEW_GAME = {
   seed: 7,
   game_id: null,
 };
+
+/**
+ * Surviving a reload, at the level the claim is actually made (ADR-010).
+ *
+ * `rehydrate.test.ts` covers the pieces; this covers the wiring, which is where the bug lived. The
+ * engine in the published build is Python objects in the tab's heap, so the fixture models the only
+ * thing that matters about a reload: **the engine forgets**. A test whose fake bridge remembered
+ * across the reload would be a test of a fake that does not have the problem.
+ */
+describe("a reload of the tab the engine lives in", () => {
+  /** A bridge that answers from a store a test can empty, which is what a new heap is. */
+  function forgetfulBridge(): PyBridge & { forget: () => void } {
+    const held = new Map<string, unknown>();
+    const view = (gameId: string): unknown => ({
+      state: { game_id: gameId, turn_number: 3 },
+      board: { id: "classic", tiles: [] },
+      legal_commands: [],
+      events: [],
+      event_cursor: 0,
+    });
+    const bridge = {
+      forget: () => {
+        held.clear();
+      },
+      listBoards: () => Promise.resolve(envelope(200, [{ id: "classic" }])),
+      listRulesets: () => Promise.resolve(envelope(200, [{ name: "universal" }])),
+      createGame: () => {
+        held.set("g1", { game_id: "g1", turn_number: 3 });
+        return Promise.resolve(envelope(201, view("g1")));
+      },
+      loadGame: (stateJson: string) => {
+        const state = JSON.parse(stateJson) as { game_id: string };
+        held.set(state.game_id, state);
+        return Promise.resolve(envelope(201, view(state.game_id)));
+      },
+      getGame: (gameId: string) =>
+        Promise.resolve(
+          held.has(gameId)
+            ? envelope(200, view(gameId))
+            : envelope(404, { reason_key: "error.game_not_found", params: {} }),
+        ),
+      saveGame: (gameId: string) =>
+        Promise.resolve(
+          held.has(gameId)
+            ? envelope(200, held.get(gameId))
+            : envelope(404, { reason_key: "error.game_not_found", params: {} }),
+        ),
+      submitCommand: () => Promise.resolve(envelope(200, view("g1"))),
+      validateCommand: () => Promise.resolve(envelope(200, { legal: true })),
+      deleteGame: () => Promise.resolve(envelope(204, null)),
+      advanceBotsStep: () => Promise.resolve(envelope(200, { done: true })),
+    } as unknown as PyBridge & { forget: () => void };
+    return bridge;
+  }
+
+  function memorySlot(): SaveSlot & { value: string | null } {
+    const slot = {
+      value: null as string | null,
+      read: () => slot.value,
+      write: (payload: string) => {
+        slot.value = payload;
+      },
+      clear: () => {
+        slot.value = null;
+      },
+    };
+    return slot;
+  }
+
+  it("continues the game the URL names, instead of losing it", async () => {
+    const bridge = forgetfulBridge();
+    const slot = memorySlot();
+    await localApiClient(bridge, slot).createGame(NEW_GAME);
+    await waitUntil(() => slot.value !== null);
+
+    // The reload. A new tab, a new heap, a new client over the same storage — and an engine that has
+    // never heard of this game.
+    bridge.forget();
+    const afterReload = localApiClient(bridge, slot);
+
+    const view = await afterReload.getGame("g1");
+    expect(view.state.game_id).toBe("g1");
+  });
+
+  it("still reports a game that never existed as missing", async () => {
+    // The other half. A restore that answered for *any* id would turn a mistyped link into somebody
+    // else's game, and the "this game no longer exists" screen exists for a reason.
+    const bridge = forgetfulBridge();
+    const slot = memorySlot();
+    await localApiClient(bridge, slot).createGame(NEW_GAME);
+    await waitUntil(() => slot.value !== null);
+    bridge.forget();
+
+    await expect(localApiClient(bridge, slot).getGame("never-existed")).rejects.toSatisfy(
+      (error: unknown) => isApiError(error) && error.reasonKey === "error.game_not_found",
+    );
+  });
+
+  it("keeps the game when nothing can be stored at all", async () => {
+    // Private mode: every write throws. The game in the tab must be completely unaffected — only
+    // the insurance is lost, and losing insurance silently is the correct failure.
+    const bridge = forgetfulBridge();
+    const refusing: SaveSlot = {
+      read: () => null,
+      write: () => {
+        throw new Error("quota");
+      },
+      clear: () => undefined,
+    };
+    const client = localApiClient(bridge, refusing);
+
+    const created = await client.createGame(NEW_GAME);
+    expect(created.state.game_id).toBe("g1");
+    expect((await client.getGame("g1")).state.game_id).toBe("g1");
+  });
+});
 
 describe("an ApiClient wired to the local transport", () => {
   it("creates a game and reads the view back out of the response", async () => {
