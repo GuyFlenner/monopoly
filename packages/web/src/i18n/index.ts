@@ -21,6 +21,7 @@ import boardClassicHe from "./locales/board-classic.he.json";
 import boardIsraelEn from "./locales/board-israel.en.json";
 import boardIsraelHe from "./locales/board-israel.he.json";
 import cardsEn from "./locales/cards.en.json";
+import cardsHe from "./locales/cards.he.json";
 import commonEn from "./locales/common.en.json";
 import commonHe from "./locales/common.he.json";
 
@@ -104,11 +105,10 @@ export async function initI18n(locale: Locale = "he"): Promise<void> {
     // unreadable board (GAP G-46). MON-503 landed both languages, read off the physical
     // board, so it is registered here like any other board namespace.
     //
-    // "cards" is English-only on purpose: MON-206 shipped the 31 card texts, and MON-506
-    // owns the Hebrew (31 strings needing a native speaker, tripwired in
-    // tests/test_locale_parity.py). It is registered for *both* languages against the same
-    // English resource so a Hebrew game shows the card in English rather than raising on a
-    // missing key — the deck is unreadable without it, which is what MON-407 found.
+    // "cards" was the last namespace pointing both languages at one English resource, so that a
+    // Hebrew game showed the card in English rather than raising on a missing key. MON-506 ended
+    // that: `cards.he.json` is a real catalogue now, checked against `decks.py`'s effect table so
+    // no card can state a figure the engine will not apply (tests/test_locale_parity.py).
     ns: ["common", "board-classic", "board-israel", "cards"],
     resources: {
       en: {
@@ -121,7 +121,7 @@ export async function initI18n(locale: Locale = "he"): Promise<void> {
         common: commonHe,
         "board-classic": boardClassicHe,
         "board-israel": boardIsraelHe,
-        cards: cardsEn,
+        cards: cardsHe,
       },
     },
     interpolation: {

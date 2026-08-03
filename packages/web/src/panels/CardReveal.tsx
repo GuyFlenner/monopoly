@@ -28,11 +28,12 @@
  *
  * ## The card body may be English inside a Hebrew game, and says so
  *
- * `cards.he.json` does not exist yet — MON-506 owns it, and a fabricated Hebrew deck would be worse
- * than a missing one. So the body carries `lang`/`dir` describing the language its text actually
- * turned out to be in, which switches a screen reader's voice and keeps the bidi layout correct.
- * See {@link cardBodyLanguage}; the day the Hebrew catalogue lands, this component becomes bilingual
- * with no edit at all.
+ * `cards.he.json` landed with MON-506, so a Hebrew game now shows a Hebrew card — and this component
+ * did not change to make that happen, which was the point of building it this way. The body carries
+ * `lang`/`dir` describing the language its text actually *turned out* to be in, which switches a
+ * screen reader's voice and keeps the bidi layout correct. Today that is usually nothing to declare;
+ * it still speaks up for a card the Hebrew deck has not got, where i18next falls back to English and
+ * the body is genuinely English inside an RTL page. See {@link cardBodyLanguage}.
  *
  * ## Focus never falls to the body
  *

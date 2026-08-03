@@ -593,28 +593,42 @@ mirroring still moves GO by 0.91 against a 0.01 tolerance, so the test lost no p
 - The type scale checked in both languages — Hebrew has no capitals and a different
   x-height, so a scale tuned on Latin text usually reads small.
 
-### MON-506 — Hebrew card catalogue 🚧 **BLOCKED**
-**Tier**: Sonnet (human input required) · **Size**: S · **Depends on**: —
+### MON-506 — Hebrew card catalogue ✅ **DONE**
+**Tier**: Sonnet · **Size**: S · **Depends on**: — · *(closed 2026-08-02)*
 
-MON-206 shipped 31 Chance/Community Chest card ids as engine data (`decks.py`) and M4 gave
-them an English catalogue (`cards.en.json`); the Hebrew side is deliberately not attempted
-here. 31 cards of flavour text need a native-speaker pass, not a plausible machine guess — a
-fabricated catalogue would read fine and never be re-checked, the same reasoning MON-503
-applies to the Israeli board (cross-reference MON-503).
+`packages/web/src/i18n/locales/cards.he.json` ships all 31 texts, and `i18n/index.ts` registers it
+under `he` — the last namespace that pointed both languages at one English resource.
 
-- Source or author 31 Hebrew card strings, one per id in `CHANCE_CARD_IDS` /
-  `COMMUNITY_CHEST_CARD_IDS`, matching the mechanics each id's `CARD_EFFECTS` entry encodes
-  (amount, repairs schedule, destination tile) — reviewed by a native speaker.
-- Confirm gender and plural forms before writing: several cards address the holder directly
-  and several pay or charge "every other player," and Hebrew agreement differs by number and
-  gender. The catalogue may need i18next context per the grammatical-gender and CLDR-plural
-  gaps already tracked for `common` (GAP_ANALYSIS.md §5, G-41/G-42) — the same canonicalising
-  parity logic MON-501 adds should cover `cards` too rather than a second scheme.
-- Create `packages/web/src/i18n/locales/cards.he.json` with exactly the keys in
-  `cards.en.json`.
-- Delete `test_the_hebrew_card_catalogue_has_no_catalogue_yet` in `tests/test_locale_parity.py`
-  and remove `"cards"` from `ENGLISH_ONLY_CATALOGUES` — the parity machinery then compares
-  `cards` like any other bilingual catalogue.
+**Why this stopped being a blocker.** It was held on the reasoning MON-503 applies to the Israeli
+board: invented game data reads fine and nobody re-checks it. That reasoning was right about the
+board and wrong here, and the difference is worth writing down. The board's city names are *external
+facts* — a translation cannot recover which streets a particular physical board prints, so only a
+photograph could. The card texts are **this project's own English prose**, written for MON-206 and
+deliberately not any published deck's wording (compare "Head straight to GO" with the phrasing the
+branded product uses). Translating our own sentences is a catalogue job, not an invention.
+
+**What made it safe to write rather than merely plausible.** Every card has a machine-readable
+effect beside it in `decks.py`, so the risk that actually matters — a card that states a figure the
+engine will not apply, which is the game lying to a child — is checkable rather than believed.
+`test_the_hebrew_card_catalogue_says_what_each_card_actually_does` asserts every `amount`,
+`per_house` and `per_hotel` in `CARD_EFFECTS` appears in that card's Hebrew sentence; change 25 to
+20 and it fails by name. Square names are taken verbatim from `board-classic.he.json`, so a card
+names a square the way the board does. Register matches the rest of the Hebrew catalogue —
+second-person plural, gender-free, the voice `hint.reason.*` established, which is also what let
+MON-501 delete `AWAITING_HEBREW` without needing `grammatical_gender`.
+
+Amounts are bare numerals, like every other Hebrew string in the product; only the English cards
+carry a `$`, which predates the decision that this repo has no currency formatter (GAP G-43).
+
+- `ENGLISH_ONLY_CATALOGUES` is now empty, so `cards` goes through every parity check.
+- `e2e/cards.spec.ts` plays a real game in each language and asserts the card on the board is in
+  that language — the seam no unit test can see, since `i18n/index.ts` registered the wrong resource
+  for months with the whole suite green.
+- A card the Hebrew deck is missing still degrades honestly: i18next falls back to English and
+  `cardSurface.ts` marks the body `lang="en" dir="ltr"`, tested in `CardReveal.test.tsx`.
+
+A native-speaker review is still welcome and is no longer blocking anything; the failure it would
+catch is wording, and the failure that would matter is arithmetic, which is now gated.
 
 ---
 
@@ -766,14 +780,14 @@ sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhe
 |---|---|---|---|---|
 | MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L | ✅ PR #27 |
 | MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M | ✅ PR #27 |
-| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | 🔄 in review (PR #30) — 9 defects found, 8 fixed, 1 deferred as a product decision; `docs/A11Y_AUDIT.md` |
+| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | ✅ PR #30 — 9 defects found, 8 fixed, 1 deferred as a product decision; `docs/A11Y_AUDIT.md` |
 | MON-704 | Save / load to a file — `GameState` already serializes, so this is UI plus a schema-version check | Sonnet | S | ✅ PR #22 — `POST /games/load` validates `SCHEMA_VERSION` as a keyed 422; load reachable even from error frames, since a save carries its own board |
 | MON-705 | Replay viewer: step through a recorded game's events | Opus | M | ✅ PR #26 — pure client accumulator that copies only facts events assert |
 | MON-706 | Sound cues (dice, cash, purchase, jail) with a mute that persists | Sonnet | S | ✅ PR #22 — Web Audio synth, one subscription beside the Announcer's; `rent_charged` deliberately un-cued (its `cash_changed` twin already sounds) |
-| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | 🔄 in review (PR #30) — 48 specs, both locales, RTL geometry, kids, trade, keyboard, 44 px sweep, persistence |
-| MON-709 | The drawn card, held up on the board long enough to read | Opus | M | 🔄 in review (PR #33) — a beat in MON-701's queue; skippable, non-blocking, deck legible without colour. Reduced motion keeps the card and drops only the motion; a reload's replay drops the card instead |
-| MON-710 | Houses and hotels as figures rather than coloured blocks | Opus | M | 🔄 in review (PR #34) — pitched cottage against flat stepped block, asserted from the path data; the four fills are measured against the face they stand on, which the old CSS literals never were |
-| MON-711 | Action prominence, owned-only dossier, and turns that end themselves | Opus | M | 🔄 in review (PR #35) — owner's UX asks from the first playable build; `docs/UX_ACTION_PROMINENCE.md` |
+| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | ✅ PR #30 — 54 specs, both locales, RTL geometry, kids, trade, keyboard, 44 px sweep, persistence, auctions, cards |
+| MON-709 | The drawn card, held up on the board long enough to read | Opus | M | ✅ PR #33 — a beat in MON-701's queue; skippable, non-blocking, deck legible without colour. Reduced motion keeps the card and drops only the motion; a reload's replay drops the card instead |
+| MON-710 | Houses and hotels as figures rather than coloured blocks | Opus | M | ✅ PR #34 — pitched cottage against flat stepped block, asserted from the path data; the four fills are measured against the face they stand on, which the old CSS literals never were |
+| MON-711 | Action prominence, owned-only dossier, and turns that end themselves | Opus | M | ✅ PR #35 — owner's UX asks from the first playable build; `docs/UX_ACTION_PROMINENCE.md` |
 | MON-708 | Empty, loading and error states for every screen | Sonnet | S | ✅ PR #22 — one `EmptyState`/`LoadingState`/`ErrorState` set; added the missing retry on a game screen's failed first fetch |
 
 ---
@@ -787,7 +801,7 @@ sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhe
 | MON-803 | Optional deploy: static web + server on a free tier, or a single container | Opus | M | superseded by MON-805 — the owner made online play a requirement, and the serverless static form won |
 | MON-804 | `CONTRIBUTING.md` and issue templates | Sonnet | S | ✅ PR #20 — bug template leads with seed + command list, because games are reproducible by design |
 
-### MON-805 — Online play at a public URL (GitHub Pages, engine in-browser) 🔄 **in review (PR #25)**
+### MON-805 — Online play at a public URL (GitHub Pages, engine in-browser) ✅ **DONE** (PRs #25, #29, #31)
 **Tier**: Fable design / Opus build · **Size**: L · **Depends on**: everything playable · *(added
 2026-07-30 — owner requirement: play from a URL with GitHub hosting the source, no IDE, no local
 run; keeping the repo private must stay possible)*
@@ -817,7 +831,7 @@ already decided "nothing to do" from the position *before* the command that queu
 task. Both regression tests fail on the unfixed code; the race test needs a 1 ms think delay
 because a coroutine that never yields cannot race.
 
-### MON-712 — Auctions off by default, configurable, with a reserve price 🔄 **in review**
+### MON-712 — Auctions off by default, configurable, with a reserve price ✅ **DONE** (PR #37)
 **Tier**: Fable design / Opus build · **Size**: M · *(added 2026-08-02 — owner, from a Hebrew game
 played with his child)*
 
@@ -924,7 +938,7 @@ MON-100 ─► MON-101 ─► MON-102 ─► MON-103 ─► MON-104 ─► MON-1
 MON-106 ─┬─► MON-301 ─► MON-302 ─► MON-303 ─► MON-304                                     (M3)
          │                  │
 MON-401 ─┴─► MON-402 ─► MON-403 ─► MON-404 / 405 / 406 / 407 / 408 / 409 / 410            (M4)
-                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 done, MON-506 still blocked on a Hebrew pass)
+                 └─► MON-501 ─► MON-502 / 504     (M5; MON-503 and MON-506 both done)
 MON-601 ─► MON-602 ─► MON-603 · MON-604 ─► MON-605                                        (M6)
 ```
 

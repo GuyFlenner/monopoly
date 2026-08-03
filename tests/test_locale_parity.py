@@ -19,12 +19,23 @@ LOCALES_DIR = Path(__file__).resolve().parent.parent / "packages" / "web" / "src
 CATALOGUES = ("common", "board-classic", "board-israel", "cards")
 LANGUAGES = ("en", "he")
 
-# "cards" ships English-only for now: 31 cards of Hebrew need a native-speaker pass rather
-# than a machine-plausible guess (MON-506), the same reasoning MON-503 applies to the
-# Israeli board. Every parity check that compares English against Hebrew is skipped for a
-# catalogue listed here; the tripwire test below still asserts the Hebrew file is absent so
-# the exemption cannot be quietly forgotten once MON-506 lands.
-ENGLISH_ONLY_CATALOGUES = ("cards",)
+# Empty, and that is MON-506 closed.
+#
+# "cards" was the last entry. It was held back on the ground that 31 cards of Hebrew need a
+# native-speaker pass rather than a machine-plausible guess — the reasoning MON-503 applies to the
+# Israeli board, where it was right, because those city names are *external facts* that a
+# translation cannot recover. The card texts turned out not to be that: they are **this project's
+# own English prose**, written for MON-206 and deliberately not any published deck's wording, so
+# rendering them in Hebrew is a translation of our own sentences and not an invention of game data.
+#
+# What made it safe to write was the cross-check available: every text has a machine-readable
+# effect beside it in `decks.py`, so "pay 25 for each house" is checkable against
+# `Repairs(per_house=25, per_hotel=100)` rather than believed. The square names come from
+# `board-classic.he.json` verbatim, so a card names the square the way the board does.
+#
+# The tuple stays so a future catalogue can be exempted while it is being written, and so every
+# skip below keeps naming the reason it exists.
+ENGLISH_ONLY_CATALOGUES: tuple[str, ...] = ()
 
 # There is no `AWAITING_HEBREW` any more, and that is the point of this comment.
 #
@@ -48,7 +59,7 @@ ENGLISH_ONLY_CATALOGUES = ("cards",)
 # and is still the right field to have — it is what a future pass would use to make the two known
 # cases read more naturally — but nothing is blocked on it and no plumbing carries it today.
 #
-# `cards` remains English-only (MON-506), tracked by `ENGLISH_ONLY_CATALOGUES` and its own tripwire.
+# `cards` was the last holdout and landed with MON-506, on the reasoning above the tuple.
 
 
 def _flatten(payload: dict[str, Any], prefix: str = "") -> dict[str, str]:
@@ -238,14 +249,39 @@ def test_the_board_catalogue_covers_every_tile(board_id: str) -> None:
             assert tile.name_key in catalogue, f"{tile.name_key} missing from board-{board_id}.{language}.json"
 
 
-def test_the_hebrew_card_catalogue_has_no_catalogue_yet() -> None:
-    """Documents a known gap rather than leaving it to be discovered mid-demo.
+def test_the_hebrew_card_catalogue_says_what_each_card_actually_does() -> None:
+    """MON-506. The replacement for the tripwire that asserted this file did *not* exist.
 
-    31 Chance/Community Chest cards need a native-speaker Hebrew pass, not a plausible
-    machine guess — see MON-506. When that catalogue lands, delete this test and remove
-    "cards" from ENGLISH_ONLY_CATALOGUES above.
+    A translated card is worse than a missing one if it states the wrong figure: a player who is
+    told to pay 20 and charged 25 has been lied to by the game, and the log will not agree with the
+    card they just read. So the amounts are not proof-read, they are **checked against the engine**
+    — every figure in `decks.py`'s effect table must appear in the Hebrew sentence for that card,
+    exactly as it must in the English one.
+
+    It cannot check that the Hebrew is *good*, and does not pretend to. It can check that it is not
+    quietly wrong about money, which is the failure that would matter.
     """
-    assert not (LOCALES_DIR / "cards.he.json").exists()
+    from kesef_engine.decks import CARD_EFFECTS
+
+    hebrew = _load("cards", "he")
+    english = _load("cards", "en")
+    assert set(hebrew) == set(english), "the two card catalogues describe different decks"
+
+    for card_id, effects in CARD_EFFECTS.items():
+        text = hebrew[card_id]
+        for effect in effects:
+            for field in ("amount", "per_house", "per_hotel", "spaces"):
+                figure = getattr(effect, field, None)
+                if figure is None:
+                    continue
+                # `spaces` is spelled in words on the card ("three squares back"), which is the one
+                # figure a player never has to add up — so the digit is not required for it.
+                if field == "spaces":
+                    continue
+                assert str(figure) in text, (
+                    f"{card_id}: the Hebrew text does not state {field}={figure} "
+                    f"that {type(effect).__name__} will actually apply — {text}"
+                )
 
 
 def test_the_card_catalogue_covers_every_card_id() -> None:

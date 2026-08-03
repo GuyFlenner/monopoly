@@ -47,10 +47,10 @@ export function figureKey(delta: number | null): string | null {
  *
  * ## Why this exists
  *
- * `cards.he.json` does not exist. MON-506 owns it — 31 card texts need a native speaker, and this
- * repo's standing rule is that invented game data is worse than missing data, because a fabricated
- * catalogue reads fine and nobody re-checks it. So in a Hebrew game today the card body is **English
- * text inside an RTL page**, and that is a fact to be marked up rather than a fact to be hidden.
+ * `cards.he.json` exists as of MON-506, so most Hebrew games never need this. It is still load-bearing
+ * for the case that outlives the catalogue: a card added to the English deck and forgotten in the
+ * Hebrew one falls back to English, and the body is then **English text inside an RTL page** — a fact
+ * to be marked up rather than hidden.
  *
  * Unmarked, it fails twice. A screen reader keeps its Hebrew voice and pronounces English words with
  * Hebrew phonetics, which is closer to noise than to a sentence; and the bidi algorithm resolves the
@@ -67,8 +67,10 @@ export function figureKey(delta: number | null): string | null {
  *
  * What is left is the only honest observable: the text itself. Hebrew prose necessarily contains
  * Hebrew letters, so the script the string is written in answers the question — and it keeps answering
- * it correctly the day `cards.he.json` lands, with no code change and no flag to remember to flip.
- * That self-closing property is the reason this is a script test rather than a hardcoded `lang="en"`.
+ * it correctly now that `cards.he.json` has landed — which it did, with no code change here and no
+ * flag to remember to flip. That self-closing property is the reason this is a script test rather
+ * than a hardcoded `lang="en"`, and it is why the catalogue could be written without touching the
+ * component that renders it.
  *
  * RTL is checked **first** and deliberately: `$50` and `10` are strong-LTR runs to the bidi
  * algorithm, so a Hebrew card mentioning a figure contains both scripts. Asking "any Hebrew at all?"

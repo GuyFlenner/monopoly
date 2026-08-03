@@ -274,52 +274,75 @@ describe("putting the card down", () => {
 });
 
 describe("a Hebrew game", () => {
+  const KEY = "card.chance.advance_to_go";
+
   async function inHebrew(): Promise<void> {
     await act(async () => {
       await i18n.changeLanguage("he");
     });
   }
 
-  it("marks the English card body as English, because today that is what it is", async () => {
-    // Until MON-506 lands, `cards` is registered under `he` against the English resource, so the
-    // lookup *succeeds* and there is no miss for i18next to report. Unmarked, a screen reader reads
-    // English words with Hebrew phonetics and the bidi algorithm mangles the punctuation.
+  it("shows the card in Hebrew, from the Hebrew catalogue (MON-506)", async () => {
     await inHebrew();
     mount();
 
-    expect(body()).toHaveAttribute("lang", "en");
-    expect(body()).toHaveAttribute("dir", "ltr");
+    expect(body().textContent).toBe(i18n.getResource("he", "cards", KEY));
+    // Not the English one. Until MON-506 both languages resolved to the same resource, so an
+    // assertion that only checked "some text is rendered" passed throughout the gap.
+    expect(body().textContent).not.toBe(i18n.getResource("en", "cards", KEY));
   });
 
-  it("becomes bilingual the day the catalogue does, with no change to this component", async () => {
-    // MON-506, simulated: one Hebrew card text, added to the resource bundle and nothing else. No
-    // prop, no flag, no branch in `CardReveal.tsx`.
+  it("declares no language of its own, because the body is now the page's language", async () => {
+    // `lang`/`dir` exist to mark a body that disagrees with the page. A Hebrew card in a Hebrew
+    // page does not, so the markup goes quiet — the same code, a different answer, which is what
+    // `cardSurface.ts` was written to make possible.
     await inHebrew();
-    const KEY = "card.chance.advance_to_go";
-    // `cards` is registered under `he` against the *same object* as `en` (see `i18n/index.ts`), so
-    // the English text is put back explicitly rather than by dropping the Hebrew bundle — removing
-    // it would take English's with it.
-    const english = i18n.getResource("en", "cards", KEY) as string;
-    const stub = (text: string): void => {
-      i18n.addResourceBundle(
-        "he",
-        "cards",
-        { card: { chance: { advance_to_go: text } } },
-        true,
-        true,
-      );
+    mount();
+
+    expect(body()).not.toHaveAttribute("lang");
+    expect(body()).not.toHaveAttribute("dir");
+  });
+
+  it("still marks a card the Hebrew deck has not got, which is the safety net", async () => {
+    /*
+      The gap MON-506 closed can reopen one card at a time: a card is added to `decks.py` and to
+      `cards.en.json`, and the Hebrew entry is forgotten. i18next then falls back to English — the
+      game keeps working, and the body is genuinely English inside an RTL page, which is exactly
+      what `lang="en" dir="ltr"` exists for.
+
+      Simulated by handing `he` a catalogue with that one card missing, which is the state the
+      forgetful commit would produce. `tests/test_locale_parity.py` fails that commit; this says the
+      rendering degrades honestly even if the catalogue does not.
+
+      Note this is *not* the same as an id neither deck has — that one resolves to the
+      "no text in the catalogue yet" sentence, which is itself Hebrew, and is covered above.
+    */
+    await inHebrew();
+    const full = i18n.getResourceBundle("he", "cards") as {
+      card: { chance: Record<string, string> };
     };
-    stub("התקדמו להתחלה ואספו 200.");
+    // Everything but this card, which is the shape the forgetful commit leaves behind.
+    const rest = Object.fromEntries(
+      Object.entries(full.card.chance).filter(([leaf]) => leaf !== KEY.split(".").pop()),
+    );
+    i18n.removeResourceBundle("he", "cards");
+    i18n.addResourceBundle(
+      "he",
+      "cards",
+      { ...full, card: { ...full.card, chance: rest } },
+      true,
+      true,
+    );
     try {
       mount();
 
-      expect(body().textContent).toBe("התקדמו להתחלה ואספו 200.");
-      // No override: the body is in the page's own language now, so there is nothing to declare.
-      expect(body()).not.toHaveAttribute("lang");
-      expect(body()).not.toHaveAttribute("dir");
+      expect(body().textContent).toBe(i18n.getResource("en", "cards", KEY));
+      expect(body()).toHaveAttribute("lang", "en");
+      expect(body()).toHaveAttribute("dir", "ltr");
     } finally {
-      stub(english);
+      i18n.removeResourceBundle("he", "cards");
+      i18n.addResourceBundle("he", "cards", full, true, true);
     }
-    expect(i18n.getResource("en", "cards", KEY)).toBe(english);
+    expect(i18n.getResource("he", "cards", KEY)).toBeTruthy();
   });
 });
