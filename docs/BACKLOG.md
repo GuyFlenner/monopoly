@@ -780,14 +780,14 @@ sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhe
 |---|---|---|---|---|
 | MON-701 | Animation queue: events drive animations; nothing blocks input; all skippable; `prefers-reduced-motion` honoured | Opus | L | ✅ PR #27 |
 | MON-702 | CompareTray: pin 1–3 dossiers side by side, horizontal scroll, RTL-correct | Opus | M | ✅ PR #27 |
-| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | 🔄 in review (PR #30) — 9 defects found, 8 fixed, 1 deferred as a product decision; `docs/A11Y_AUDIT.md` |
+| MON-703 | Accessibility audit against the §5.5 floor; axe clean; a full game by keyboard alone | Opus | M | ✅ PR #30 — 9 defects found, 8 fixed, 1 deferred as a product decision; `docs/A11Y_AUDIT.md` |
 | MON-704 | Save / load to a file — `GameState` already serializes, so this is UI plus a schema-version check | Sonnet | S | ✅ PR #22 — `POST /games/load` validates `SCHEMA_VERSION` as a keyed 422; load reachable even from error frames, since a save carries its own board |
 | MON-705 | Replay viewer: step through a recorded game's events | Opus | M | ✅ PR #26 — pure client accumulator that copies only facts events assert |
 | MON-706 | Sound cues (dice, cash, purchase, jail) with a mute that persists | Sonnet | S | ✅ PR #22 — Web Audio synth, one subscription beside the Announcer's; `rent_charged` deliberately un-cued (its `cash_changed` twin already sounds) |
-| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | 🔄 in review (PR #30) — 48 specs, both locales, RTL geometry, kids, trade, keyboard, 44 px sweep, persistence |
-| MON-709 | The drawn card, held up on the board long enough to read | Opus | M | 🔄 in review (PR #33) — a beat in MON-701's queue; skippable, non-blocking, deck legible without colour. Reduced motion keeps the card and drops only the motion; a reload's replay drops the card instead |
-| MON-710 | Houses and hotels as figures rather than coloured blocks | Opus | M | 🔄 in review (PR #34) — pitched cottage against flat stepped block, asserted from the path data; the four fills are measured against the face they stand on, which the old CSS literals never were |
-| MON-711 | Action prominence, owned-only dossier, and turns that end themselves | Opus | M | 🔄 in review (PR #35) — owner's UX asks from the first playable build; `docs/UX_ACTION_PROMINENCE.md` |
+| MON-707 | Playwright e2e: one smoke per locale plus an RTL layout assertion | Opus | M | ✅ PR #30 — 54 specs, both locales, RTL geometry, kids, trade, keyboard, 44 px sweep, persistence, auctions, cards |
+| MON-709 | The drawn card, held up on the board long enough to read | Opus | M | ✅ PR #33 — a beat in MON-701's queue; skippable, non-blocking, deck legible without colour. Reduced motion keeps the card and drops only the motion; a reload's replay drops the card instead |
+| MON-710 | Houses and hotels as figures rather than coloured blocks | Opus | M | ✅ PR #34 — pitched cottage against flat stepped block, asserted from the path data; the four fills are measured against the face they stand on, which the old CSS literals never were |
+| MON-711 | Action prominence, owned-only dossier, and turns that end themselves | Opus | M | ✅ PR #35 — owner's UX asks from the first playable build; `docs/UX_ACTION_PROMINENCE.md` |
 | MON-708 | Empty, loading and error states for every screen | Sonnet | S | ✅ PR #22 — one `EmptyState`/`LoadingState`/`ErrorState` set; added the missing retry on a game screen's failed first fetch |
 
 ---
@@ -801,7 +801,7 @@ sentences; the panel multiplies nothing. Prominent in kids games, folded elsewhe
 | MON-803 | Optional deploy: static web + server on a free tier, or a single container | Opus | M | superseded by MON-805 — the owner made online play a requirement, and the serverless static form won |
 | MON-804 | `CONTRIBUTING.md` and issue templates | Sonnet | S | ✅ PR #20 — bug template leads with seed + command list, because games are reproducible by design |
 
-### MON-805 — Online play at a public URL (GitHub Pages, engine in-browser) 🔄 **in review (PR #25)**
+### MON-805 — Online play at a public URL (GitHub Pages, engine in-browser) ✅ **DONE** (PRs #25, #29, #31)
 **Tier**: Fable design / Opus build · **Size**: L · **Depends on**: everything playable · *(added
 2026-07-30 — owner requirement: play from a URL with GitHub hosting the source, no IDE, no local
 run; keeping the repo private must stay possible)*
@@ -831,7 +831,7 @@ already decided "nothing to do" from the position *before* the command that queu
 task. Both regression tests fail on the unfixed code; the race test needs a 1 ms think delay
 because a coroutine that never yields cannot race.
 
-### MON-712 — Auctions off by default, configurable, with a reserve price 🔄 **in review**
+### MON-712 — Auctions off by default, configurable, with a reserve price ✅ **DONE** (PR #37)
 **Tier**: Fable design / Opus build · **Size**: M · *(added 2026-08-02 — owner, from a Hebrew game
 played with his child)*
 
