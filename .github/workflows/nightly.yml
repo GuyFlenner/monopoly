@@ -38,12 +38,25 @@ jobs:
       # mutmut's own process exit code is not a trustworthy pass/fail signal here (it
       # reflects the last child status, not the overall kill-rate), so this step is
       # allowed to finish non-zero — the gate below reads `mutmut results` and decides.
-      - name: Run mutmut over packages/engine/src/kesef_engine/rules and legality.py
+      #
+      # `working-directory` is load-bearing and not tidiness: mutmut reads
+      # `[tool.mutmut]` from the `pyproject.toml` beside it and only understands a
+      # `src/` + `tests/` project. Run from the workspace root it built a `mutants/`
+      # tree with no test suite in it, so pytest never started — see the long comment
+      # on `[tool.mutmut]` in `packages/engine/pyproject.toml`.
+      - name: Run mutmut over the rule modules and the legality gate
+        working-directory: packages/engine
         run: uv run mutmut run || true
 
       - name: Enforce >=80% kill-rate
+        working-directory: packages/engine
         run: |
-          uv run mutmut results --all > mutmut-results.txt || true
+          # `--all=true`, not `--all`: mutmut 3.6.0 declares the option as
+          # `@click.option("--all", default=False)` with no `is_flag=True`, so click
+          # demands a value and a bare `--all` fails with "Option '--all' requires an
+          # argument." That failure was invisible behind `|| true` until the gate below
+          # reported zero mutants.
+          uv run mutmut results --all=true > mutmut-results.txt || true
           cat mutmut-results.txt
           uv run python - <<'PY'
           import sys
@@ -84,8 +97,8 @@ jobs:
         with:
           name: mutmut-results
           path: |
-            mutmut-results.txt
-            mutants/
+            packages/engine/mutmut-results.txt
+            packages/engine/mutants/
           retention-days: 7
           if-no-files-found: ignore
 

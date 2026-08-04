@@ -26,3 +26,39 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/kesef_engine"]
+
+# ---------------------------------------------------------------------------
+# mutmut — mutation testing over the rule modules and the legality gate (MON-209).
+#
+# **It lives here, and the nightly runs it from this directory, because mutmut only
+# understands a `src/` + `tests/` layout.** Run from the workspace root — which is
+# where it was — mutmut walks `source_paths` and nothing else to build its
+# `mutants/` copy, so that copy contained `rules/` and `legality.py` and *nothing
+# else*: no `packages/engine/tests`, so pytest was handed a path that did not exist
+# and failed to start at all (`BadTestExecutionCommandsException`); and no
+# `kesef_engine/__init__.py`, so `import kesef_engine` would have found the
+# *installed* package instead and every mutant would have survived. A gate that
+# reports 0% is at least loud; one that silently tests unmutated code is worse.
+#
+# From here the layout is the one mutmut assumes: `mutants/src` goes on `sys.path`
+# and the editable install of this same `src/` comes off it, so the mutated module is
+# the one the tests import.
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+source_paths = [
+    "src/kesef_engine/rules",
+    "src/kesef_engine/legality.py",
+]
+
+# The whole package and the whole suite, because `source_paths` is a *mutation*
+# scope and not a copy list. `src/kesef_engine` brings the `__init__.py`, the state
+# model and the bundled board JSON the rules import; `tests` is the suite that does
+# the killing. Copied *before* the mutants are generated (`_run` calls
+# `copy_src_dir` → `copy_also_copy_files` → `create_mutants`), so the mutated files
+# are the last word rather than being overwritten by the originals.
+also_copy = [
+    "src/kesef_engine",
+    "tests",
+]
+
+pytest_add_cli_args_test_selection = ["tests"]

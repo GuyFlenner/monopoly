@@ -111,16 +111,10 @@ source = ["kesef_engine", "kesef_server"]
 fail_under = 90
 
 # ---------------------------------------------------------------------------
-# mutmut — mutation testing, scoped to the rule modules and the legality gate
-# (MON-209). This is nightly-only (see .github/workflows/nightly.yml): mutating a
-# mutant per commit here is far too slow for the PR path. `source_paths` targets
-# exactly the two things the backlog item names; `pytest_add_cli_args_test_selection`
-# runs the engine's own test suite (the same tests `uv run pytest` collects for these
-# modules) against each mutant.
+# mutmut — the mutation gate's config lives in `packages/engine/pyproject.toml`,
+# not here (MON-209). It has to: mutmut reads `[tool.mutmut]` from the
+# `pyproject.toml` in its *working directory*, and it only understands a project
+# laid out as `src/` + `tests/`. Run from this workspace root it produced a
+# `mutants/` tree with no test suite and no importable package, which is what had
+# the nightly red. See that file, and `.github/workflows/nightly.yml`.
 # ---------------------------------------------------------------------------
-[tool.mutmut]
-source_paths = [
-    "packages/engine/src/kesef_engine/rules",
-    "packages/engine/src/kesef_engine/legality.py",
-]
-pytest_add_cli_args_test_selection = ["packages/engine/tests"]
