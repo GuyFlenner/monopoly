@@ -173,7 +173,9 @@ describe("ending a turn after a declined purchase", () => {
   const DECLINE: Command = { kind: "decline_purchase", player: 0 };
 
   /** A response view carrying whatever the engine went on to offer. */
-  function offering(...commands: readonly Command[]): { readonly legal_commands: readonly Command[] } {
+  function offering(...commands: readonly Command[]): {
+    readonly legal_commands: readonly Command[];
+  } {
     return { legal_commands: commands };
   }
 
@@ -196,7 +198,10 @@ describe("ending a turn after a declined purchase", () => {
     */
     const follow = endTurnAfterDecline(
       DECLINE,
-      offering({ kind: "place_bid", player: 0, amount: 10 }, { kind: "withdraw_from_auction", player: 0 }),
+      offering(
+        { kind: "place_bid", player: 0, amount: 10 },
+        { kind: "withdraw_from_auction", player: 0 },
+      ),
       true,
     );
 
