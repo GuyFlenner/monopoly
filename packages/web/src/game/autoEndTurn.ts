@@ -6,6 +6,11 @@
  * `end_turn` press after it is a click that carries no decision, and a click that carries no decision
  * is a click a six-year-old is being asked to find.
  *
+ * **Declining is the same request from the other side** (owner, 2026-08-04): *"if I chose not to
+ * purchase, end the turn; the next click should be the next player rolling."* It arrives by a different
+ * route because a decline emits no events — see {@link endTurnAfterDecline}, which explains why that
+ * makes the log-based trigger below unusable *and* makes acting immediately safe.
+ *
  * ## The whole rule, and why it is only one line
  *
  * **Send `EndTurn` only if `end_turn` is in the `legal_commands` the engine has just returned — and
@@ -149,6 +154,49 @@ export function autoEndTurn(input: AutoEndTurnInput): AutoEndTurn | null {
   }
 
   return { command: endTurn, seq: purchase.seq };
+}
+
+/**
+ * The `end_turn` to send after a *declined* purchase, or `null` (owner request, 2026-08-04).
+ *
+ * The same request as the purchase one — *"if I chose not to purchase, end the turn; the next click
+ * should be the next player rolling"* — and it needs a different mechanism, for a reason worth stating
+ * because it looks like an inconsistency:
+ *
+ * **A decline produces no events.** With auctions off, `rules/purchase.py::_decline` returns
+ * `(state, ())` — the state unchanged and the log untouched. So the committed-log trigger the purchase
+ * path uses cannot see a decline *at all*; there is nothing to wait for. The other half of that same
+ * fact is what makes acting immediately safe here: the perceptibility argument in this module's header
+ * is about not dropping the purchase's own beat, cue and sentence, and a decline has none of the three
+ * to drop.
+ *
+ * So this reads the **response** to the decline — the view the engine returned — and asks it the same
+ * question the other path asks: is `end_turn` in the list, for this player? That keeps the one rule
+ * this module has: *the command is an element of `legal_commands`, never one we constructed.*
+ *
+ * ## What it does not need to check, and must not start checking
+ *
+ * - **Auctions.** Declining with auctions *on* opens an auction, and during an auction interrupt
+ *   `end_turn` is not offered — so the lookup fails and this returns `null` on its own. Do not add an
+ *   `auctions_enabled` check: it would be a copy of a rule, and the copy is the one that goes stale.
+ * - **Doubles.** Same as the purchase path: `post_move_phase` decides, and after doubles `end_turn` is
+ *   simply not in the list.
+ * - **Whose turn it is.** The `player` match does that, and it is why a decline by one seat cannot end
+ *   another's turn.
+ */
+export function endTurnAfterDecline(
+  declined: Command,
+  view: { readonly legal_commands: readonly Command[] },
+  enabled: boolean,
+): Command | null {
+  if (!enabled || declined.kind !== "decline_purchase") {
+    return null;
+  }
+  return (
+    view.legal_commands.find(
+      (command) => command.kind === "end_turn" && command.player === declined.player,
+    ) ?? null
+  );
 }
 
 export interface UseAutoEndTurnOptions extends Omit<AutoEndTurnInput, "handled"> {

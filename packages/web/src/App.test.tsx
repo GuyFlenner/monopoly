@@ -483,7 +483,7 @@ describe("App — the game screen", () => {
     const cash = within(dialog)
       .getAllByTestId("offer-cash")
       .map((node) => node.textContent);
-    expect(cash).toEqual(["50", "125"]);
+    expect(cash).toEqual(["$50", "$125"]);
 
     // The named square, and the side it is on. `data-owner` is the player id, so this also catches
     // the give/receive sides being rendered the wrong way round — which would show a player the

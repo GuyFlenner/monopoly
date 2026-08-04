@@ -155,8 +155,8 @@ describe("one button per legal command", () => {
       { kind: "place_bid", player: 0, amount: 260 },
       { kind: "pay_jail_fine", player: 0 },
     ]);
-    expect(screen.getByRole("button", { name: "Bid 260" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pay 50 bail" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Bid $260" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pay $50 bail" })).toBeInTheDocument();
   });
 
   it("cannot render a kind it has no label for", () => {

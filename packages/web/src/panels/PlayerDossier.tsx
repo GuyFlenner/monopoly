@@ -107,6 +107,7 @@ import {
 import { EmptyState } from "./States";
 
 import "./panels.css";
+import { useMoney } from "@/i18n";
 
 export interface PlayerDossierProps {
   /** The seat this card is about. */
@@ -412,7 +413,14 @@ function Figure({
   pulse,
 }: {
   readonly label: string;
-  readonly value: number;
+  /**
+   * Already formatted, when it is money (MON-720).
+   *
+   * Two of the four figures on a dossier are amounts and two are counts — a currency symbol on
+   * "3 squares" would be nonsense — so the caller decides and this stays a presenter of whatever it
+   * was handed. `tabular-nums` and `dir="ltr"` apply to both either way.
+   */
+  readonly value: number | string;
   readonly testId: string;
   /** The animation queue's beat, when this figure is one that moves (MON-701). */
   readonly pulse?: number | undefined;
@@ -445,6 +453,7 @@ export function PlayerDossier({
   cashPulse,
 }: PlayerDossierProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const money = useMoney();
 
   const translate: Translate = (key, params) => t(key, params ?? {});
 
@@ -601,11 +610,15 @@ export function PlayerDossier({
       >
         <Figure
           label={t("label.cash")}
-          value={player.cash}
+          value={money(player.cash)}
           testId="dossier-cash"
           pulse={cashPulse}
         />
-        <Figure label={t("label.net_worth")} value={player.net_worth} testId="dossier-net-worth" />
+        <Figure
+          label={t("label.net_worth")}
+          value={money(player.net_worth)}
+          testId="dossier-net-worth"
+        />
         <Figure
           label={t("label.properties")}
           value={player.tiles_owned.length}

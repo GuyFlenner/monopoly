@@ -617,8 +617,10 @@ names a square the way the board does. Register matches the rest of the Hebrew c
 second-person plural, gender-free, the voice `hint.reason.*` established, which is also what let
 MON-501 delete `AWAITING_HEBREW` without needing `grammatical_gender`.
 
-Amounts are bare numerals, like every other Hebrew string in the product; only the English cards
-carry a `$`, which predates the decision that this repo has no currency formatter (GAP G-43).
+Amounts were bare numerals, like every other Hebrew string in the product, while only the English
+cards carried a `$` — which predated the decision that this repo had no currency formatter (GAP G-43).
+**Closed by MON-720**: the owner chose `$50` and `50 ₪`, and every Hebrew card now names its currency
+too, checked by `test_every_card_that_names_a_figure_names_its_currency`.
 
 - `ENGLISH_ONLY_CATALOGUES` is now empty, so `cards` goes through every parity check.
 - `e2e/cards.spec.ts` plays a real game in each language and asserts the card on the board is in
@@ -1048,6 +1050,64 @@ reads the motion preference, so the replay viewer honours it without being told.
 the animation budget, so a burst of draws compresses and drops the superseded card — the behaviour the
 compression ladder already documented for three or more. Three tests that had been relying on the old
 tempo to stay uncompressed now say so explicitly, which is a better test than the one it replaced.
+
+### MON-720 — Money says which money it is ✅ **DONE**
+**Tier**: Opus · **Size**: M · *(the last advisory from `docs/A11Y_AUDIT.md`; decided by the owner 2026-08-04)*
+
+**The defect.** Eighteen English *cards* said `$50`, because a card is prose somebody wrote. Every figure
+the UI *computed* — cash, rent, a bid, a net worth, a price on a square — was a bare number, in both
+languages. So a child read "pay $50" on a card and watched a bare 50 leave their pile: the game
+contradicting itself about its own currency. The Hebrew cards said `50`, naming no currency at all.
+
+**Why it waited.** `i18n/index.ts` said so where the interpolation formatter lives: *"Not a money
+formatter. Amounts still interpolate bare. Deciding how currency renders (symbol, placement, grouping)
+changes English output and wants a product decision."* GAP G-43. The owner made it: **`$50` in English,
+`50 ₪` in Hebrew.**
+
+**The shape of the fix.** A `money` format spec, named **per string** rather than per placeholder — and
+the catalogue is what proves that has to be so: `{{minimum}}` is money in `error.bid_too_low` and a
+number of *players* in `error.too_few_players`. Only the sentence knows. 32 placeholders carry the spec
+in each language; the figures that never reach a sentence (a dossier's cash, a price on a square) get
+the same answer from `useMoney()`.
+
+Three things worth knowing:
+
+* **The shekel sits after the figure, with a non-breaking space** — `50 ₪` — so a 320 px column cannot
+  split the pair across a line. Written as ` `, because an invisible code point in source is one
+  nobody reviewing a diff can see.
+* **Thousands are grouped by hand** (`$1,500`), not by `toLocaleString`: a figure that is `1,500` in one
+  browser and `1 500` in another is a figure a bug report cannot be trusted about.
+* **`Intl` currency formatting is deliberately not used** — it prints `50.00 ₪`, and this game has no
+  agorot. The reasoning is in `money.ts`.
+
+**What it cost:** 22 unit assertions and 3 e2e assertions that had pinned bare numbers now pin the
+symbol. The parity check needed teaching too: `_placeholders` matched only `{{name}}`, so a format spec
+would have made it stop seeing all 32 money placeholders — a test that still passes and no longer looks.
+
+---
+
+### MON-721 — Declining a purchase hands the dice on ✅ **DONE**
+**Tier**: Opus · **Size**: S · *(owner, 2026-08-04, immediately after MON-718 removed the confirm)*
+
+*"If I chose not to purchase, end the turn; the next click should be the next player rolling."* The same
+request MON-711 answered for a *purchase*, from the other side — and it needed a different mechanism.
+
+**A decline emits no events.** With auctions off, `rules/purchase.py::_decline` returns `(state, ())`:
+the state unchanged, the log untouched. So MON-711's committed-log trigger cannot see a decline at all.
+The other half of that same fact is what makes acting immediately safe: the perceptibility argument
+behind the log trigger is about not dropping a purchase's own beat, cue and sentence, and a decline has
+none of the three to drop.
+
+So `endTurnAfterDecline` reads the **response** to the decline and asks it the question the other path
+asks the log: is `end_turn` in `legal_commands`, for this seat? Same one rule — *the command is an
+element of the engine's own list, never one we constructed* — and therefore the same two things it must
+never start checking: **auctions** (declining with auctions on opens an interrupt, during which
+`end_turn` is simply not offered, so the lookup fails on its own) and **doubles** (`post_move_phase`
+decides; after doubles `end_turn` is not in the list either). Both are covered by tests that would go
+red if somebody "helpfully" added a ruleset check.
+
+The e2e assertion is *"no `end_turn` chit, and a `roll_dice` one"*, which holds whichever way the deal
+went — an ordinary roll ends the turn, doubles re-rolls — so it cannot be flaky about the dice.
 
 ---
 

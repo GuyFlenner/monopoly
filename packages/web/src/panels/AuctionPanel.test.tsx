@@ -161,7 +161,7 @@ describe("the projected auction state is rendered, never a derived one", () => {
   it("takes the high bid and bidder from the projection", () => {
     renderPanel(makeFrame({ high_bid: 45, high_bidder: 1, min_bid: 46 }));
 
-    expect(screen.getByText("Dan holds the bid at 45.")).toBeInTheDocument();
+    expect(screen.getByText("Dan holds the bid at $45.")).toBeInTheDocument();
     expect(within(bidderRow(1)).getByText("45")).toBeInTheDocument();
   });
 
@@ -188,8 +188,8 @@ describe("the bid ceiling comes off the projection", () => {
 
     enterAmount("13");
 
-    expect(screen.getByText("The most you can bid is 12.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Bid 13/ })).toBeDisabled();
+    expect(screen.getByText("The most you can bid is $12.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Bid \$13/ })).toBeDisabled();
     expect(sent).toEqual([]);
   });
 
@@ -202,9 +202,9 @@ describe("the bid ceiling comes off the projection", () => {
     });
 
     enterAmount("300");
-    await user.click(screen.getByRole("button", { name: /Bid 300/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$300/ }));
     // Above 90% of cash, so it confirms rather than sending outright.
-    await user.click(screen.getByRole("button", { name: /Bid 300/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$300/ }));
 
     expect(sent).toEqual([{ kind: "place_bid", player: 0, amount: 300 }]);
   });
@@ -215,7 +215,7 @@ describe("the bid ceiling comes off the projection", () => {
 
     await user.click(screen.getByRole("button", { name: "50" }));
 
-    expect(screen.getByRole("button", { name: /Bid 20/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Bid \$20/ })).toBeEnabled();
   });
 
   it("refuses to submit below `min_bid`", () => {
@@ -223,8 +223,8 @@ describe("the bid ceiling comes off the projection", () => {
 
     enterAmount("5");
 
-    expect(screen.getByText("That is under the lowest bid of 25.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Bid 5/ })).toBeDisabled();
+    expect(screen.getByText("That is under the lowest bid of $25.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Bid \$5/ })).toBeDisabled();
     expect(sent).toEqual([]);
   });
 
@@ -246,7 +246,7 @@ describe("the expensive taps take two presses", () => {
     const user = userEvent.setup();
     const { sent } = renderPanel(makeFrame({ min_bid: 10 }));
 
-    await user.click(screen.getByRole("button", { name: /Bid 10/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$10/ }));
 
     expect(sent).toEqual([{ kind: "place_bid", player: 0, amount: 10 }]);
   });
@@ -255,14 +255,14 @@ describe("the expensive taps take two presses", () => {
     const user = userEvent.setup();
     const { sent } = renderPanel(makeFrame({ min_bid: 90, max_bid: 100 }));
 
-    await user.click(screen.getByRole("button", { name: /Bid 90/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$90/ }));
 
     expect(sent).toEqual([]);
     expect(
-      screen.getByText("Bidding 90 spends nearly everything you have. Bid it anyway?"),
+      screen.getByText("Bidding $90 spends nearly everything you have. Bid it anyway?"),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Bid 90/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$90/ }));
     expect(sent).toEqual([{ kind: "place_bid", player: 0, amount: 90 }]);
   });
 
@@ -270,7 +270,7 @@ describe("the expensive taps take two presses", () => {
     const user = userEvent.setup();
     const { sent } = renderPanel(makeFrame({ min_bid: 95, max_bid: 100 }));
 
-    await user.click(screen.getByRole("button", { name: /Bid 95/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$95/ }));
     await user.click(screen.getByRole("button", { name: "No, go back" }));
 
     expect(sent).toEqual([]);
@@ -282,7 +282,7 @@ describe("the expensive taps take two presses", () => {
 
     expect(screen.getByText("That is more than half of your money.")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Bid 60/ }));
+    await user.click(screen.getByRole("button", { name: /Bid \$60/ }));
     expect(sent).toEqual([{ kind: "place_bid", player: 0, amount: 60 }]);
   });
 

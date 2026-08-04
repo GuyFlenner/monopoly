@@ -229,8 +229,8 @@ describe("it is the dossier, not a copy of it", () => {
     await userEvent.click(pin(0));
 
     const rail = screen.getByTestId("compare-tray");
-    expect(within(rail).getByTestId("dossier-net-worth")).toHaveTextContent("4242");
-    expect(within(rail).getByTestId("dossier-cash")).toHaveTextContent("1500");
+    expect(within(rail).getByTestId("dossier-net-worth")).toHaveTextContent("$4,242");
+    expect(within(rail).getByTestId("dossier-cash")).toHaveTextContent("$1,500");
   });
 
   it("marks the tray's cards compact and leaves the aside's alone", async () => {

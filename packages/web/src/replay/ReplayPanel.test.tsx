@@ -242,14 +242,14 @@ describe("stepping back through the game", () => {
 
   it("shortens the written history to match", async () => {
     await openedAtTheEnd();
-    expect(screen.getByText("Ruti bought Connecticut Avenue for 100.")).toBeInTheDocument();
+    expect(screen.getByText("Ruti bought Connecticut Avenue for $100.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByTestId("replay-back"));
     await userEvent.click(screen.getByTestId("replay-back"));
 
     // The move is still in the history; the purchase has not happened yet.
     expect(screen.getByText("Ruti moved to Connecticut Avenue.")).toBeInTheDocument();
-    expect(screen.queryByText("Ruti bought Connecticut Avenue for 100.")).toBeNull();
+    expect(screen.queryByText("Ruti bought Connecticut Avenue for $100.")).toBeNull();
   });
 
   it("empties the board completely at position zero", async () => {

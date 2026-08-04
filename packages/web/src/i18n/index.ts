@@ -22,12 +22,16 @@ import boardIsraelEn from "./locales/board-israel.en.json";
 import boardIsraelHe from "./locales/board-israel.he.json";
 import cardsEn from "./locales/cards.en.json";
 import cardsHe from "./locales/cards.he.json";
+import { formatMoney } from "./money";
 import commonEn from "./locales/common.en.json";
 import commonHe from "./locales/common.he.json";
 
 // Re-exported so `@/i18n` stays the one import path for the language layer. The definitions live in
 // `direction.ts` because they must be importable without the catalogues attached — see that file.
 export { DIRECTION, isLocale, LOCALE_LABEL, LOCALES, type Locale } from "./direction";
+// The currency layer, exported from here for the same reason: `@/i18n` is the language layer's one
+// import path. `formatMoney` is for the figures that never reach a catalogue sentence — see `money.ts`.
+export { CURRENCY, formatMoney, useMoney } from "./money";
 
 /**
  * Every interpolated value, on its way into a sentence.
@@ -41,13 +45,28 @@ export { DIRECTION, isLocale, LOCALE_LABEL, LOCALES, type Locale } from "./direc
  * missing param is a defect, but it is `missingInterpolationHandler`'s defect to report, and
  * printing "undefined" at a child while it is investigated is not an improvement.
  *
- * **Not a money formatter.** Amounts still interpolate bare. Deciding how currency renders (symbol,
- * placement, grouping) changes English output and wants a product decision, so it is deliberately
- * out of this function rather than smuggled into it.
+ * **Money is the one named format, and it is named per string** (MON-720, GAP G-43). A catalogue entry
+ * whose placeholder is an amount writes `{{amount, money}}`, and gets `$50` or `50 ₪` — see
+ * `money.ts`, and the owner's decision recorded there. It has to be per string rather than per
+ * placeholder *name*, and the catalogue proves why: `{{minimum}}` is money in `error.bid_too_low` and a
+ * number of players in `error.too_few_players`. Only the sentence knows.
+ *
+ * Everything without a format spec still interpolates bare, so bidi isolation stays a property of
+ * where a value lands rather than something an author opts into.
  */
-function formatInterpolated(value: unknown, lng: string | undefined): string {
-  const direction = lng !== undefined && isLocale(lng) ? DIRECTION[lng] : "ltr";
-  return isolateForDirection(asText(value), direction);
+const MONEY_FORMAT = "money";
+
+function formatInterpolated(
+  value: unknown,
+  format: string | undefined,
+  lng: string | undefined,
+): string {
+  const locale = lng !== undefined && isLocale(lng) ? lng : "en";
+  const text =
+    format?.trim() === MONEY_FORMAT && typeof value === "number"
+      ? formatMoney(value, locale)
+      : asText(value);
+  return isolateForDirection(text, DIRECTION[locale]);
 }
 
 /**
@@ -133,7 +152,7 @@ export async function initI18n(locale: Locale = "he"): Promise<void> {
       // which also keeps `{{name}}` matching the placeholder-parity check in
       // tests/test_locale_parity.py.
       alwaysFormat: true,
-      format: (value, _format, lng) => formatInterpolated(value, lng),
+      format: (value, format, lng) => formatInterpolated(value, format, lng),
     },
     // A missing key must be loud, not a `console.error` nobody watches (GAP G-F17). Both
     // the Vite dev server and a Vitest run should fail hard on it — `import.meta.env.DEV`

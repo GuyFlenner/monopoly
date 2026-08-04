@@ -90,7 +90,7 @@ describe("Announcer", () => {
       vi.advanceTimersByTime(DEFAULT_STEP_MS);
     });
 
-    expect(region(container, "polite")).toHaveTextContent("Ruti paid 50 in rent to Dan.");
+    expect(region(container, "polite")).toHaveTextContent("Ruti paid $50 in rent to Dan.");
     // And it happened in *one* region. The assertive one never spoke.
     expect(region(container, "assertive")).toHaveTextContent("");
   });
@@ -136,11 +136,11 @@ describe("Announcer", () => {
       push(polite("a11y.cash_gained", { name: "Dan", amount: 50 }));
     });
 
-    expect(region(container, "polite")).toHaveTextContent("Ruti paid 50.");
+    expect(region(container, "polite")).toHaveTextContent("Ruti paid $50.");
     act(() => {
       vi.advanceTimersByTime(DEFAULT_STEP_MS);
     });
-    expect(region(container, "polite")).toHaveTextContent("Dan received 50.");
+    expect(region(container, "polite")).toHaveTextContent("Dan received $50.");
   });
 
   it("respects a shorter step for a caller that wants one", () => {

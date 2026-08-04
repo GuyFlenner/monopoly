@@ -179,7 +179,7 @@ describe("ordering and self-containment", () => {
       loggedEvent(2, { type: "bid_placed", player: 1, amount: 70 }),
     ]);
     const items = screen.getAllByRole("listitem");
-    expect(items[0]?.textContent).toContain("bid 70");
+    expect(items[0]?.textContent).toContain("bid $70");
     expect(items[1]?.textContent).toContain("rolled 3 and 4");
   });
 
@@ -199,7 +199,7 @@ describe("ordering and self-containment", () => {
         note_keys: [],
       }),
     ]);
-    expect(logText()).toContain("Dan paid Ruti 4 in rent");
+    expect(logText()).toContain("Dan paid Ruti $4 in rent");
   });
 
   it("resolves the group key inside a rent note rather than printing it", () => {
@@ -290,7 +290,7 @@ describe("ordering and self-containment", () => {
 
   it("names the cash reason in words", () => {
     renderLog([loggedEvent(1, SAMPLE.cash_changed)]);
-    expect(logText()).toContain("Ruti paid 50 for mortgage transfer fee");
+    expect(logText()).toContain("Ruti paid $50 for mortgage transfer fee");
   });
 
   it("draws a turn boundary as a labelled marker", () => {

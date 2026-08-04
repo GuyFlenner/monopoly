@@ -282,10 +282,10 @@ describe("an empty draft is not an offer", () => {
     renderBuilder();
     const box = within(tray("Ruti")).getByRole("spinbutton", { name: "Cash from Ruti" });
 
-    await user.click(within(tray("Ruti")).getByRole("button", { name: "Add 10" }));
+    await user.click(within(tray("Ruti")).getByRole("button", { name: "Add $10" }));
     expect(screen.getByRole("button", { name: "Send this offer" })).toBeInTheDocument();
 
-    await user.click(within(tray("Ruti")).getByRole("button", { name: "Take off 10" }));
+    await user.click(within(tray("Ruti")).getByRole("button", { name: "Take off $10" }));
 
     expect(box).toHaveValue(0);
     expect(screen.queryByRole("button", { name: "Send this offer" })).not.toBeInTheDocument();
@@ -491,7 +491,7 @@ describe("interaction floors", () => {
 
   it("asks the server once for a burst of taps, not once per tap", async () => {
     const { asked } = renderBuilder();
-    const add = within(tray("Ruti")).getByRole("button", { name: "Add 10" });
+    const add = within(tray("Ruti")).getByRole("button", { name: "Add $10" });
 
     // `fireEvent` is synchronous, so all three land inside the debounce window — which is the
     // burst this is about. `userEvent` awaits between clicks and would not reproduce it.

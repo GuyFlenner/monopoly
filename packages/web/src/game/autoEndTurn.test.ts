@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import type { Command, LoggedEvent, PlayerView } from "@/api";
 import { loggedEvent, makePlayer } from "@/test/fixtures";
 
-import { autoEndTurn } from "./autoEndTurn";
+import { autoEndTurn, endTurnAfterDecline } from "./autoEndTurn";
 
 const HUMANS: readonly PlayerView[] = [
   makePlayer(0, { name: "Ruti" }),
@@ -159,5 +159,81 @@ describe("which acquisitions count", () => {
       }),
     ];
     expect(decide({ events })?.seq).toBe(4);
+  });
+});
+
+/*
+  The other half of the same owner request, arriving by a different route (2026-08-04).
+
+  A decline emits **no events** — `rules/purchase.py::_decline` returns `(state, ())` with auctions off
+  — so the log-watching path above cannot see one, and `endTurnAfterDecline` reads the *response* to the
+  decline instead. The tests that earn their keep here are the two where ending would be wrong.
+*/
+describe("ending a turn after a declined purchase", () => {
+  const DECLINE: Command = { kind: "decline_purchase", player: 0 };
+
+  /** A response view carrying whatever the engine went on to offer. */
+  function offering(...commands: readonly Command[]): {
+    readonly legal_commands: readonly Command[];
+  } {
+    return { legal_commands: commands };
+  }
+
+  it("hands the dice on, using the command the engine offered", () => {
+    const view = offering(END_TURN, ROLL);
+
+    const follow = endTurnAfterDecline(DECLINE, view, true);
+
+    // Identity, not shape: the same guarantee the purchase path makes. Even with every other check
+    // removed this cannot send a command the engine did not put in the list.
+    expect(follow).toBe(view.legal_commands[0]);
+  });
+
+  it("does nothing when the decline opened an auction", () => {
+    /*
+      The auctions-on case, and the reason `endTurnAfterDecline` has no `auctions_enabled` check in it.
+      Declining with auctions on opens an auction interrupt, and during one the engine does not offer
+      `end_turn` — so the lookup simply fails. An implementation that read the ruleset instead would be
+      a copy of a rule, and the copy is the one that goes stale.
+    */
+    const follow = endTurnAfterDecline(
+      DECLINE,
+      offering(
+        { kind: "place_bid", player: 0, amount: 10 },
+        { kind: "withdraw_from_auction", player: 0 },
+      ),
+      true,
+    );
+
+    expect(follow).toBeNull();
+  });
+
+  it("does not end somebody else's turn", () => {
+    // `end_turn` on offer for seat 1 is not seat 0's follow-through. Without the player match a
+    // decline could hand the dice on for the wrong seat.
+    const follow = endTurnAfterDecline(
+      DECLINE,
+      offering({ kind: "end_turn", player: 1, elapsed_seconds: null }),
+      true,
+    );
+
+    expect(follow).toBeNull();
+  });
+
+  it("stays out of the way of every other command", () => {
+    // The follow-through belongs to a decline alone. A buy is the log-watching path's business, and a
+    // roll or a build must never be followed by an `end_turn` from here.
+    for (const command of [
+      { kind: "buy_property", player: 0, tile: 1 },
+      ROLL,
+      { kind: "build_house", player: 0, tile: 1 },
+    ] as Command[]) {
+      expect(endTurnAfterDecline(command, offering(END_TURN), true), command.kind).toBeNull();
+    }
+  });
+
+  it("respects the preference the purchase path respects", () => {
+    // One switch for one behaviour: a player who turned auto-end-turn off did not turn half of it off.
+    expect(endTurnAfterDecline(DECLINE, offering(END_TURN), false)).toBeNull();
   });
 });
