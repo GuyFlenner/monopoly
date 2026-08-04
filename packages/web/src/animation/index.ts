@@ -42,5 +42,18 @@ export type {
   TimelineStep,
   TokenMoveStep,
 } from "./timeline";
+export {
+  CARD_DWELL_STORAGE_KEY,
+  cardDwellMs,
+  clampCardSeconds,
+  DEFAULT_CARD_SECONDS,
+  forgetCachedCardSeconds,
+  MAX_CARD_SECONDS,
+  MIN_CARD_SECONDS,
+  readCardSeconds,
+  useCardDwellPreference,
+  writeCardSeconds,
+} from "./cardDwell";
+export type { CardDwellPreference } from "./cardDwell";
 export { isReplay, useAnimationQueue } from "./useAnimationQueue";
 export type { AnimationQueueOptions, AnimationState } from "./useAnimationQueue";

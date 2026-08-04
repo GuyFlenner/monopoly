@@ -112,19 +112,6 @@ export function tileOf(command: Command): number | undefined {
 }
 
 /**
- * The variant suffix for the one consequence sentence that depends on a rule set (MON-604).
- *
- * `confirm.consequence.decline_purchase` says "the square goes up for auction instead. Anyone at
- * the table can buy it" — which is true under the universal rules and **false in Kids Mode**, where
- * `auctions_enabled` is off and declining simply leaves the square unsold. A confirm dialog that
- * states a consequence that will not happen is worse than no dialog: it teaches a rule the game
- * does not play, to the exact audience least able to notice.
- *
- * Exported so the test can name the same string the implementation does.
- */
-export const NO_AUCTION_SUFFIX = "_no_auction";
-
-/**
  * The plain-language consequence of a terminal command, as a catalogue key.
  *
  * Derived, like the labels — `confirm.consequence.<kind>`. The old hand-written table had to be
@@ -135,12 +122,15 @@ export const NO_AUCTION_SUFFIX = "_no_auction";
  * Callers ask this only for the kinds `requiresConfirmation` returns true for. A confirm step whose
  * body is empty is a dialog that teaches nothing.
  *
- * @param auctions `ruleset.auctions_enabled`. A *presentation* input: it selects which true sentence
- * to print, and decides nothing about whether the command may be sent. `decline_purchase` is the
- * only kind whose consequence names an auction — `withdraw_from_auction` cannot be legal in a game
- * with no auctions in it, so it needs no variant.
+ * ## Why there is no longer a no-auction variant (MON-718)
+ *
+ * There used to be two sentences for `decline_purchase`, because the auction one is false when
+ * `auctions_enabled` is off and *"a confirm dialog that states a consequence that will not happen is
+ * worse than no dialog"*. That reasoning survives; what changed is the conclusion it now leads to.
+ * A table with no auctions gets **no dialog at all** — declining is not irreversible there, the
+ * square simply stays unsold — so `requiresConfirmation` answers false and this function is never
+ * asked. One dialog, one ruleset, one true sentence, and no leaf nobody reads.
  */
-export function consequenceKeyFor(kind: CommandKind, auctions = true): string {
-  const base = `confirm.consequence.${kind}`;
-  return kind === "decline_purchase" && !auctions ? `${base}${NO_AUCTION_SUFFIX}` : base;
+export function consequenceKeyFor(kind: CommandKind): string {
+  return `confirm.consequence.${kind}`;
 }

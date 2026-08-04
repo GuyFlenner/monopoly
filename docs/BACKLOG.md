@@ -982,6 +982,75 @@ this entry does not claim a new number for it. The artifact is still covered for
 
 ---
 
+## E7b — What the owner found playing it (M8)
+
+Four asks from one evening's play, 2026-08-04, batched because they are all *defaults and comfort* and
+none of them touches a rule. Every one is a change to what a family gets **without pressing anything**.
+
+### MON-716 — The Israeli board is the default ✅ **DONE**
+**Tier**: Opus · **Size**: S
+
+The picker offered `classic` first because `available_boards()` sorted alphabetically and the setup
+screen takes `boards[0]`. For a game called *רחוב הכסף* that opens in Hebrew, that is the wrong board to
+hand a family who presses nothing.
+
+Fixed in the **engine**, not the UI: `PREFERRED_BOARDS` puts Israel at the head of the list and the
+docstring states what the head means. `SetupScreen.tsx` already refused to hardcode an id ("the list of
+boards is the server's to decide"), so the coupling was documented before it was load-bearing — and it
+is now pinned from both sides, including a web test with a two-board fixture that would catch anybody
+"simplifying" the component into `find(id === "classic")`.
+
+### MON-717 — A Hebrew table starts on the masculine ✅ **DONE**
+**Tier**: Opus · **Size**: S
+
+The seat gender defaulted to `"n"` (them/they) in every language. Hebrew conjugates every verb in the
+narration by the subject's gender, and "them" is the one option a Hebrew sentence cannot use gracefully,
+so a Hebrew setup screen now offers the masculine.
+
+**This amends an earlier decision, deliberately and on the owner's word.** `SeatConfig` documents
+*"`n` is the neutral fallback, never the masculine"* (owner decision 5, GAP G-42). That sentence is
+still true of the *fallback* — a seat nobody chose for, in a language nobody chose — and what changed is
+the *default offered on a Hebrew screen*, where the control is visible and two presses change it per
+seat. The English default is unchanged and is asserted, so the amendment cannot quietly widen.
+
+### MON-718 — No confirm for a decline that costs nothing ✅ **DONE**
+**Tier**: Opus · **Size**: S
+
+*"בטוחים? אף אחד לא קונה את המשבצת בתור הזה…"* stood in front of the commonest action in the game to
+warn about a consequence that, with auctions off, does not exist: the square simply stays unsold and the
+next player to stop there may buy it.
+
+So `requiresConfirmation` takes the ruleset. With auctions **on** the dialog stays — a mis-tap really
+can hand the deed to somebody for a pound — and with auctions off, which is this product's default
+(MON-712), declining goes straight through. `ACTION_THEME` still classes the command `terminal`, because
+that is its cost when there is an auction to lose the tile to; the ruleset is applied at the one
+predicate every caller already went through, so a chit's dashed rim and the dialog cannot disagree.
+
+Two things fell out of it: the `_no_auction` consequence sentence is now unreachable and was **deleted
+from both catalogues** rather than left as dead text, and `Hint.terminal` moved to the static
+`TERMINAL_COMMANDS` — a hint asking "may I offer a shortcut?" wants the cost of the action, which no
+ruleset makes cheaper to get wrong.
+
+### MON-719 — A card stays up long enough to read, and the table decides ✅ **DONE**
+**Tier**: Opus · **Size**: M
+
+The dwell was 1800 ms, chosen as 1.5 × the `<Announcer>`'s step so a card was still on screen when the
+polite region finished saying it. Sound reasoning, and still too short to *read* two sentences aloud to
+a six-year-old — the owner could not finish a Chance card before it left.
+
+The default is now **5 s**, and the table sets it in seconds on the setup screen (2–15). It is a
+`localStorage` preference beside the mute and motion switches, **not** on the create-game request: how
+long a card is *shown* belongs to whoever is looking at the screen, so a save restored on another device
+must not carry somebody else's reading speed. `useAnimationQueue` reads it itself, the way it already
+reads the motion preference, so the replay viewer honours it without being told.
+
+**One consequence, stated rather than discovered:** two cards in one batch are now 10 s, which exceeds
+the animation budget, so a burst of draws compresses and drops the superseded card — the behaviour the
+compression ladder already documented for three or more. Three tests that had been relying on the old
+tempo to stay uncompressed now say so explicitly, which is a better test than the one it replaced.
+
+---
+
 ## E4b — Contract gaps found while building the UI (M4)
 
 Each was found by a component that then had to work around it. Every workaround is either

@@ -83,19 +83,25 @@ export interface TimelineDurations {
  * `diceMs` is `TUMBLE_MS` by construction — the tray's CSS tumble and this queue's idea of how long
  * a settle takes must be one number, or the cash pulse lands while the dice are still spinning.
  *
- * `cardMs` is the odd one out by an order of magnitude, and deliberately: 1800 ms is 1.5 × the
- * `<Announcer>`'s `DEFAULT_STEP_MS`, so the card is still on screen when the polite region finishes
- * saying it. A sighted reader and a screen-reader user are then on one clock rather than two. It is
- * seven times the cash pulse, which is the "noticeably longer than a cash pulse" MON-709 asks for,
- * and it is an upper bound rather than a wait: the card can be put down at any moment, and no input
- * is gated on it (see `queue.ts`'s idle contract and `useAnimationQueue.ts`).
+ * `cardMs` is the odd one out by an order of magnitude, and deliberately. It began at 1800 ms —
+ * 1.5 × the `<Announcer>`'s `DEFAULT_STEP_MS`, so the card was still on screen when the polite region
+ * finished saying it, putting a sighted reader and a screen-reader user on one clock. That property is
+ * kept and the number is not: the owner played a game and could not finish reading a card before it
+ * left (MON-719). 1.8 s is enough to *hear* a card announced and not enough to *read* two sentences
+ * aloud to a six-year-old, which is this product's audience.
+ *
+ * So the default is {@link DEFAULT_CARD_SECONDS} (5 s) and the table can change it, because no one
+ * number is right for a child and for an adult who has read the deck fifty times — see
+ * `animation/cardDwell.ts`. It remains an upper bound rather than a wait: the card can be put down at
+ * any moment and no input is gated on it (see `queue.ts`'s idle contract and `useAnimationQueue.ts`),
+ * which is what makes a *longer* default safe to ship.
  */
 export const DEFAULT_DURATIONS: TimelineDurations = {
   perTileMs: 90,
   diceMs: 420,
   cashMs: 260,
   buildingMs: 240,
-  cardMs: 1800,
+  cardMs: 5000,
 };
 
 /**

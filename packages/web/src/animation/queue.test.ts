@@ -23,6 +23,16 @@ import { describe, expect, it } from "vitest";
 import { MotionQueue, STILL } from "./queue";
 import { DEFAULT_DURATIONS, type TimelineStep } from "./timeline";
 
+/**
+ * A budget no fixture in this file can exceed, for the tests that need every beat they pushed.
+ *
+ * Named rather than inlined so the reason is in one place: the compression ladder is a *feature* and
+ * several tests below exercise it deliberately, so the ones that must not compress have to say which
+ * they are. Derived from the card dwell, which is the longest beat there is and the one that moved
+ * (MON-719) — a literal would go stale the next time it does.
+ */
+const ROOMY_BUDGET_MS = DEFAULT_DURATIONS.cardMs * 10;
+
 function move(
   player: number,
   path: readonly number[],
@@ -221,7 +231,11 @@ describe("the card on the board", () => {
   });
 
   it("counts a fresh beat for the same card drawn twice, so two draws read as two", () => {
-    const queue = new MotionQueue();
+    // A budget wide enough to hold both cards, stated rather than inherited. Two cards at the default
+    // dwell are ten seconds, which the compression ladder is *right* to shorten (MON-719 raised the
+    // dwell to 5 s) — and a compressed batch drops the superseded card, which is the behaviour under
+    // test in `drops the card a later draw replaced` below rather than here.
+    const queue = new MotionQueue({ budgetMs: ROOMY_BUDGET_MS });
     queue.push([card("card.chance.go_to_jail", 1), card("card.chance.go_to_jail", 2)], 0);
     const first = queue.frame.card?.nonce;
     queue.advance(DEFAULT_DURATIONS.cardMs);
@@ -244,7 +258,9 @@ describe("the card on the board", () => {
   });
 
   it("shows the card of the beat in flight, never a later one waiting its turn", () => {
-    const queue = new MotionQueue();
+    // Same reason as above: this is about *which* card is on screen while a beat plays, so both have
+    // to survive planning.
+    const queue = new MotionQueue({ budgetMs: ROOMY_BUDGET_MS });
     queue.push([card("card.chance.first", 1), card("card.chance.second", 2)], 0);
     expect(queue.frame.card?.cardId).toBe("card.chance.first");
   });

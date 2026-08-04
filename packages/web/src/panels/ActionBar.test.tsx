@@ -842,22 +842,66 @@ describe("Kids Mode wording and the hint mark", () => {
     expect(kinds()).toEqual(full);
   });
 
-  it("tells the truth about declining when the rule set has no auctions", async () => {
+  it("sends a decline straight through when there is no auction to lose the square to", async () => {
+    /*
+      MON-718, and the assertion that replaced one of this file's own (git history has it).
+
+      The old test asserted a *second* consequence sentence for a table with no auctions, on the
+      argument that a dialog must not describe a rule the table is not playing. That argument now
+      lands somewhere better: with `auctions_enabled` off, declining is not irreversible at all — the
+      square stays unsold and the next player to stop there may buy it — so the honest answer is no
+      dialog, not a gentler one. The owner reported the interruption; this is what removing it looks
+      like from the outside.
+    */
     const decline: Command = { kind: "decline_purchase", player: 0 };
+    const onCommand = vi.fn();
     render(
       <ActionBar
         commands={[decline]}
-        onCommand={vi.fn()}
+        onCommand={onCommand}
         board={BOARD}
         jailFine={50}
         auctions={false}
       />,
     );
+
     await userEvent.click(screen.getByRole("button", { name: /buy/i }));
-    // The universal sentence promises an auction. In a kids game there is none, and the dialog in
-    // front of the child must not describe a rule the table is not playing.
-    expect(screen.getByRole("dialog")).not.toHaveAccessibleDescription(/auction/i);
-    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(/stays on the market/i);
+
+    expect(screen.queryByRole("dialog"), "a dialog appeared for a reversible decline").toBeNull();
+    expect(onCommand).toHaveBeenCalledWith(decline);
+    // And the chit does not wear the dashed terminal rim either: what it looks like and what it does
+    // are one answer, so a chit cannot promise a dialog it will not open.
+    const chit = screen.getByRole("button", { name: /buy/i });
+    expect(chit).toHaveAttribute("data-terminal", "false");
+    expect(chit.className).not.toContain("kesef-chit--terminal");
+  });
+
+  it("still confirms a decline at a table that turned auctions on", async () => {
+    // The other half, and the reason `requiresConfirmation` takes the ruleset rather than losing the
+    // dialog outright: with auctions on, a mis-tap really can hand the deed to somebody for a pound.
+    const decline: Command = { kind: "decline_purchase", player: 0 };
+    const onCommand = vi.fn();
+    render(
+      <ActionBar
+        commands={[decline]}
+        onCommand={onCommand}
+        board={BOARD}
+        jailFine={50}
+        auctions={true}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: /buy/i }));
+
+    expect(onCommand, "the command was sent before the player answered").not.toHaveBeenCalled();
+    // The one sentence there is, and it is true of this table: the square goes to auction.
+    expect(screen.getByRole("dialog")).toHaveAccessibleDescription(/auction/i);
+    // By kind, not by name: with the dialog open its own "proceed" button carries the action label
+    // too, so a name query now matches two buttons.
+    expect(document.querySelector('[data-command-kind="decline_purchase"]')).toHaveAttribute(
+      "data-terminal",
+      "true",
+    );
   });
 
   it("marks the hinted chit, and only that one", () => {

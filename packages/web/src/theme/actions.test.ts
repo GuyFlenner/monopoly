@@ -108,18 +108,41 @@ describe("consequence classes", () => {
     );
   });
 
-  it("requires confirmation for exactly the terminal commands, and only those", () => {
+  it("requires confirmation for exactly the terminal commands, in a game with auctions", () => {
     for (const kind of COMMAND_KINDS) {
-      expect(requiresConfirmation(kind), kind).toBe(ACTION_THEME[kind].class === "terminal");
+      expect(requiresConfirmation(kind, true), kind).toBe(ACTION_THEME[kind].class === "terminal");
     }
-    expect(COMMAND_KINDS.filter(requiresConfirmation)).toHaveLength(3);
+    expect(COMMAND_KINDS.filter((kind) => requiresConfirmation(kind, true))).toHaveLength(3);
+  });
+
+  it("drops the confirm for a declined purchase when there is no auction to lose it to", () => {
+    /*
+      MON-718, and the one place the table and the predicate deliberately differ.
+
+      `decline_purchase` stays `terminal` in `ACTION_THEME` because that is its cost *when a deed goes
+      under the hammer*. With auctions off — this product's default (MON-712) — declining is not
+      irreversible at all: the square stays unowned and the next player to stop there may buy it. A
+      dialog then interrupts the commonest action in the game to warn about something that will not
+      happen, which is the owner's report of it.
+
+      Nothing else moves: the other two are final under every rule set that can produce them.
+    */
+    expect(requiresConfirmation("decline_purchase", false)).toBe(false);
+    expect(requiresConfirmation("decline_purchase", true)).toBe(true);
+    for (const kind of ["declare_bankruptcy", "withdraw_from_auction"] as const) {
+      expect(requiresConfirmation(kind, false), kind).toBe(true);
+      expect(requiresConfirmation(kind, true), kind).toBe(true);
+    }
+    // And no non-terminal command starts confirming because a table turned auctions on.
+    const confirming = COMMAND_KINDS.filter((kind) => requiresConfirmation(kind, false));
+    expect(confirming.sort()).toEqual(["declare_bankruptcy", "withdraw_from_auction"]);
   });
 
   it("does not let tone stand in for the class", () => {
     // `decline_purchase` is only `caution` in colour and still needs the confirm step: a shade
     // of red is exactly what a protan player cannot see, so the class carries the weight.
     expect(ACTION_THEME.decline_purchase.tone).toBe("caution");
-    expect(requiresConfirmation("decline_purchase")).toBe(true);
+    expect(requiresConfirmation("decline_purchase", true)).toBe(true);
     expect(ACTION_THEME.declare_bankruptcy.tone).toBe("danger");
     // …and a danger tone is not sufficient on its own either: something can look severe and be
     // ordinary. Assert the mapping is not just "danger ⇒ terminal".
@@ -165,7 +188,7 @@ describe("zones", () => {
     // this whole change exists not to introduce. It is also where `HINT_ORDER` and `zone` deliberately
     // disagree, which is the argument for them being two tables.
     expect(zoneOf("declare_bankruptcy")).toBe("flow");
-    expect(requiresConfirmation("declare_bankruptcy")).toBe(true);
+    expect(requiresConfirmation("declare_bankruptcy", false)).toBe(true);
   });
 
   it("answers the trade frame's two sides with `flow`, not `portfolio`", () => {
