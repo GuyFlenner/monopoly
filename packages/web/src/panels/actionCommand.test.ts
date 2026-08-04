@@ -24,6 +24,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Command, CommandKind } from "@/api";
 import commonEn from "@/i18n/locales/common.en.json";
+import commonHe from "@/i18n/locales/common.he.json";
 import { COMMAND_KINDS, TERMINAL_COMMANDS, requiresConfirmation } from "@/theme";
 
 import {
@@ -32,7 +33,6 @@ import {
   labelKeyFor,
   labelKeysFor,
   labelParamsFor,
-  NO_AUCTION_SUFFIX,
   tileOf,
 } from "./actionCommand";
 
@@ -56,6 +56,12 @@ function flatten(payload: unknown, prefix = ""): Map<string, string> {
 }
 
 const CATALOGUE = flatten(commonEn);
+
+/** Both languages, for the assertions that are about a key *existing* rather than about its words. */
+const CATALOGUES: readonly (readonly [string, ReadonlyMap<string, string>])[] = [
+  ["English", CATALOGUE],
+  ["Hebrew", flatten(commonHe)],
+];
 
 function placeholdersIn(value: string): readonly string[] {
   return [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1] ?? "");
@@ -200,8 +206,10 @@ describe("the terminal consequences", () => {
     // The old hand-written table needed checking in both directions because it could disagree with
     // the theme. A concatenation cannot — but the *catalogue* still can, by carrying a consequence
     // for a kind that never asks for one. That leaf would be dead text nobody ever reads.
+    // `auctions: true` is the widest set: since MON-718 a `decline_purchase` only confirms when there
+    // is an auction, and a consequence sentence for it is still needed for the tables that have one.
     const orphaned = COMMAND_KINDS.filter(
-      (kind) => !requiresConfirmation(kind) && CATALOGUE.has(consequenceKeyFor(kind)),
+      (kind) => !requiresConfirmation(kind, true) && CATALOGUE.has(consequenceKeyFor(kind)),
     );
     expect(orphaned, "consequences for commands that are never confirmed").toEqual([]);
   });
@@ -220,39 +228,28 @@ describe("the terminal consequences", () => {
 });
 
 /**
- * MON-604: the one consequence that is a lie in Kids Mode.
+ * One consequence sentence per confirmable command, and no variant (MON-604 → MON-718).
  *
- * `confirm.consequence.decline_purchase` states that the square goes up for auction, which is the
- * universal rule and is false with `auctions_enabled` off. The dialog that gets it wrong is the one
- * standing in front of a child, so both sentences have to exist and the flag has to pick between
- * them. Note what is *not* under test: whether the command is legal either way. It is, in both.
+ * There used to be two sentences for declining, because the auction one is false with
+ * `auctions_enabled` off and *"a confirm dialog that states a consequence that will not happen is
+ * worse than no dialog"*. That argument now lands somewhere better: a table with no auctions gets no
+ * dialog, because declining there is not irreversible. So the variant is gone, and what these tests
+ * pin is that it cannot come back by halves — a key with no leaf, or a leaf with no key.
  */
-describe("the consequence of declining depends on whether there are auctions", () => {
-  it("keeps the auction sentence under the full rules", () => {
-    expect(consequenceKeyFor("decline_purchase", true)).toBe(consequenceKeyFor("decline_purchase"));
-    expect(CATALOGUE.get(consequenceKeyFor("decline_purchase", true))).toContain("auction");
+describe("the consequence of declining", () => {
+  it("names the auction, which is the only ruleset that raises the dialog", () => {
+    // `requiresConfirmation("decline_purchase", false)` is false, so this sentence is only ever read
+    // by a table that has auctions — and for that table it is true.
+    expect(consequenceKeyFor("decline_purchase")).toBe("confirm.consequence.decline_purchase");
+    expect(CATALOGUE.get(consequenceKeyFor("decline_purchase"))).toContain("auction");
   });
 
-  it("says something different, and true, when there are none", () => {
-    const key = consequenceKeyFor("decline_purchase", false);
-    expect(key).toBe(`confirm.consequence.decline_purchase${NO_AUCTION_SUFFIX}`);
-    const sentence = CATALOGUE.get(key);
-    expect(sentence, "no sentence for declining in a game with no auctions").toBeDefined();
-    // The whole point of the variant: the word that made the other sentence wrong is gone.
-    expect(sentence).not.toContain("auction");
-    expect(sentence).not.toBe(CATALOGUE.get(consequenceKeyFor("decline_purchase", true)));
-  });
-
-  it("leaves every other terminal kind on one sentence", () => {
-    // `withdraw_from_auction` needs no variant — it cannot be legal in a game with no auctions in
-    // it — and a variant nobody selects is a leaf nobody reads.
-    for (const kind of TERMINAL_COMMANDS) {
-      if (kind === "decline_purchase") {
-        continue;
-      }
-      expect(consequenceKeyFor(kind, false), `${kind} grew a variant`).toBe(
-        consequenceKeyFor(kind, true),
-      );
+  it("has no leftover no-auction leaf in either catalogue", () => {
+    // The variant is unreachable now: dead text nobody reads, in two languages, is exactly what the
+    // orphan test above exists to prevent — and it could not see a *suffixed* key.
+    for (const [name, catalogue] of CATALOGUES) {
+      const orphans = [...catalogue.keys()].filter((key) => key.endsWith("_no_auction"));
+      expect(orphans, `${name} still carries an unreachable consequence`).toEqual([]);
     }
   });
 });

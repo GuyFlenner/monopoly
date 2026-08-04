@@ -42,7 +42,7 @@
  */
 
 import type { Command } from "@/api";
-import { ACTION_THEME, requiresConfirmation, type CommandKind } from "@/theme";
+import { ACTION_THEME, TERMINAL_COMMANDS, type CommandKind } from "@/theme";
 
 /**
  * Command kinds from "the thing you are here to do" to "the thing you do when nothing is left".
@@ -108,10 +108,14 @@ export interface Hint {
   /** `hint.reason.<kind>` — why this is the decision on the table. A key, never a sentence. */
   readonly reasonKey: string;
   /**
-   * `true` when acting on this needs a confirm step first.
+   * `true` when this command is one of the irreversible ones.
    *
-   * The theme's predicate, surfaced so a hint surface can decline to offer a shortcut past the
-   * MON-405 confirm dialog. See `HintPanel.tsx`, which offers no button at all for that reason.
+   * The theme's static classification — `TERMINAL_COMMANDS`, not `requiresConfirmation` — and the
+   * difference matters since MON-718: whether a `decline_purchase` actually *raises* a dialog depends
+   * on `ruleset.auctions_enabled`, and this module ranks `legal_commands` and nothing else. A hint
+   * surface asking "may I offer a one-tap shortcut for this?" wants the cost of the action, which no
+   * ruleset makes cheaper to get wrong by accident. See `HintPanel.tsx`, which offers no button at
+   * all for that reason and so never has to ask.
    */
   readonly terminal: boolean;
 }
@@ -154,7 +158,7 @@ export function suggest(commands: readonly Command[]): Hint | null {
   return {
     command: best,
     reasonKey: reasonKeyFor(best.kind),
-    terminal: requiresConfirmation(best.kind),
+    terminal: TERMINAL_COMMANDS.has(best.kind),
   };
 }
 

@@ -205,8 +205,11 @@ export function AuctionPanel({
                 data-testid="auction-withdraw"
                 onClick={() => {
                   // Terminal, so it is never sent on one press. The predicate is the theme's, so
-                  // this panel cannot drift from the ActionBar about what is final.
-                  if (requiresConfirmation("withdraw_from_auction")) {
+                  // this panel cannot drift from the ActionBar about what is final. `auctions: true`
+                  // is a fact and not a guess here — this panel only exists inside an auction, and
+                  // the argument exists for `decline_purchase`, whose cost a ruleset decides
+                  // (MON-718). A withdrawal is final under every rule set that can produce one.
+                  if (requiresConfirmation("withdraw_from_auction", true)) {
                     setPending({ kind: "withdraw" });
                   } else {
                     submitWithdraw();

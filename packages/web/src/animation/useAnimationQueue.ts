@@ -46,14 +46,15 @@
  * for a still board must still be shown the card they just drew (MON-709).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { LoggedEvent } from "@/api";
 import { useMotionPreference } from "@/board/motion";
 import { useEventFeed } from "@/game";
 
+import { cardDwellMs, useCardDwellPreference } from "./cardDwell";
 import { MotionQueue, STILL, type MotionFrame } from "./queue";
-import { plan, type TimelineDurations } from "./timeline";
+import { DEFAULT_DURATIONS, plan, type TimelineDurations } from "./timeline";
 
 export interface AnimationQueueOptions {
   readonly durations?: TimelineDurations;
@@ -85,13 +86,27 @@ export function isReplay(frames: readonly LoggedEvent[], lastSeq: number): boole
 }
 
 export function useAnimationQueue(options: AnimationQueueOptions = {}): AnimationState {
-  const { durations, budgetMs, now: clock } = options;
+  const { budgetMs, now: clock } = options;
   const now = clock ?? Date.now;
   const { skip: skipMotion } = useMotionPreference();
+  /*
+    How long the table asked a card to stay up (MON-719).
+
+    Read *here* rather than passed in by `GameScreen`, for the same reason `useMotionPreference` is
+    read here: every surface that plays a timeline — the game screen and the replay viewer — must
+    honour the same choice, and a preference a caller has to remember to forward is one a new caller
+    will forget. An explicit `options.durations` still wins outright, which is what keeps the tests
+    driving fixed numbers rather than a stored one.
+  */
+  const { seconds } = useCardDwellPreference();
+  const durations = useMemo(
+    () => options.durations ?? { ...DEFAULT_DURATIONS, cardMs: cardDwellMs(seconds) },
+    [options.durations, seconds],
+  );
 
   const queue = useRef<MotionQueue | null>(null);
   queue.current ??= new MotionQueue({
-    ...(durations === undefined ? {} : { durations }),
+    durations,
     ...(budgetMs === undefined ? {} : { budgetMs }),
   });
   const held = queue.current;
@@ -148,7 +163,7 @@ export function useAnimationQueue(options: AnimationQueueOptions = {}): Animatio
     }
     held.push(
       plan(frames, {
-        ...(durations === undefined ? {} : { durations }),
+        durations,
         ...(budgetMs === undefined ? {} : { budgetMs }),
         instant,
         history,

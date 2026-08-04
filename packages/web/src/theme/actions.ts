@@ -215,10 +215,30 @@ export const ACTION_THEME: Readonly<Record<CommandKind, ActionTheme>> = {
  * Does this command need a confirm step with a stated consequence?
  *
  * The single source of truth for MON-405. Note what it is *not*: it is not "is the tone danger".
- * `decline_purchase` is only `caution` in colour and still needs the confirm, because the cost
- * of a mis-tap is losing the tile.
+ *
+ * ## Why `auctions` is an argument (MON-718)
+ *
+ * `decline_purchase` is the one command whose cost is decided by the *ruleset* rather than by the
+ * command. With auctions on, declining puts the deed in front of everyone else and a mis-tap can
+ * lose the tile for a pound — the confirm is earned. With auctions **off**, which is this product's
+ * default (MON-712), declining does nothing irreversible at all: the square stays unowned and the
+ * next player to stop there may buy it. The dialog then interrupts the commonest action in the game
+ * to warn about a consequence that does not exist, which is the owner's report of it and the reason
+ * this argument is here.
+ *
+ * So the table below keeps `terminal` for `decline_purchase` — that is its cost *when there is an
+ * auction to lose the tile to* — and the ruleset is applied here, at the one predicate every caller
+ * already goes through. There is deliberately **no default**: a call site that does not know the
+ * ruleset cannot answer this question, and a default would let it look as though it had.
+ *
+ * @param auctions `ruleset.auctions_enabled`. Presentation, exactly as in `consequenceKeyFor`: it
+ * selects whether a confirm is shown, never whether the command may be sent. The bar renders
+ * whatever `legal_commands` holds either way.
  */
-export function requiresConfirmation(kind: CommandKind): boolean {
+export function requiresConfirmation(kind: CommandKind, auctions: boolean): boolean {
+  if (kind === "decline_purchase") {
+    return auctions;
+  }
   return ACTION_THEME[kind].class === "terminal";
 }
 

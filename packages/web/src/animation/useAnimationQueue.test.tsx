@@ -32,6 +32,13 @@ import { ApiClient, type LoggedEvent, type SocketLike } from "@/api";
 import { GameProvider, useGame } from "@/game";
 import { loggedEvent, makePlayer, makeState, makeView, ROLL_DICE } from "@/test/fixtures";
 
+import {
+  cardDwellMs,
+  CARD_DWELL_STORAGE_KEY,
+  forgetCachedCardSeconds,
+  MIN_CARD_SECONDS,
+  writeCardSeconds,
+} from "./cardDwell";
 import { isReplay, useAnimationQueue } from "./useAnimationQueue";
 
 /** How long an assertion will wait for the hook's own timer to notice the clock moved. */
@@ -154,6 +161,9 @@ beforeEach(() => {
   clock = 0;
   responses = [];
   posted = [];
+  // The dwell is a stored preference now (MON-719), so a test that set it must not leak into the next.
+  globalThis.localStorage.removeItem(CARD_DWELL_STORAGE_KEY);
+  forgetCachedCardSeconds();
 });
 
 describe("replay is not news", () => {
@@ -250,7 +260,20 @@ describe("a live command", () => {
 });
 
 describe("a card drawn", () => {
-  it("goes up on a live draw and comes down when its beat ends (MON-709)", async () => {
+  it("goes up on a live draw and comes down when its beat ends (MON-709, MON-719)", async () => {
+    /*
+      Driven at the *shortest* dwell the setting offers, which is two things at once.
+
+      It is what makes the test honest about the clock: the queue's `now` is injected and faked, but
+      the wake is a real `setTimeout`, so a beat can only be watched to its end inside this file's
+      four-second `SETTLE`. At the five-second default it cannot — which is how raising the default
+      turned this green test red, correctly.
+
+      And it is coverage the old test could not have: the hook reads the player's stored choice
+      (`useCardDwellPreference`), so a card that comes down after *two* seconds here is the setting
+      being honoured rather than a constant being read.
+    */
+    writeCardSeconds(MIN_CARD_SECONDS);
     responses = [
       viewAt(0, [loggedEvent(1, { type: "turn_started", player: 0, turn_number: 1 })]),
       viewAt(0, [
@@ -275,7 +298,10 @@ describe("a card drawn", () => {
 
     // Past the dwell. The card is content, not a counter, so it must come *off* the frame — there is
     // no field in the projection behind it to keep it honest.
-    clock = 5000;
+    //
+    // Derived from the dwell this test asked for, rather than written as a number: it was `5000`,
+    // which stopped being "past" anything the moment the default became exactly five seconds.
+    clock = cardDwellMs(MIN_CARD_SECONDS) + 500;
     await waitFor(() => {
       expect(screen.getByTestId("card")).toHaveTextContent("none");
     }, SETTLE);

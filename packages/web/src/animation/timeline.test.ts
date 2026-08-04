@@ -344,7 +344,11 @@ describe("a drawn card", () => {
       frame({ type: "card_drawn", player: 1, deck: "community_chest", card_id: "card.chest.gift" }),
       paid(1, 25, "card"),
     ];
-    expect(cards(plan(later))[0]?.delta).toBeNull();
+    // Planned with room, because the claim is about *which payment a card claims* and a compressed
+    // batch drops the superseded card — at which point `cards(...)[0]` would be the second card and
+    // the assertion would be reading the wrong beat. Two cards at the default dwell exceed the budget
+    // since MON-719 raised it, so this has to be said rather than assumed.
+    expect(cards(plan(later, { budgetMs: 60_000 }))[0]?.delta).toBeNull();
 
     const nextTurn: readonly LoggedEvent[] = [
       { seq: 90, event: { type: "card_drawn", player: 1, deck: "chance", card_id: "card.x" } },

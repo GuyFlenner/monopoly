@@ -256,6 +256,15 @@ interface ChitProps {
   readonly squareName?: string | undefined;
   readonly onActivate: (command: Command, trigger: HTMLButtonElement) => void;
   /**
+   * Whether pressing this chit opens the confirm step — `requiresConfirmation`'s answer, passed in.
+   *
+   * Passed rather than computed here because the predicate needs `ruleset.auctions_enabled` and this
+   * component has no business holding a ruleset flag (MON-718). It still draws the dashed terminal
+   * rim from the same answer that decides the dialog, so the two cannot disagree: a chit that looks
+   * final and acts otherwise is worse than either.
+   */
+  readonly confirms: boolean;
+  /**
    * Keys the enclosing disclosure wants to see.
    *
    * On the button rather than on a wrapping `<li>` on purpose: a keydown listener belongs on
@@ -280,6 +289,7 @@ function Chit({
   label,
   squareName,
   onActivate,
+  confirms,
   onKeyDown,
   hintBadge,
 }: ChitProps): React.JSX.Element {
@@ -288,7 +298,7 @@ function Chit({
     <button
       type="button"
       data-command-kind={command.kind}
-      data-terminal={requiresConfirmation(command.kind)}
+      data-terminal={confirms}
       data-hinted={hintBadge !== undefined}
       onClick={(event) => {
         onActivate(command, event.currentTarget);
@@ -297,7 +307,7 @@ function Chit({
       className={[
         "kesef-chit",
         `kesef-chit--${theme.tone}`,
-        requiresConfirmation(command.kind) ? "kesef-chit--terminal" : "",
+        confirms ? "kesef-chit--terminal" : "",
         hintBadge === undefined ? "" : "kesef-chit--hinted",
         "target flex w-full items-center gap-3 px-3 py-2 text-start text-sm font-semibold",
       ]
@@ -328,6 +338,8 @@ interface GroupProps {
   readonly label: (command: Command) => string;
   readonly squareName: (command: Command) => string | undefined;
   readonly onActivate: (command: Command, trigger: HTMLButtonElement) => void;
+  /** See {@link ChitProps.confirms}. A function, like `label` and `hintBadge` beside it. */
+  readonly confirms: (command: Command) => boolean;
   readonly t: Copy;
   /** The hint's badge for a member of this group, or `undefined`. See {@link ChitProps.hintBadge}. */
   readonly hintBadge: (command: Command) => string | undefined;
@@ -346,6 +358,7 @@ function CommandGroupDisclosure({
   label,
   squareName,
   onActivate,
+  confirms,
   t,
   hintBadge,
 }: GroupProps): React.JSX.Element {
@@ -426,6 +439,7 @@ function CommandGroupDisclosure({
                 label={label(command)}
                 squareName={squareName(command)}
                 onActivate={onActivate}
+                confirms={confirms(command)}
                 onKeyDown={collapse}
                 hintBadge={hintBadge(command)}
               />
@@ -610,14 +624,14 @@ function ConfirmStep({
   const cancel = useRef<HTMLButtonElement>(null);
   const proceed = useRef<HTMLButtonElement>(null);
   // Derived, but still asked through the theme's predicate rather than unconditionally: this step
-  // is only ever mounted for a terminal command, and a `confirm.consequence.*` key for a kind that
-  // has no confirm step would resolve to nothing and throw (G-F17).
+  // is only ever mounted for a command that confirms, and a `confirm.consequence.*` key for a kind
+  // that has no confirm step would resolve to nothing and throw (G-F17).
   //
-  // `auctions` picks the variant, because declining a purchase in a game with auctions switched off
-  // does *not* send the square to auction — and a dialog that says it does teaches a rule this table
-  // is not playing (MON-604).
-  const consequenceKey = requiresConfirmation(command.kind)
-    ? consequenceKeyFor(command.kind, auctions)
+  // `auctions` reaches the predicate rather than the key since MON-718: declining in a game with
+  // auctions switched off raises no dialog at all, so there is no longer a second sentence to pick
+  // between — the one sentence this can print is true of the one ruleset that can print it.
+  const consequenceKey = requiresConfirmation(command.kind, auctions)
+    ? consequenceKeyFor(command.kind)
     : undefined;
 
   // Focus lands on cancel, not on proceed. The safe option is the default option: a player who
@@ -785,6 +799,19 @@ export function ActionBar({
   );
 
   /**
+   * Whether a command opens the confirm step, for this table's rules (MON-718).
+   *
+   * One predicate, used by the branch below *and* by the chit's dashed rim, so what a chit looks like
+   * and what it does cannot disagree. `auctions` is the only input beyond the kind — see
+   * `requiresConfirmation`, which explains why `decline_purchase` is the one command whose answer a
+   * ruleset decides.
+   */
+  const confirms = useCallback(
+    (command: Command) => requiresConfirmation(command.kind, auctions),
+    [auctions],
+  );
+
+  /**
    * A chit was pressed.
    *
    * `requiresConfirmation` is the theme's predicate and the only branch here. Everything else goes
@@ -792,14 +819,14 @@ export function ActionBar({
    */
   const activate = useCallback(
     (command: Command, from: HTMLButtonElement) => {
-      if (requiresConfirmation(command.kind)) {
+      if (confirms(command)) {
         trigger.current = from;
         setPending(command);
         return;
       }
       onCommand(command);
     },
-    [onCommand],
+    [onCommand, confirms],
   );
 
   const dismiss = useCallback(() => {
@@ -846,6 +873,7 @@ export function ActionBar({
           label={label}
           squareName={squareName}
           onActivate={activate}
+          confirms={confirms}
           t={copy}
           hintBadge={hintBadge}
         />
@@ -857,6 +885,7 @@ export function ActionBar({
               label={label(command)}
               squareName={squareName(command)}
               onActivate={activate}
+              confirms={confirms(command)}
               hintBadge={hintBadge(command)}
             />
           </li>

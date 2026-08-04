@@ -148,8 +148,7 @@
     "consequence": {
       "decline_purchase": "The square goes up for auction instead. Anyone at the table can buy it, and it may go for less than you would have paid.",
       "withdraw_from_auction": "You will not be able to bid on this square again.",
-      "declare_bankruptcy": "You are out of the game. Everything you own goes to whoever you owe. This cannot be undone.",
-      "decline_purchase_no_auction": "Nobody buys the square this turn. It stays on the market, and you can buy it the next time you land on it."
+      "declare_bankruptcy": "You are out of the game. Everything you own goes to whoever you owe. This cannot be undone."
     }
   },
   "deck": {
@@ -521,6 +520,8 @@
     "ruleset": "Rules",
     "seat": "Seat {{number}}",
     "seats": "Who's playing",
+    "card_seconds": "How long a card stays up",
+    "card_seconds_hint": "Seconds to read a Chance or Community Chest card, between {{min}} and {{max}}. You can always put a card down sooner.",
     "seed": "Seed",
     "seed_hint": "The same seed deals the same dice. Leave it blank for a fresh game.",
     "start": "Start the game",
