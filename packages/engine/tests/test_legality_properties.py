@@ -513,8 +513,21 @@ def test_soundness_every_enumerated_command_is_accepted_by_apply() -> None:
 
     # 600 examples: the rarest floor kind lands 5-25 times per run (measured over repeated
     # runs), and the whole property costs ~2.5s — the suite stays inside its budget.
+    #
+    # `derandomize=True`, and it is the *coverage floor* that requires it rather than the soundness
+    # claim. Observed 2026-08-04: this test failed once in a full-suite run and then passed six times
+    # in isolation. Six clean runs are diagnostic rather than lucky — hypothesis saves a failing
+    # example and replays it first, so no saved example means `apply` never raised, which leaves the
+    # two run-level assertions below as the only thing that can have failed. And of course they can:
+    # "the rarest kind lands 5-25 times" is a sentence about a *distribution*, and a floor of five
+    # is zero often enough to matter across a repository's lifetime.
+    #
+    # A gate that fails for reasons unrelated to the code under test costs more than the exploration
+    # a fresh seed buys, because the first response to a flaky gate is to stop reading it. The
+    # exploration is not lost: the same 600 structurally-generated states still exercise soundness on
+    # every run, the goldens replay real games, and the other properties in this file stay random.
     @given(state=game_states())
-    @settings(max_examples=600, deadline=None)
+    @settings(max_examples=600, deadline=None, derandomize=True)
     def check(state: GameState) -> None:
         for command in legal_commands(state):
             apply(state, command)  # a raise here is the property's failure
