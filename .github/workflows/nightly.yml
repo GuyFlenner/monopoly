@@ -21,6 +21,12 @@ jobs:
   mutation:
     name: Mutation kill-rate gate (rules/ + legality.py)
     runs-on: ubuntu-latest
+    # Measured, not guessed: once MON-209's gate could actually run, `mutmut run` went past **82
+    # minutes** without finishing on a dispatched run. That is not a hang — it is what mutation
+    # testing costs when every mutant re-runs a slice of an 820-test suite — but an unbounded job
+    # inherits GitHub's six-hour default, and a nightly that might burn six hours is one nobody will
+    # leave scheduled. 120 minutes is generous against the measurement and still a bound.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -51,6 +57,9 @@ jobs:
       - name: Enforce >=80% kill-rate
         working-directory: packages/engine
         run: |
+          # How long the run actually took, printed whether it passed or failed: the figure that
+          # decides whether the timeout above is still the right one.
+          echo "::notice::mutmut finished at $(date -u +%H:%M:%SZ)"
           # `--all=true`, not `--all`: mutmut 3.6.0 declares the option as
           # `@click.option("--all", default=False)` with no `is_flag=True`, so click
           # demands a value and a bare `--all` fails with "Option '--all' requires an

@@ -62,3 +62,15 @@ also_copy = [
 ]
 
 pytest_add_cli_args_test_selection = ["tests"]
+
+# Mutate only the lines the tests actually execute.
+#
+# This is a *correctness* setting before it is a speed one. A mutant on a line no test touches always
+# survives, so including those measures **coverage** rather than test strength — and MON-209's gate is
+# about strength: "do the tests notice when a rule changes". The engine sits at 91% line coverage, so
+# little is excluded, and what is excluded would otherwise drag the figure down while telling us
+# something `--cov` already says more clearly.
+#
+# It costs a coverage pass up front and removes mutants from the run, which is also the lever that
+# brings the job back under its timeout — see the comment on `timeout-minutes` in the nightly.
+mutate_only_covered_lines = true
