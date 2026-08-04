@@ -117,6 +117,25 @@ test("a turn can be played with no server behind the page", async ({ page }) => 
  * model a forgetful engine, and a model is exactly what missed this the first time.
  */
 test("a reload continues the game rather than losing it", async ({ page }) => {
+  /*
+    The insurance reports when it cannot do its job (`src/local/rehydrate.ts`).
+
+    Both halves of the snapshot/restore pair swallow every failure on purpose — a game that is working
+    must not stop working because it could not be written down — so without this the *only* symptom of
+    a broken snapshot is the original defect: a reload that loses the game, with nothing in the console.
+    Collected as warnings rather than errors so a diagnostic can never fail a page that is fine, and
+    asserted at the end of the test so the text is in the failure message.
+  */
+  const insurance: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning" && message.text().startsWith("kesef:")) {
+      insurance.push(message.text());
+      // Printed as it arrives, not only asserted at the end: a failure *later* in this test — a board
+      // that never comes back — aborts before the assertion, and the warning is the explanation.
+      console.log(`[insurance] ${message.text()}`);
+    }
+  });
+
   await page.goto("./");
   await page.locator('label:has(input[name$="-locale"][value="en"])').click({ timeout: 240_000 });
 
@@ -164,4 +183,23 @@ test("a reload continues the game rather than losing it", async ({ page }) => {
   await expect(banner).toContainText("Ruti");
   // And no refusal screen. "This game no longer exists" is exactly what a player saw before ADR-010.
   await expect(page.getByTestId("game-error")).toHaveCount(0);
+
+  /*
+    And the history came back with the board (MON-715, ADR-011).
+
+    This was the accepted limitation ADR-010 shipped with: the snapshot was a bare `GameState`, so a
+    restored session had no log and *"What's happened"* started empty while the money and the deeds
+    were exact. The save is an envelope now and the log travels in it.
+
+    Located by `data-log-key` rather than by the region's name, because this build opens in Hebrew and
+    the language is deliberately not persisted — the assertion has to be about the log existing, not
+    about what it is called.
+  */
+  await expect
+    .poll(async () => page.locator("[data-log-key]").count(), { timeout: 60_000 })
+    .toBeGreaterThan(0);
+
+  // And the insurance never reported a problem. If it did, the assertions above may have passed for
+  // the wrong reason — a game restored from a slot written before the failure, say.
+  expect(insurance, "the snapshot or the restore reported a failure").toEqual([]);
 });

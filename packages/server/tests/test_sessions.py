@@ -40,10 +40,10 @@ def test_a_new_session_has_an_empty_log_and_a_zero_cursor() -> None:
 def test_seq_numbers_start_at_one_and_never_restart_across_commands() -> None:
     store = _store()
     store.create(minimal_state())
-    first = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    first = store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
     assert [entry.seq for entry in first.log] == [1]
     second = store.update(
-        "g",
+        store.get("g"),
         minimal_state(),
         (PhaseChanged(previous=Phase.AWAITING_ROLL, current=Phase.MOVING), TurnStarted(player=1, turn_number=2)),
     )
@@ -54,8 +54,8 @@ def test_seq_numbers_start_at_one_and_never_restart_across_commands() -> None:
 def test_events_since_a_cursor_excludes_what_the_client_already_has() -> None:
     store = _store()
     store.create(minimal_state())
-    store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
-    session = store.update("g", minimal_state(), (TurnStarted(player=1, turn_number=2),))
+    store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    session = store.update(store.get("g"), minimal_state(), (TurnStarted(player=1, turn_number=2),))
     assert [entry.seq for entry in session.events_since(0)] == [1, 2]
     assert [entry.seq for entry in session.events_since(1)] == [2]
     assert session.events_since(2) == ()
@@ -66,6 +66,22 @@ def test_the_cap_is_enforced() -> None:
     store = SessionStore(max_sessions=0, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
     with pytest.raises(SessionLimitReachedError):
         store.create(minimal_state())
+
+
+def test_a_replace_at_the_cap_succeeds_because_it_frees_the_slot_it_takes() -> None:
+    """A full store must not refuse the one load that adds no game (ADR-011).
+
+    `replace` detaches before it seats, so the slot it needs is the slot it just freed. Written the
+    other way round — seat, then evict the old one — a table at `max_sessions` could not restore its
+    own save, which is exactly the moment a player is most likely to be doing it.
+    """
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
+    store.create(minimal_state())
+
+    restored = store.replace(minimal_state(turn_number=6))
+
+    assert restored.state.turn_number == 6
+    assert len(store) == 1
 
 
 def test_a_duplicate_game_id_raises_instead_of_overwriting_a_live_game() -> None:
@@ -79,8 +95,27 @@ def test_a_duplicate_game_id_raises_instead_of_overwriting_a_live_game() -> None
 def test_an_unknown_game_raises() -> None:
     with pytest.raises(UnknownGameError):
         _store().get("nope")
-    with pytest.raises(UnknownGameError):
-        _store().update("nope", minimal_state(), ())
+
+
+def test_a_write_to_a_session_that_has_been_replaced_cannot_reach_the_live_game() -> None:
+    """The reason ``update`` takes a session rather than an id (ADR-011).
+
+    This is the bot driver's shape, spelled out: read a session, wait (a thinking delay), write. If a
+    load took the id over in between, an id-keyed write would append the *old* game's move to the new
+    game's log — and ``Session.advance_lock`` cannot stop it, because the replacement holds a
+    different lock. Written against the session that was actually read, the stale move lands on a
+    detached object and the live game does not move.
+    """
+    store = _store()
+    stale = store.create(minimal_state())
+    store.replace(minimal_state(turn_number=9), (TurnStarted(player=1, turn_number=9),))
+
+    store.update(stale, minimal_state(turn_number=99), (TurnStarted(player=0, turn_number=99),))
+
+    live = store.get("g")
+    assert live.state.turn_number == 9, "the stale write reached the live game"
+    assert [entry.event.turn_number for entry in live.log] == [9]  # type: ignore[union-attr]
+    assert live.cursor == 1
 
 
 def test_delete_frees_a_slot() -> None:
@@ -171,7 +206,7 @@ def test_subscribers_receive_appended_events_and_unsubscribe_cleanly() -> None:
     store = _store()
     session = store.create(minimal_state())
     with session.subscribe(max_subscribers=4, queue_size=8) as subscriber:
-        store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
+        store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
         assert subscriber.queue.get_nowait().seq == 1
     assert session.subscribers == ()
 
@@ -201,7 +236,7 @@ def test_a_full_mailbox_is_flagged_rather_than_grown_and_never_blocks_the_writer
     session = store.create(minimal_state())
     with session.subscribe(max_subscribers=2, queue_size=2) as subscriber:
         for turn in range(1, 6):
-            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+            store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=turn),))
 
         assert subscriber.queue.qsize() == 2, "the mailbox grew past its ceiling"
         assert subscriber.overflowed.is_set()
@@ -216,7 +251,7 @@ def test_one_overflowing_mailbox_does_not_touch_the_others() -> None:
         session.subscribe(max_subscribers=2, queue_size=8) as roomy,
     ):
         for turn in range(1, 5):
-            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+            store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=turn),))
 
         assert small.overflowed.is_set()
         assert not roomy.overflowed.is_set()
@@ -226,7 +261,7 @@ def test_one_overflowing_mailbox_does_not_touch_the_others() -> None:
 def test_events_are_logged_even_with_no_subscribers() -> None:
     store = _store()
     store.create(minimal_state())
-    session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    session = store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
     assert len(session.log) == 1
 
 

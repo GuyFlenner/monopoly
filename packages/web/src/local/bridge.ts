@@ -33,7 +33,7 @@ export interface PyBridge {
   listRulesets(): Promise<string>;
   createGame(requestJson: string): Promise<string>;
   listGames(): Promise<string>;
-  loadGame(stateJson: string): Promise<string>;
+  loadGame(saveJson: string, ifExists: string | null): Promise<string>;
   getGame(gameId: string, since: string | null): Promise<string>;
   saveGame(gameId: string): Promise<string>;
   submitCommand(gameId: string, requestJson: string): Promise<string>;

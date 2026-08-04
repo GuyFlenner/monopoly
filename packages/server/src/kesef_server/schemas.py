@@ -38,9 +38,10 @@ JSON is the save file" property is kept, just no longer conflated with what a cl
 from __future__ import annotations
 
 import re
+from enum import StrEnum
 from typing import Annotated, Literal, Self, assert_never
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from kesef_engine.board.models import Board, ColorGroup, Tile, TileKind
 from kesef_engine.commands import Command, TradeOffer
@@ -597,6 +598,76 @@ class LoggedEvent(BaseModel):
 
     seq: int = Field(ge=1)
     event: Event
+
+
+class SaveFile(BaseModel):
+    """A whole session on disk: the state, and the events that produced it (ADR-011).
+
+    ``GET /games/{id}/save`` answers with this and ``POST /games/load`` accepts it. It exists
+    because a save used to be a bare ``GameState`` and a session is more than one — ``Session.log``
+    is not a state field, so a restored game came back with its board, money and deeds exactly right
+    and *"What's happened"* empty. Both halves of that are here now.
+
+    **The events are the engine's, without ``seq``.** ``LoggedEvent.seq`` is assigned by the store
+    and nowhere else (see :mod:`kesef_server.sessions`), so a file that carried numbers would be
+    asking the next session to honour a previous one's. The store stamps a restored log ``1..N``
+    exactly as it stamps a live one.
+
+    **A bare ``GameState`` still loads.** Every file saved before ADR-011 is one, and
+    :meth:`from_json` reads it as the state with no events. The two shapes cannot be confused: an
+    envelope has a ``state`` field and ``GameState`` declares none, so neither validates as the other.
+
+    **No version of its own.** Whether a save loads is decided by ``state.schema_version``, and the
+    events are validated by the same union the live log is built from. A second version field beside
+    the engine's would be a second thing to keep in step and the first to go stale.
+    """
+
+    state: GameState
+    events: tuple[Event, ...] = ()
+    """Oldest first. Replaying these against the *opening* state reproduces the game; they are
+    carried so a restored session can show its history, not so anything replays them."""
+
+    @classmethod
+    def from_json(cls, raw: bytes) -> Self:
+        """A save file's bytes, in whichever of the two shapes they are.
+
+        **Parsed by pydantic, never by :mod:`json`.** The first draft of this read
+        ``json.loads(raw)`` and branched on whether a ``state`` key was present, which reads more
+        plainly and hands an unauthenticated route a way to raise ``RecursionError``: 3000 nested
+        brackets is six kilobytes, well inside ``max_save_bytes``, and Python's parser recurses per
+        level. ``RecursionError`` is not a ``ValueError``, so it escaped the callers' ``except`` as a
+        500 with a traceback — the same shape of defect the MON-100 review found in this very route
+        when a ``BoardDataError`` escaped it. pydantic-core parses without Python recursion and
+        answers its depth limit as an ordinary ``ValidationError``.
+
+        The envelope is tried first and the bare state second. That is not a preference between the
+        two: an envelope has a ``state`` field that ``GameState`` does not declare, and ``GameState``
+        requires seven fields an envelope does not carry, so at most one of them can validate.
+
+        Raises whatever pydantic raises — the callers turn every one of them into the single
+        ``error.save_schema_mismatch`` key, because from the player's side the file did not load and
+        that is the whole of what there is to say.
+        """
+        try:
+            return cls.model_validate_json(raw)
+        except ValidationError:
+            return cls(state=GameState.model_validate_json(raw))
+
+
+class IfExists(StrEnum):
+    """What ``POST /games/load`` should do when that save's ``game_id`` is already live (ADR-011).
+
+    The policy is a *request* field rather than something inferred from the body, and it defaults to
+    :attr:`REFUSE` — so the unchanged request keeps answering the 409 it always did, and a client
+    that has not been taught the question cannot silently end somebody's game.
+    """
+
+    REFUSE = "refuse"
+    """``409 error.game_already_exists``. The first attempt, before the player has been asked."""
+    REPLACE = "replace"
+    """The live session under that id is dropped and the file takes its place."""
+    COPY = "copy"
+    """A freshly minted id. The live game is untouched and the file behaves as a template."""
 
 
 class GameView(BaseModel):

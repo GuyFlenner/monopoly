@@ -99,7 +99,7 @@ export interface paths {
          * Load Game
          * @description Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.
          *
-         *     The body is read raw rather than declared as a ``GameState`` parameter, for two reasons
+         *     The body is read raw rather than declared as a ``SaveFile`` parameter, for two reasons
          *     carried forward from the MON-100 security review:
          *
          *     * **Size.** This is the only route whose body is not a small fixed shape, so it gets an
@@ -111,8 +111,12 @@ export interface paths {
          *       parameter it escaped as a 500 with a traceback. Validating inside the handler is what
          *       lets both become ``error.save_schema_mismatch``.
          *
-         *     The OpenAPI request body is declared by hand above, so the contract still says
-         *     ``GameState`` and ``generated.ts`` still types it.
+         *     ``if_exists`` is the answer to a question the player was asked *after* being refused once
+         *     (ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409
+         *     it always got rather than silently ending somebody's game.
+         *
+         *     The OpenAPI request body is declared by hand above, so the contract still says ``SaveFile``
+         *     and ``generated.ts`` still types it.
          */
         post: operations["load_game_games_load_post"];
         delete?: never;
@@ -159,6 +163,9 @@ export interface paths {
          *     This is the *only* route that returns hidden information, which is the whole of
          *     ADR-008 §2: "the JSON is the save file" survives without being conflated with what a
          *     client may see while playing.
+         *
+         *     Since ADR-011 the file is an envelope — the state *and* the session's log — because a session is
+         *     more than a ``GameState`` and a restored game with no history was the half of that nobody noticed.
          */
         get: operations["save_game_games__game_id__save_get"];
         put?: never;
@@ -1092,6 +1099,16 @@ export interface components {
             auctions_enabled?: boolean | null;
             auction_minimum?: components["schemas"]["AuctionMinimum"] | null;
         };
+        /**
+         * IfExists
+         * @description What ``POST /games/load`` should do when that save's ``game_id`` is already live (ADR-011).
+         *
+         *     The policy is a *request* field rather than something inferred from the body, and it defaults to
+         *     :attr:`REFUSE` — so the unchanged request keeps answering the 409 it always did, and a client
+         *     that has not been taught the question cannot silently end somebody's game.
+         * @enum {string}
+         */
+        IfExists: "refuse" | "replace" | "copy";
         /** LeftJail */
         LeftJail: {
             /**
@@ -1768,6 +1785,36 @@ export interface components {
             flags: components["schemas"]["RuleFlagView"][];
         };
         /**
+         * SaveFile
+         * @description A whole session on disk: the state, and the events that produced it (ADR-011).
+         *
+         *     ``GET /games/{id}/save`` answers with this and ``POST /games/load`` accepts it. It exists
+         *     because a save used to be a bare ``GameState`` and a session is more than one — ``Session.log``
+         *     is not a state field, so a restored game came back with its board, money and deeds exactly right
+         *     and *"What's happened"* empty. Both halves of that are here now.
+         *
+         *     **The events are the engine's, without ``seq``.** ``LoggedEvent.seq`` is assigned by the store
+         *     and nowhere else (see :mod:`kesef_server.sessions`), so a file that carried numbers would be
+         *     asking the next session to honour a previous one's. The store stamps a restored log ``1..N``
+         *     exactly as it stamps a live one.
+         *
+         *     **A bare ``GameState`` still loads.** Every file saved before ADR-011 is one, and
+         *     :meth:`from_document` reads it as the state with no events. ``GameState`` declares no field
+         *     called ``state``, so the test is a fact about the shape rather than a guess about it.
+         *
+         *     **No version of its own.** Whether a save loads is decided by ``state.schema_version``, and the
+         *     events are validated by the same union the live log is built from. A second version field beside
+         *     the engine's would be a second thing to keep in step and the first to go stale.
+         */
+        SaveFile: {
+            state: components["schemas"]["GameState"];
+            /**
+             * Events
+             * @default []
+             */
+            events: (components["schemas"]["TurnStarted"] | components["schemas"]["DiceRolled"] | components["schemas"]["TokenMoved"] | components["schemas"]["CashChanged"] | components["schemas"]["RentCharged"] | components["schemas"]["PropertyAcquired"] | components["schemas"]["AuctionStarted"] | components["schemas"]["BidPlaced"] | components["schemas"]["BidderWithdrew"] | components["schemas"]["AuctionEnded"] | components["schemas"]["CardDrawn"] | components["schemas"]["SentToJail"] | components["schemas"]["LeftJail"] | components["schemas"]["BuildingChanged"] | components["schemas"]["MortgageChanged"] | components["schemas"]["TradeProposed"] | components["schemas"]["TradeExecuted"] | components["schemas"]["TradeDeclined"] | components["schemas"]["TradeCancelled"] | components["schemas"]["DebtIncurred"] | components["schemas"]["DebtSettled"] | components["schemas"]["PlayerBankrupted"] | components["schemas"]["PhaseChanged"] | components["schemas"]["GameEnded"])[];
+        };
+        /**
          * SeatConfig
          * @description One seat at the table. A seat is either a person or a bot.
          *
@@ -2210,14 +2257,17 @@ export interface operations {
     };
     load_game_games_load_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description What to do when this save's game_id is already live (ADR-011). */
+                if_exists?: components["schemas"]["IfExists"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["GameState"];
+                "application/json": components["schemas"]["SaveFile"];
             };
         };
         responses: {
@@ -2393,7 +2443,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GameState"];
+                    "application/json": components["schemas"]["SaveFile"];
                 };
             };
             /** @description No game with that id. */

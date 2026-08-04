@@ -217,7 +217,8 @@ describe("an ApiClient wired to the local transport", () => {
 
   it("returns the save file with the hidden information the projection withholds", async () => {
     const saved = await localApiClient(createFakeBridge()).saveGame("g1");
-    expect(saved).toMatchObject({ game_id: "g1", rng: { seed: 1 } });
+    // A `SaveFile` since ADR-011: the state under `state`, and the log beside it.
+    expect(saved).toMatchObject({ state: { game_id: "g1", rng: { seed: 1 } }, events: [] });
   });
 
   it("starts the bot pump after a command, and the frames arrive on the event stream", async () => {

@@ -30,7 +30,7 @@ from kesef_engine.state import MAX_PLAYERS, MIN_PLAYERS, SCHEMA_VERSION
 from kesef_server.api import WS_EVENT_STREAM_PATH, app, get_settings, get_store
 from kesef_server.config import Settings
 from kesef_server.errors import MAX_REFLECTED_CHARS
-from kesef_server.schemas import ErrorResponse
+from kesef_server.schemas import ErrorResponse, is_addressable_game_id
 from kesef_server.sessions import SessionStore
 
 UNPROCESSABLE = 422
@@ -92,7 +92,10 @@ EXPECTED_SCHEMAS: Final = {
     "RuleNumberValue",
     "RuleNumberListValue",
     "RuleAbsentValue",
-    # The save file — the one place the full state is still on the wire
+    # The save file — the one place the full state is still on the wire. Since ADR-011 it is an
+    # envelope: the state, and the session's log that a bare `GameState` had no room for.
+    "SaveFile",
+    "IfExists",
     "GameState",
     "PlayerState",
     "PlayerKind",
@@ -544,7 +547,7 @@ def test_a_seed_may_be_omitted_and_the_game_still_reports_one(client: TestClient
     first = client.post("/games", json=new_game_payload(seed=None))
     assert first.status_code == status.HTTP_201_CREATED
     saved = client.get(f"/games/{first.json()['state']['game_id']}/save").json()
-    assert isinstance(saved["rng"]["seed"], int)
+    assert isinstance(saved["state"]["rng"]["seed"], int)
 
 
 def test_a_client_may_name_its_game(client: TestClient) -> None:
@@ -891,9 +894,9 @@ def test_the_save_route_is_the_only_one_that_returns_hidden_information(client: 
     response = client.get(f"/games/{game_id}/save")
     assert response.status_code == status.HTTP_200_OK
     saved = response.json()
-    assert saved["rng"]["seed"] == 7
-    assert len(saved["chance_deck"]) == len(CHANCE_CARD_IDS)
-    assert saved["schema_version"] == SCHEMA_VERSION
+    assert saved["state"]["rng"]["seed"] == 7
+    assert len(saved["state"]["chance_deck"]) == len(CHANCE_CARD_IDS)
+    assert saved["state"]["schema_version"] == SCHEMA_VERSION
 
 
 def test_saving_an_unknown_game_is_a_404(client: TestClient) -> None:
@@ -910,15 +913,141 @@ def test_a_saved_game_round_trips_through_load(client: TestClient) -> None:
     assert response.status_code == status.HTTP_201_CREATED
     restored = response.json()
     assert restored["state"]["game_id"] == game_id
-    assert restored["state"]["phase"] == saved["phase"]
-    assert restored["state"]["players"][0]["position"] == saved["players"][0]["position"]
+    assert restored["state"]["phase"] == saved["state"]["phase"]
+    assert restored["state"]["players"][0]["position"] == saved["state"]["players"][0]["position"]
     assert client.get(f"/games/{game_id}/save").json() == saved
 
 
 def test_loading_a_game_that_is_already_live_is_a_conflict(client: TestClient) -> None:
+    """The default, and therefore the answer to the same request as yesterday's (ADR-011)."""
     game_id = _create(client)["state"]["game_id"]
     saved = client.get(f"/games/{game_id}/save").json()
     assert client.post("/games/load", json=saved).status_code == status.HTTP_409_CONFLICT
+    refused = client.post("/games/load?if_exists=refuse", json=saved)
+    assert refused.status_code == status.HTTP_409_CONFLICT
+    assert refused.json()["params"]["game_id"] == game_id
+
+
+def test_a_load_may_replace_the_live_game_when_the_player_says_so(client: TestClient) -> None:
+    """MON-714: the answer to "Replace the game in progress" (ADR-011).
+
+    The file is deliberately *behind* the live game, because that is the case where a replace is a
+    real decision rather than a no-op — and the case a silent replace would have lost without asking.
+    """
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    ahead = client.get(f"/games/{game_id}").json()["state"]
+    assert ahead["phase"] != saved["state"]["phase"], "the live game did not move, so nothing is at stake"
+
+    response = client.post("/games/load?if_exists=replace", json=saved)
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["state"]["game_id"] == game_id, "a replace keeps the id it took over"
+    assert client.get(f"/games/{game_id}").json()["state"]["phase"] == saved["state"]["phase"]
+    assert len(client.get("/games").json()) == 1, "a replace left two sessions behind"
+
+
+def test_a_load_may_be_seated_beside_the_live_game_as_a_copy(client: TestClient) -> None:
+    """MON-714: the answer to "Load as a separate game" (ADR-011)."""
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+
+    response = client.post("/games/load?if_exists=copy", json=saved)
+    assert response.status_code == status.HTTP_201_CREATED
+    copied = response.json()["state"]["game_id"]
+    assert copied != game_id
+    assert is_addressable_game_id(copied), f"a minted id no route can address: {copied!r}"
+    assert client.get(f"/games/{game_id}").status_code == status.HTTP_200_OK
+    assert client.get(f"/games/{copied}").json()["state"]["turn_number"] == saved["state"]["turn_number"]
+    assert len(client.get("/games").json()) == 2
+
+
+def test_a_conflict_policy_only_matters_on_a_conflict(client: TestClient) -> None:
+    """``if_exists`` answers a conflict; it is not a mode that rewrites every load."""
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+    client.delete(f"/games/{game_id}")
+
+    restored = client.post("/games/load?if_exists=copy", json=saved)
+    assert restored.status_code == status.HTTP_201_CREATED
+    assert restored.json()["state"]["game_id"] == game_id, "an unconflicted load minted a new id"
+
+
+def test_an_unknown_conflict_policy_is_a_keyed_422(client: TestClient) -> None:
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+    response = client.post("/games/load?if_exists=clobber", json=saved)
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.malformed_request"
+    assert response.json()["params"]["fields"] == "if_exists"
+
+
+def test_the_save_carries_the_session_log_and_a_load_puts_it_back(client: TestClient) -> None:
+    """MON-715 / ADR-011 — the half of a session a bare ``GameState`` had no room for.
+
+    Read back through ``?since=0``, which is the request the client's first fetch makes, so what is
+    asserted here is what *"What's happened"* is filled from rather than a private view of the store.
+    """
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    played = [entry["event"] for entry in client.get(f"/games/{game_id}?since=0").json()["events"]]
+    assert played, "the roll produced no events, so a lost log would be indistinguishable from a kept one"
+
+    saved = client.get(f"/games/{game_id}/save").json()
+    assert saved["events"] == played, "the save does not carry the log"
+    assert "seq" not in saved["events"][0], "seq belongs to a session, not to a file"
+
+    client.delete(f"/games/{game_id}")
+    restored = client.post("/games/load", json=saved).json()
+    assert restored["event_cursor"] == len(played)
+    replayed = client.get(f"/games/{game_id}?since=0").json()["events"]
+    assert [entry["event"] for entry in replayed] == played
+    assert [entry["seq"] for entry in replayed] == list(range(1, len(played) + 1))
+
+
+def test_a_save_written_before_the_envelope_still_loads(client: TestClient) -> None:
+    """A bare ``GameState`` is every file saved before ADR-011, and it must not become garbage."""
+    game_id = _create(client)["state"]["game_id"]
+    client.post(f"/games/{game_id}/commands", json=_roll(0))
+    legacy = client.get(f"/games/{game_id}/save").json()["state"]
+    client.delete(f"/games/{game_id}")
+
+    response = client.post("/games/load", json=legacy)
+    assert response.status_code == status.HTTP_201_CREATED
+    assert response.json()["state"]["game_id"] == game_id
+    assert response.json()["event_cursor"] == 0, "a file with no log cannot restore one"
+
+
+def test_a_deeply_nested_save_is_a_keyed_422_and_not_a_traceback(client: TestClient) -> None:
+    """The route must not have a Python recursion limit reachable from the wire.
+
+    Found in review of ADR-011's own diff: the first draft read ``json.loads(raw)`` in order to branch
+    on whether a ``state`` key was present. Python's JSON parser recurses per nesting level, so six
+    kilobytes of brackets — well inside ``max_save_bytes`` — raised ``RecursionError``, which is not a
+    ``ValueError`` and so escaped the handler's ``except`` as a 500 with a traceback, on an
+    unauthenticated route. It is the same shape of defect the MON-100 review found here when a
+    ``BoardDataError`` escaped the same clause.
+
+    ``SaveFile.from_json`` lets pydantic-core parse, which has its own depth limit and reports it as an
+    ordinary ``ValidationError``. Asserted at 3000 levels because that is well past CPython's default
+    recursion limit and still a small request.
+    """
+    response = client.post("/games/load", content=b"[" * 3000 + b"]" * 3000)
+
+    assert response.status_code == UNPROCESSABLE, response.text
+    assert response.json()["reason_key"] == "error.save_schema_mismatch"
+
+
+def test_a_save_whose_log_is_not_events_is_the_same_keyed_refusal(client: TestClient) -> None:
+    """The log is validated, not trusted: it drives narration and the animation queue."""
+    game_id = _create(client)["state"]["game_id"]
+    saved = client.get(f"/games/{game_id}/save").json()
+    client.delete(f"/games/{game_id}")
+    saved["events"] = [{"type": "no_such_event_has_ever_happened"}]
+
+    response = client.post("/games/load", json=saved)
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["reason_key"] == "error.save_schema_mismatch"
 
 
 def test_a_stale_save_schema_is_a_keyed_422(client: TestClient) -> None:
@@ -1062,11 +1191,11 @@ async def test_the_bounded_read_never_buffers_the_whole_body() -> None:
     assert peak < body_bytes // 8
 
 
-def test_the_load_route_still_declares_a_gamestate_body(client: TestClient) -> None:
+def test_the_load_route_still_declares_a_savefile_body(client: TestClient) -> None:
     """The body is read raw, so the contract is declared by hand — assert it is still there."""
     operation = client.get("/openapi.json").json()["paths"]["/games/load"]["post"]
     schema = operation["requestBody"]["content"]["application/json"]["schema"]
-    assert schema == {"$ref": "#/components/schemas/GameState"}
+    assert schema == {"$ref": "#/components/schemas/SaveFile"}
 
 
 # --- DELETE ----------------------------------------------------------------

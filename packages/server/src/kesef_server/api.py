@@ -43,7 +43,6 @@ from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal
 from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset
-from kesef_engine.state import GameState
 from kesef_server import errors, transport
 from kesef_server.config import Settings, settings
 from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
@@ -54,11 +53,12 @@ from kesef_server.schemas import (
     ErrorResponse,
     GameSummary,
     GameView,
+    IfExists,
     LegalityView,
     LoggedEvent,
     NewGameRequest,
     RulesetView,
-    is_addressable_game_id,
+    SaveFile,
 )
 from kesef_server.sessions import (
     Session,
@@ -328,7 +328,7 @@ async def create_game(
         state = new_game(
             [seat.to_seat() for seat in request.seats],
             seed=seed,
-            game_id=request.game_id or f"game-{secrets.token_hex(8)}",
+            game_id=request.game_id or transport.minted_game_id(),
             board_id=request.board_id,
             # The named rule set, plus whatever this table asked to change (MON-712).
             ruleset=request.house_rules.applied_to(Ruleset.by_name(request.ruleset)),
@@ -377,14 +377,22 @@ def list_games(store: StoreDep) -> list[GameSummary]:
     openapi_extra={
         "requestBody": {
             "required": True,
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/GameState"}}},
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SaveFile"}}},
         }
     },
 )
-async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> GameView:
+async def load_game(
+    request: Request,
+    store: StoreDep,
+    config: SettingsDep,
+    if_exists: Annotated[
+        IfExists,
+        Query(description="What to do when this save's game_id is already live (ADR-011)."),
+    ] = IfExists.REFUSE,
+) -> GameView:
     """Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.
 
-    The body is read raw rather than declared as a ``GameState`` parameter, for two reasons
+    The body is read raw rather than declared as a ``SaveFile`` parameter, for two reasons
     carried forward from the MON-100 security review:
 
     * **Size.** This is the only route whose body is not a small fixed shape, so it gets an
@@ -396,23 +404,30 @@ async def load_game(request: Request, store: StoreDep, config: SettingsDep) -> G
       parameter it escaped as a 500 with a traceback. Validating inside the handler is what
       lets both become ``error.save_schema_mismatch``.
 
-    The OpenAPI request body is declared by hand above, so the contract still says
-    ``GameState`` and ``generated.ts`` still types it.
+    ``if_exists`` is the answer to a question the player was asked *after* being refused once
+    (ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409
+    it always got rather than silently ending somebody's game.
+
+    The OpenAPI request body is declared by hand above, so the contract still says ``SaveFile``
+    and ``generated.ts`` still types it.
     """
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > config.max_save_bytes:
         raise errors.save_too_large(config.max_save_bytes)
     raw = await _read_bounded(request, config.max_save_bytes)
     try:
-        state = GameState.model_validate_json(raw)
+        # Both save shapes ADR-011 accepts — the envelope, and the bare `GameState` that every file
+        # written before it is. Parsed by pydantic rather than by `json`, for the reason
+        # `SaveFile.from_json` gives at length: a `json.loads` here hands this route a
+        # `RecursionError` that this `except` does not catch.
+        save = SaveFile.from_json(raw)
     except (ValidationError, ValueError, EngineError):
         raise errors.save_schema_mismatch() from None
     # The id arrives from inside the body, where it is not a request field and so cannot carry
     # the constraint ``NewGameRequest.game_id`` does. Unchecked, a save named ``kitchen/table``
     # took a session slot that no route could then reach or free (schemas.GAME_ID_PATTERN).
-    if not is_addressable_game_id(state.game_id):
-        raise errors.invalid_game_id()
-    return _view(_create(store, state))
+    # Checked inside `transport.load`, which both transports share.
+    return _view(transport.load(store, save, if_exists))
 
 
 @app.get("/games/{game_id}", tags=["game"], responses=ERROR_RESPONSES)
@@ -432,14 +447,17 @@ def get_game(
 
 
 @app.get("/games/{game_id}/save", tags=["game"], responses=ERROR_RESPONSES)
-def save_game(game_id: str, store: StoreDep) -> GameState:
+def save_game(game_id: str, store: StoreDep) -> SaveFile:
     """The complete state, RNG and deck order included — the save file.
 
     This is the *only* route that returns hidden information, which is the whole of
     ADR-008 §2: "the JSON is the save file" survives without being conflated with what a
     client may see while playing.
+
+    Since ADR-011 the file is an envelope — the state *and* the session's log — because a session is
+    more than a ``GameState`` and a restored game with no history was the half of that nobody noticed.
     """
-    return _session(store, game_id).state
+    return transport.save_file(_session(store, game_id))
 
 
 async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> None:
@@ -500,7 +518,7 @@ async def submit_command(
     # to right — true, but not a thing a reader should have to know to see that the order is the
     # point. Reordered or reformatted, the one-liner would have silently returned the *previous*
     # command's events.
-    updated = store.update(game_id, state, events)
+    updated = store.update(session, state, events)
     # The human's command may have handed the table to a computer — by ending a turn, by declining a
     # purchase into an auction a bot is eligible for, or by proposing a trade a bot must answer. Queued
     # rather than awaited: this response carries the human's move and returns now, and the bot's moves

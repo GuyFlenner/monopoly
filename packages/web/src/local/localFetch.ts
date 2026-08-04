@@ -157,7 +157,11 @@ function match(
       : null;
   }
   if (path === "/games/load" && method === "POST") {
-    return { answer: () => bridge.loadGame(body), mutates: "in-response" };
+    // Forwarded as text, present-or-absent, exactly as `?since=` is below: the facade validates it
+    // the way FastAPI's enum does, so a typo is the same `error.malformed_request` in both builds
+    // rather than a policy this side quietly picked (ADR-011).
+    const ifExists = url.searchParams.get("if_exists");
+    return { answer: () => bridge.loadGame(body, ifExists), mutates: "in-response" };
   }
   // Any other verb on `/games/load` deliberately falls through to `/games/{id}` below, because
   // that is what starlette does: `GET /games/load` is a full match for the parameterised route and

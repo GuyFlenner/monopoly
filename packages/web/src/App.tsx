@@ -36,6 +36,7 @@ import {
   ApiClient,
   type ApiError,
   type BoardSummary,
+  type IfExists,
   type NewGameRequest,
   type RulesetView,
 } from "./api";
@@ -201,8 +202,12 @@ function SetupFlow({
    * "a loaded game is just a game": nothing downstream of here has a branch for it.
    */
   const load = useCallback(
-    async (save: unknown): Promise<void> => {
-      const restored = await client.loadGame(save);
+    async (save: unknown, ifExists?: IfExists): Promise<void> => {
+      // `restored.state.game_id`, not the id inside the file: an `if_exists=copy` load is seated
+      // under a freshly minted id (ADR-011), and the response is the only thing that knows it. The
+      // URL and the cache key both come from here, so a copy is addressable and reloadable like any
+      // other game without this layer knowing that a copy is a thing.
+      const restored = await client.loadGame(save, ifExists);
       queryClient.setQueryData(queryKeys.game(restored.state.game_id), restored);
       onStarted(restored.state.game_id);
     },

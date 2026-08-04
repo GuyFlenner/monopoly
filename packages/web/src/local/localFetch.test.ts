@@ -54,7 +54,9 @@ describe("the route table", () => {
       { fn: "submitCommand", args: ["g1", body] },
       { fn: "validateCommand", args: ["g1", body] },
       { fn: "createGame", args: [JSON.stringify({ seats: [] })] },
-      { fn: "loadGame", args: [JSON.stringify({ game_id: "g1" })] },
+      // `null` is the absent `?if_exists=`, forwarded present-or-absent exactly as `?since=` is:
+      // the facade defaults it to "refuse", so this file never picks a conflict policy (ADR-011).
+      { fn: "loadGame", args: [JSON.stringify({ game_id: "g1" }), null] },
     ]);
   });
 

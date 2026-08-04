@@ -26,6 +26,9 @@ Two properties this module keeps, and they are the same two ``api.py`` claims:
 
 from __future__ import annotations
 
+import secrets
+from typing import assert_never
+
 from kesef_engine.board.loader import available_boards, load_board
 from kesef_engine.commands import Command, EndTurn
 from kesef_engine.events import Event
@@ -40,8 +43,11 @@ from kesef_server.schemas import (
     GameStateView,
     GameSummary,
     GameView,
+    IfExists,
     LoggedEvent,
     RulesetView,
+    SaveFile,
+    is_addressable_game_id,
 )
 from kesef_server.sessions import (
     DuplicateGameError,
@@ -62,14 +68,52 @@ def session(store: SessionStore, game_id: str) -> Session:
         raise errors.game_not_found(game_id) from None
 
 
-def create(store: SessionStore, state: GameState) -> Session:
+def create(store: SessionStore, state: GameState, events: tuple[Event, ...] = ()) -> Session:
     """Seat a new game, translating the store's two refusals into keyed failures."""
     try:
-        return store.create(state)
+        return store.create(state, events)
     except DuplicateGameError:
         raise errors.game_already_exists(state.game_id) from None
     except SessionLimitReachedError:
         raise errors.server_at_capacity(len(store)) from None
+
+
+def minted_game_id() -> str:
+    """A game id for a game that did not name itself.
+
+    One spelling, because there are three callers — both transports' ``POST /games`` and the
+    ``if_exists=copy`` branch below — and three literals is how two of them drift.
+    """
+    return f"game-{secrets.token_hex(8)}"
+
+
+def load(store: SessionStore, save: SaveFile, if_exists: IfExists) -> Session:
+    """Seat a restored game, answering the conflict the player was asked about (ADR-011).
+
+    The three policies are :class:`~kesef_server.schemas.IfExists`, and the conflict is only ever
+    resolved *on* a conflict: a load with nothing in its way keeps the file's own id whatever the
+    policy says, so ``if_exists`` is a conflict answer rather than a mode.
+
+    ``copy`` rewrites one field of a copy of the state — the id, which is identity and not a rule —
+    and mints rather than derives, because :data:`~kesef_server.schemas.GAME_ID_PATTERN` bounds both
+    the character set and the length and a derived id can fail either.
+    """
+    if not is_addressable_game_id(save.state.game_id):
+        raise errors.invalid_game_id()
+    try:
+        return store.create(save.state, save.events)
+    except DuplicateGameError:
+        pass
+    except SessionLimitReachedError:
+        raise errors.server_at_capacity(len(store)) from None
+    if if_exists is IfExists.REFUSE:
+        raise errors.game_already_exists(save.state.game_id)
+    if if_exists is IfExists.REPLACE:
+        return store.replace(save.state, save.events)
+    if if_exists is IfExists.COPY:
+        copied = save.state.model_copy(update={"game_id": minted_game_id()})
+        return create(store, copied, save.events)
+    assert_never(if_exists)
 
 
 # --- Projections ------------------------------------------------------------
@@ -128,6 +172,15 @@ def view(held: Session, events: tuple[LoggedEvent, ...] = ()) -> GameView:
         events=events,
         event_cursor=held.cursor,
     )
+
+
+def save_file(held: Session) -> SaveFile:
+    """The whole session on disk: the state, and its log stripped back to engine events (ADR-011).
+
+    ``seq`` is dropped on the way out for the same reason it is assigned on the way in — it belongs
+    to a session, and the session that reads this file will not be this one.
+    """
+    return SaveFile(state=held.state, events=tuple(entry.event for entry in held.log))
 
 
 def logged(held: Session, events: tuple[Event, ...]) -> tuple[LoggedEvent, ...]:
@@ -199,7 +252,9 @@ async def advance_bots_once(
         max_steps=1,
         traded_seats=seats_that_proposed_this_turn(entry.event for entry in held.log),
     ):
-        return logged(store.update(game_id, step.state, step.events), step.events)
+        # `held`, not `game_id`: this write happens after a thinking delay, and a load may have taken
+        # the id over in the meantime (ADR-011). See `SessionStore.update`.
+        return logged(store.update(held, step.state, step.events), step.events)
     return None
 
 

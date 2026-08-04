@@ -30,13 +30,19 @@ class FakeSocket implements SocketLike {
 }
 
 /**
- * The save route's body: the engine's `GameState`.
+ * The save route's body: a `SaveFile` — the engine's `GameState`, and the session's log (ADR-011).
  *
  * Built from the projection plus the two things a save carries and a view does not. No fixture
  * builds a real `GameState` on purpose — nothing else in this package may read one (`api/types.ts`),
  * and only `game_id` and `turn_number` are touched here.
+ *
+ * The log is non-empty so that a regression that dropped it on the way to the file would show up in
+ * the bytes this test compares, rather than in nothing at all.
  */
-const SAVE = { ...makeState({ game_id: "kitchen-table" }), turn_number: 9, rng: { seed: 7 } };
+const SAVE = {
+  state: { ...makeState({ game_id: "kitchen-table" }), turn_number: 9, rng: { seed: 7 } },
+  events: [{ type: "turn_started", player: 0, turn_number: 9 }],
+};
 
 const GAME_GONE = { reason_key: "error.game_not_found", params: {} };
 

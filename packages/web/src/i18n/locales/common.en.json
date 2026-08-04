@@ -491,7 +491,13 @@
     "load_button": "Choose a saved game file",
     "load_hint": "Pick the .json file you saved earlier. The board and the rules come from the file.",
     "load_failed": "Couldn't open that saved game",
-    "loading": "Opening the saved game…"
+    "loading": "Opening the saved game…",
+    "conflict": {
+      "question": "That game is still being played here. Replacing it ends the game in progress; loading it separately keeps both.",
+      "replace": "Replace the game in progress",
+      "copy": "Load as a separate game",
+      "cancel": "Cancel"
+    }
   },
   "setup": {
     "add_player": "Add a player",

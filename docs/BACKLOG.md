@@ -906,7 +906,79 @@ bot's turn.
 **Known limitation, stated rather than hidden**: the event log does not survive, because the log
 belongs to the session and the save file is a `GameState`. After a reload the board, the money, the
 deeds and the turn are exactly right and *"What's happened"* starts fresh. Restoring it would be a
-contract change in the API both builds share.
+contract change in the API both builds share. — **fixed by MON-715**, which made that contract change.
+
+---
+
+### MON-714 — A load whose game is still live asks the player ✅ **DONE** (ADR-011)
+**Tier**: Opus · **Size**: M · *(`docs/A11Y_AUDIT.md` D1, deferred 2026-08-01 as a product decision;
+decided by the owner 2026-08-03)*
+
+**The defect.** Leaving a game in the UI does not end its session, so re-uploading the file you just
+downloaded was refused with `409 error.game_already_exists`. A player who saved and then loaded in one
+sitting could not restore; the only way through was a server that had forgotten the game.
+
+**Why it was deferred rather than fixed.** Three defensible answers — a load *replaces* the live
+session, a load *mints a new id* and the file is a template, or the player is *asked* — with different
+consequences for the URL, for a second tab, and for what "the same game" means. The audit filed it
+instead of deciding it, and pinned the refusal in both languages so that whoever decided would have to
+flip a test rather than discover a behaviour.
+
+**The decision** is *ask* (ADR-011). `POST /games/load?if_exists=refuse|replace|copy`, defaulting to
+`refuse`, so the unchanged request still answers the 409 it always did; `LoadSavedGame` keeps the parsed
+file, renders the two answers under the keyed refusal it already rendered, and re-posts with the answer.
+Cancelling clears both, and the picker underneath was always the retry.
+
+**Why not the other two.** A silent `replace` is one store method and no UI, and it ends a game in
+progress with no warning when the file is older than the table — for an audience that includes
+six-year-olds pressing things, one extra press is the only defence for the case they did not mean.
+Always minting an id never destroys anything and makes "continue this game" quietly produce a
+*different* game: a new URL, a save file whose id no longer names it, and a session per attempt against
+`max_sessions`.
+
+**One correctness fix came with it**: `SessionStore.update` takes the `Session` the caller read rather
+than the id, because a bot driver reads a session, awaits a thinking delay, and writes — and a replace
+in that window would have appended the old game's move to the new game's log. `Session.advance_lock`
+could not have prevented it; the replacement holds a different lock.
+
+---
+
+### MON-715 — The event log travels in the save file ✅ **DONE** (ADR-011)
+**Tier**: Opus · **Size**: M · *(the limitation MON-713 shipped with, stated in its own entry above)*
+
+**The defect.** `Session.log` is not a `GameState` field, so a save file could not carry it. A restored
+game came back with its board, money, deeds and turn exactly right and *"What's happened"* empty — and
+because ADR-010's reload insurance restores through the same save/load routes, that was true of every
+reload in the published build, not only of a file a player chose.
+
+**The fix.** `GET /games/{id}/save` answers a `SaveFile` — `{state, events}` — and `POST /games/load`
+accepts it. The events are bare engine `Event`s: `seq` is assigned by the store and nowhere else, so a
+restored log is stamped `1..N` exactly as a live one is. **A bare `GameState` still loads**, which is
+every file saved before today, and every `localStorage` slot written by the build before it.
+
+**No client change was needed to deliver it**, which is the pleasing part: `useGame` already asks for
+`?since=0` on its first fetch, so the UI replays whatever log the session has. It had nothing to replay.
+
+**Measured, and only what was actually measured.** A four-seat game on the classic board, seed 7,
+played forward by the same rule the parity harness uses:
+
+| Turn | Events in the log | Envelope | State only |
+|---|---|---|---|
+| 1 | 3 | 4.8 KB | 4.5 KB |
+| 6 | 71 | 10.7 KB | 4.4 KB |
+| 12 | 132 | 16.0 KB | 4.4 KB |
+| 13 | 144 | 17.4 KB | 4.4 KB |
+
+So the state is flat and the log grows at roughly **0.9 KB per turn**. At turn 13 a save is **3.4 % of
+the 512 KB `max_save_bytes` ceiling**; a game would have to run into the hundreds of turns to reach it,
+and one that did answers `error.save_too_large` on the way back in — the existing guard doing its job
+rather than a new failure. Serializing the whole envelope costs **0.14 ms median** (max 0.32 ms) in
+CPython.
+
+**Not re-measured**: the 2 ms snapshot figure ADR-010 took on the built artifact under Pyodide. What
+changed on that path is the size of the JSON string it carries — four times larger at turn 12 — and
+this entry does not claim a new number for it. The artifact is still covered for *correctness* by
+`e2e-pages/local-engine.spec.ts`, which now asserts the log survives a real reload.
 
 ---
 

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { ApiError, NO_RESPONSE } from "@/api";
 import { makeState } from "@/test/fixtures";
-import type { GameState } from "@/api";
+import type { GameState, SaveFile } from "@/api";
 
 import {
   readSaveFile,
@@ -25,13 +25,26 @@ import {
  * else in this package is allowed to read it (see `api/types.ts`). Only two fields are touched here,
  * so a projection with the deck order bolted on carries them without pretending to be complete.
  */
-function saveShaped(overrides: Partial<{ game_id: string; turn_number: number }> = {}): GameState {
+function stateShaped(overrides: Partial<{ game_id: string; turn_number: number }> = {}): GameState {
   return {
     ...makeState(),
     ...overrides,
     rng: { seed: 7, counter: 3 },
     chance_deck: ["chance_advance_to_go"],
   } as unknown as GameState;
+}
+
+/**
+ * A save as the server hands one over since ADR-011: the state, and the log that produced it.
+ *
+ * The log is not decoration here. A save whose events were dropped on the way to disk is exactly the
+ * defect MON-715 fixed, and it is invisible unless something asserts the bytes.
+ */
+function saveShaped(overrides: Partial<{ game_id: string; turn_number: number }> = {}): SaveFile {
+  return {
+    state: stateShaped(overrides),
+    events: [{ type: "turn_started", player: 0, turn_number: 1 }],
+  } as unknown as SaveFile;
 }
 
 describe("saveFileName", () => {
@@ -63,30 +76,39 @@ describe("saveFileName", () => {
 });
 
 describe("saveFileContents", () => {
-  it("writes indented JSON that parses back to the same state", () => {
-    const state = saveShaped();
-    const written = saveFileContents(state);
+  it("writes indented JSON that parses back to the same save", () => {
+    const save = saveShaped();
+    const written = saveFileContents(save);
 
     // Indented because a save file is a thing a player might open, and a bug report is much more
     // useful with one. The cost is a few kilobytes of a file written once.
     expect(written).toContain("\n  ");
-    expect(JSON.parse(written)).toEqual(state);
+    expect(JSON.parse(written)).toEqual(save);
   });
 
   it("keeps the hidden information, because a save without the deal cannot be resumed", () => {
     // The one payload that carries the deck order and the RNG (ADR-008 §2). Fine in a local file;
     // the discipline is that nothing *renders* it, not that it is stripped.
-    const written = JSON.parse(saveFileContents(saveShaped())) as Record<string, unknown>;
-    expect(written["rng"]).toEqual({ seed: 7, counter: 3 });
-    expect(written["chance_deck"]).toEqual(["chance_advance_to_go"]);
+    const written = JSON.parse(saveFileContents(saveShaped())) as {
+      state: Record<string, unknown>;
+    };
+    expect(written.state["rng"]).toEqual({ seed: 7, counter: 3 });
+    expect(written.state["chance_deck"]).toEqual(["chance_advance_to_go"]);
+  });
+
+  it("keeps the session log, which is the half a bare GameState had no room for", () => {
+    // MON-715 / ADR-011: without the log the board comes back from a save and "What's happened"
+    // does not. Nothing in the old shape of this file could have caught that.
+    const written = JSON.parse(saveFileContents(saveShaped())) as { events: unknown[] };
+    expect(written.events).toEqual([{ type: "turn_started", player: 0, turn_number: 1 }]);
   });
 });
 
 describe("readSaveFile", () => {
   it("parses a chosen file into whatever the JSON says", async () => {
-    const state = saveShaped();
-    const file = new Blob([saveFileContents(state)], { type: "application/json" });
-    await expect(readSaveFile(file)).resolves.toEqual(state);
+    const save = saveShaped();
+    const file = new Blob([saveFileContents(save)], { type: "application/json" });
+    await expect(readSaveFile(file)).resolves.toEqual(save);
   });
 
   it("does not judge whether the JSON is a game", async () => {
@@ -120,12 +142,12 @@ describe("a SaveFilePort", () => {
         offered.push({ filename, json });
       },
     };
-    const state = saveShaped({ game_id: "kitchen-table", turn_number: 9 });
+    const save = saveShaped({ game_id: "kitchen-table", turn_number: 9 });
 
-    port.save(saveFileName(state.game_id, state.turn_number), saveFileContents(state));
+    port.save(saveFileName(save.state.game_id, save.state.turn_number), saveFileContents(save));
 
     expect(offered).toHaveLength(1);
     expect(offered[0]?.filename).toBe("kesef-street-kitchen-table-turn-9.json");
-    expect(JSON.parse(offered[0]?.json ?? "null")).toEqual(state);
+    expect(JSON.parse(offered[0]?.json ?? "null")).toEqual(save);
   });
 });

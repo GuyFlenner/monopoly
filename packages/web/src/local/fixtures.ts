@@ -75,8 +75,8 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
         envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),
       ),
     listGames: () => record("listGames", [], () => envelope(200, [])),
-    loadGame: (stateJson) =>
-      record("loadGame", [stateJson], () =>
+    loadGame: (saveJson, ifExists) =>
+      record("loadGame", [saveJson, ifExists], () =>
         envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),
       ),
     getGame: (gameId, since) =>
@@ -84,7 +84,10 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
         envelope(200, { state: { game_id: gameId }, event_cursor: cursor() }),
       ),
     saveGame: (gameId) =>
-      record("saveGame", [gameId], () => envelope(200, { game_id: gameId, rng: { seed: 1 } })),
+      // A `SaveFile` since ADR-011: the state, and the log a restored session has to come back with.
+      record("saveGame", [gameId], () =>
+        envelope(200, { state: { game_id: gameId, rng: { seed: 1 } }, events: [] }),
+      ),
     submitCommand: (gameId, requestJson) =>
       record("submitCommand", [gameId, requestJson], () =>
         envelope(200, { state: { game_id: gameId }, event_cursor: cursor() }),

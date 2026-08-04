@@ -7,8 +7,8 @@ sound, empty/loading/error states, animation queue + CompareTray, replay viewer)
 announcements routed through the MON-411 `<Announcer>`*.
 
 This is an audit, so it is organised as **what was checked → what was found → what was done**. Nine
-defects were found. Eight are fixed on this branch. One is a product decision and is deferred with a
-named owner and a test pinning today's behaviour.
+defects were found. Eight are fixed on this branch. One is a product decision and was deferred with a
+named owner and a test pinning today's behaviour — and has since been decided: see §4.
 
 ---
 
@@ -162,6 +162,13 @@ Same family as F7, found while fixing it.
 ---
 
 ## 4. Deferred — one item, with a test pinning today's behaviour
+
+> **Resolved 2026-08-03 by MON-714 / ADR-011.** The decision was the owner's, taken after the audit
+> reported it: a load whose game is still live now **asks** — *"Replace the game in progress"* or
+> *"Load as a separate game"* — and both answers are exercised in both languages by
+> `e2e/persistence.spec.ts`. The section below is kept as written, because the reasoning for *not*
+> deciding it here is the part worth keeping: the audit's job was to report it and pin it, and the
+> assertions it named as "the ones to flip" are the ones that were flipped.
 
 ### D1 — Save then load in one sitting is refused (owner: MON-704 follow-up)
 
