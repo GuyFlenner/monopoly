@@ -1143,6 +1143,43 @@ MON-901 network-play exposures listed in the M3 review.
 
 ---
 
+## E10 — What the mutation gate found (M8)
+
+### MON-722 — The tests the mutation gate says are weakest 🔴 **OPEN**
+**Tier**: Fable (insolvency) / Opus (legality) · **Size**: M · *(found 2026-08-04, by MON-209's gate
+running for the first time)*
+
+The gate passes — **3270/3471 = 94.2%**, against an 80% floor, in 87 minutes — and *where* it does not
+pass is worth more than the headline. 201 mutants survived across 67 functions, in two clusters:
+
+| Survivors | Function | Why it matters |
+|---|---|---|
+| 17 | `rules.insolvency._void_claims_of` | |
+| 9 | `rules.insolvency._without_claims_of` | The bankruptcy chain: a bug here is worst and hardest to |
+| 6 | `rules.insolvency._tile_value` | notice, because a creditor's claims being voided slightly |
+| 5 | `rules.insolvency._charge_mortgage_transfer_fees` | wrong is invisible until a game is reconstructed by hand |
+| 13 | `legality._build_house` | |
+| 11 | `legality._trade_side` | The even-build and estate rules — the predicates that decide |
+| 7 | `legality._sell_house` | which buttons exist |
+| 6 | `legality._unmortgage` | |
+| 8 | `legality._sort_key` | **The order `legal_commands` comes back in.** `ActionBar` renders it verbatim, so this is button order on screen, and nothing asserts it |
+| 7 | `rules.cards._apply_step` | |
+| 6 | `rules.rent.charge` | |
+| 6 | `rules.turns.advance_turn` | |
+
+**What this is not.** It is not a reason to raise the threshold, and not a licence to write tests until
+the number moves: a mutant killed by an assertion nobody would have written is a test that exists to
+satisfy a tool. The two clusters are worth attention because they are *where the rules are hardest* —
+MON-207's chains and MON-201's even-build — not because 94.2% offends.
+
+**Where to start**: `_sort_key` is the cheapest and the most visibly wrong to leave — it is user-facing
+order with no assertion behind it. The insolvency cluster is the valuable one and wants the Fable tier,
+since a wrong claim-voiding rule is exactly the class of bug this project's golden games exist to catch.
+
+The full survivor list is in the `mutmut-results` artifact of any nightly run.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |
