@@ -34,18 +34,24 @@ const MOVE_BUDGET = 40;
  * Declining is the only way to open an auction without a bankruptcy, and which square it happens on
  * is the deal's business — hence a loop rather than a fixture. Returns `false` if the budget runs
  * out, so a test can fail with "never reached an auction" rather than on a missing element.
+ *
+ * `confirms` says which game this is, and is asserted rather than tolerated (MON-718). With auctions
+ * on, declining can hand the deed to somebody else and the bar asks first (MON-405). With auctions
+ * off there is nothing to lose — the square stays unsold — so the dialog is gone, and a helper that
+ * merely *coped* with either would let it come back unnoticed on the table that does not want it.
  */
-async function declineSomething(page: Page): Promise<boolean> {
+async function declineSomething(page: Page, confirms: boolean): Promise<boolean> {
   for (let move = 0; move < MOVE_BUDGET; move += 1) {
     const decline = page.locator('[data-command-kind="decline_purchase"]:visible');
     if ((await decline.count()) > 0) {
       await decline.first().click();
-      // Declining is a terminal move, so the bar asks first (MON-405). The confirmation is its own
-      // dialog and has to be answered before there is any auction to look at — which is also why
-      // the tests below cannot simply assert "a dialog appeared".
       const proceed = page.locator('[data-confirm="proceed"]');
-      await expect(proceed).toBeVisible();
-      await proceed.click();
+      if (confirms) {
+        await expect(proceed).toBeVisible();
+        await proceed.click();
+      } else {
+        await expect(proceed, "a table with no auctions was asked to confirm").toHaveCount(0);
+      }
       return true;
     }
     for (const kind of ["roll_dice", "end_turn", "roll_for_jail", "pay_jail_fine"]) {
@@ -87,7 +93,7 @@ test.describe("a table that leaves the setup screen alone", () => {
     await startGame(page);
     await skipAnimations(page);
 
-    expect(await declineSomething(page), "never reached a purchase decision").toBe(true);
+    expect(await declineSomething(page, false), "never reached a purchase decision").toBe(true);
 
     // Positive first — the game carried on — then the absence, so this cannot pass on a blank page.
     await expect(page.locator("#kesef-actions [data-command-kind]").first()).toBeVisible();
@@ -103,14 +109,14 @@ test.describe("a table that turns auctions on", () => {
     // The printed rule first: no reserve, so the floor is ₪1 whatever the square is worth.
     await startGame(page, { auctions: { enabled: true, minimum: "none" } });
     await skipAnimations(page);
-    expect(await declineSomething(page), "never reached a purchase decision").toBe(true);
+    expect(await declineSomething(page, true), "never reached a purchase decision").toBe(true);
     const noReserve = await openingFloor(page);
     expect(noReserve).toBe(1);
 
     // The same seed, the same square, one control moved.
     await startGame(page, { auctions: { enabled: true, minimum: "list_price" } });
     await skipAnimations(page);
-    expect(await declineSomething(page), "never reached a purchase decision").toBe(true);
+    expect(await declineSomething(page, true), "never reached a purchase decision").toBe(true);
     const reserved = await openingFloor(page);
 
     // A deed, so the printed price — the cheapest on the board is ₪60 and this is not it by accident:

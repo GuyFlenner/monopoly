@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/api";
 import type { BoardSummary, NewGameRequest, RulesetView } from "@/api";
+import type { Locale } from "@/i18n";
 
 import {
   KIDS_VIEW,
@@ -46,20 +47,31 @@ function setup(
   overrides: {
     readonly onStart?: (request: NewGameRequest) => Promise<unknown>;
     readonly rulesets?: readonly RulesetView[];
+    readonly boards?: readonly BoardSummary[];
+    readonly locale?: Locale;
   } = {},
 ): { readonly onStart: ReturnType<typeof vi.fn> } {
   const onStart = vi.fn(overrides.onStart ?? (() => Promise.resolve()));
   render(
     <SetupScreen
-      boards={BOARDS}
+      boards={overrides.boards ?? BOARDS}
       rulesets={overrides.rulesets ?? [UNIVERSAL_VIEW, KIDS_VIEW]}
-      locale="en"
+      locale={overrides.locale ?? "en"}
       onLocaleChange={vi.fn()}
       onStart={onStart}
     />,
   );
   return { onStart };
 }
+
+/** A second board, so "the first the server offered" can be told apart from "the one named classic". */
+const ISRAEL: BoardSummary = {
+  id: "israel",
+  name_key: "board.israel.name",
+  tile_count: 40,
+  ownable_count: 28,
+  catalogue_ready: true,
+};
 
 /**
  * One seat's card, found through its own name box.
@@ -438,10 +450,57 @@ describe("what reaches the wire", () => {
       token: "drum",
       grammatical_gender: "f",
     });
-    expect(request.board_id).toBe("classic");
+    expect(request.board_id).toBe("classic"); // the only board this fixture offers
     expect(request.ruleset).toBe("universal");
     expect(request.locale).toBe("en");
     expect(request.seed).toBeUndefined();
+  });
+
+  it("plays whichever board the server offered first, whatever it is called (MON-716)", async () => {
+    /*
+      The coupling the Israeli default rests on, asserted from this side.
+
+      `board/loader.py::PREFERRED_BOARDS` puts Israel at the head of `/boards` and documents that the
+      head *is* the default; this screen picks `boards[0]`. Neither half is a hardcoded id, and this
+      test is what stops somebody "simplifying" the component into `find(id === "classic")` — which
+      would pass every other test in this file, because the other fixture offers one board.
+    */
+    const user = userEvent.setup();
+    const { onStart } = setup({ boards: [ISRAEL, ...BOARDS] });
+    await nameBothSeats(["Ruti", "Dan"]);
+
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    expect((onStart.mock.calls[0]?.[0] as NewGameRequest).board_id).toBe("israel");
+  });
+
+  it("starts a Hebrew table's seats on the masculine, and an English one's on the neutral", async () => {
+    /*
+      MON-719's sibling ask, from the owner on 2026-08-04. Hebrew conjugates every verb in the
+      narration by the subject's gender, and "them" is the one option a Hebrew sentence cannot use
+      gracefully — so a Hebrew setup screen offers the masculine and two presses change it per seat.
+
+      This *amends* `SeatConfig`'s "never the masculine" (owner decision 5, GAP G-42) for the default
+      only, which is the owner's to amend. The English default is unchanged, and asserted here so that
+      the amendment cannot quietly widen: a neutral fallback is still what a table gets when nobody
+      has said otherwise in a language that does not need it.
+    */
+    const user = userEvent.setup();
+    const { onStart } = setup({ locale: "he" });
+    await nameBothSeats(["רותי", "דן"]);
+
+    await user.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+
+    await waitFor(() => {
+      expect(onStart).toHaveBeenCalledTimes(1);
+    });
+    const request = onStart.mock.calls[0]?.[0] as NewGameRequest;
+    expect(request.seats.map((seat) => seat.grammatical_gender)).toEqual(["m", "m"]);
+    // The control still says so, rather than the value being a secret the form posts.
+    expect(within(seatCard(0)).getByLabelText(i18next.t("setup.pronoun"))).toHaveValue("m");
   });
 
   it("sends a seed when one is typed, and omits the field when it is not", async () => {

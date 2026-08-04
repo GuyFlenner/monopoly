@@ -43,6 +43,12 @@ import {
   type SeatConfig,
 } from "@/api";
 import { SCREEN_HEADING_ATTRIBUTE } from "@/a11y";
+import {
+  clampCardSeconds,
+  MAX_CARD_SECONDS,
+  MIN_CARD_SECONDS,
+  useCardDwellPreference,
+} from "@/animation";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import { Icon } from "@/theme";
 
@@ -122,11 +128,27 @@ interface SeatDraft {
   readonly gender: Gender;
 }
 
-function seatDraft(id: number): SeatDraft {
-  // Neutral by default. `grammatical_gender` exists so Hebrew narration can agree (owner
-  // decision 5); defaulting to "n" means nobody is assumed and the fallback phrasing is never
-  // the masculine (GAP G-42).
-  return { id, name: "", isBot: false, botLevel: "normal", gender: "n" };
+/**
+ * The gender a new seat starts on, which depends on the language the table is being set up in.
+ *
+ * **Hebrew: masculine. Everything else: neutral.** The owner asked for this on 2026-08-04, and it
+ * amends what `schemas.py::SeatConfig` says — *"`n` is the neutral fallback, never the masculine"*
+ * (owner decision 5, GAP G-42). That sentence is still true of the **fallback**: a seat whose gender
+ * nobody chose, in a game whose language nobody chose, is still `"n"`. What changed is the *default
+ * offered on a Hebrew setup screen*, where every verb in the narration conjugates and "them" is the
+ * one option a Hebrew sentence cannot use gracefully. Two presses put it back, per seat, and the
+ * control is right there.
+ *
+ * Read at the moment a row is created rather than watched: a language switch mid-setup does not
+ * rewrite genders the player may already have chosen, and the fallback it leaves behind is the
+ * neutral one. The app opens in Hebrew, so the two seats a family finds are masculine.
+ */
+export function defaultGenderFor(locale: Locale): Gender {
+  return locale === "he" ? "m" : "n";
+}
+
+function seatDraft(id: number, locale: Locale): SeatDraft {
+  return { id, name: "", isBot: false, botLevel: "normal", gender: defaultGenderFor(locale) };
 }
 
 export interface SetupScreenProps {
@@ -186,7 +208,10 @@ export function SetupScreen({
   const { t } = useTranslation();
   const formId = useId();
 
-  const [seats, setSeats] = useState<readonly SeatDraft[]>(() => [seatDraft(0), seatDraft(1)]);
+  const [seats, setSeats] = useState<readonly SeatDraft[]>(() => [
+    seatDraft(0, locale),
+    seatDraft(1, locale),
+  ]);
   const [nextSeatId, setNextSeatId] = useState(2);
   const [boardId, setBoardId] = useState<string | null>(null);
   const [rulesetName, setRulesetName] = useState<RulesetView["name"]>(UNIVERSAL);
@@ -208,11 +233,19 @@ export function SetupScreen({
   const [auctionsEnabled, setAuctionsEnabled] = useState(false);
   const [auctionMinimum, setAuctionMinimum] = useState<AuctionMinimum>("list_price");
   const [seed, setSeed] = useState("");
+  /*
+    A stored preference rather than form state (MON-719): it is in effect the moment it changes, for
+    the game in progress as well as the next one, and it is deliberately not part of what `onStart`
+    posts. See `animation/cardDwell.ts`.
+  */
+  const { seconds: cardSeconds, setSeconds: setCardSeconds } = useCardDwellPreference();
   const [isSubmitting, setSubmitting] = useState(false);
   const [rejection, setRejection] = useState<ApiError | null>(null);
 
   // The board the form will post. Falls back to the first the server offered rather than to a
-  // hardcoded "classic": the list of boards is the server's to decide.
+  // hardcoded id: the list of boards is the server's to decide, and so is which one leads it — see
+  // `board/loader.py::PREFERRED_BOARDS`, where "first" is documented as meaning "the default"
+  // (MON-716, the Israeli board).
   const chosenBoardId = boardId ?? boards[0]?.id ?? null;
 
   // A filter over what the server marked, not a diff. `differs_from_universal` is
@@ -327,7 +360,7 @@ export function SetupScreen({
             <button
               type="button"
               onClick={() => {
-                setSeats((current) => [...current, seatDraft(nextSeatId)]);
+                setSeats((current) => [...current, seatDraft(nextSeatId, locale)]);
                 setNextSeatId((current) => current + 1);
               }}
               className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
@@ -424,6 +457,54 @@ export function SetupScreen({
               />
             )}
           </fieldset>
+
+          {/*
+            How long a card stays up, in seconds (MON-719).
+
+            In the flow rather than behind the advanced disclosure, and beside the house rules rather
+            than with the seed, on the same reasoning the house rules give: the seed hides because it
+            is a developer's feature wearing a player's clothes, and this is the opposite — the owner
+            asked for it because a card left the screen before he had read it, and a setting that
+            answers that has to be findable by the person who noticed.
+
+            It is **not** on the create-game request. How long a card is *shown* belongs to whoever is
+            looking at the screen, not to the game being played, so it is a `localStorage` preference
+            like the mute and the motion switches (`animation/cardDwell.ts`) — which also means it is
+            already in effect for the game in progress, and applies to the next game without being
+            asked again. Nothing waits for it either way: a card can be put down at any moment.
+          */}
+          <div className="flex flex-col gap-1">
+            <label htmlFor={`${formId}-card-seconds`} className="text-sm font-medium">
+              {t("setup.card_seconds")}
+            </label>
+            <input
+              id={`${formId}-card-seconds`}
+              type="number"
+              inputMode="numeric"
+              min={MIN_CARD_SECONDS}
+              max={MAX_CARD_SECONDS}
+              step={1}
+              dir="ltr"
+              value={cardSeconds}
+              onChange={(event) => {
+                // Only a value the store would keep. An out-of-range or half-typed entry leaves the
+                // stored choice alone rather than being silently rounded into something else, so the
+                // field cannot end a session holding a number the game is not using.
+                const chosen = clampCardSeconds(event.target.value);
+                if (chosen !== null) {
+                  setCardSeconds(chosen);
+                }
+              }}
+              aria-describedby={`${formId}-card-seconds-hint`}
+              className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+            />
+            <p id={`${formId}-card-seconds-hint`} className="text-xs opacity-70">
+              {t("setup.card_seconds_hint", {
+                min: MIN_CARD_SECONDS,
+                max: MAX_CARD_SECONDS,
+              })}
+            </p>
+          </div>
 
           <Choice
             name={`${formId}-locale`}

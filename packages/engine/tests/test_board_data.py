@@ -8,7 +8,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from kesef_engine.board.loader import available_boards, load_board
+from kesef_engine.board.loader import PREFERRED_BOARDS, available_boards, load_board
 from kesef_engine.board.models import BOARD_SIZE, Board, ColorGroup, Tile, TileKind
 from kesef_engine.errors import BoardDataError
 
@@ -17,6 +17,30 @@ BOARDS = available_boards()
 
 def test_both_boards_ship() -> None:
     assert set(BOARDS) == {"classic", "israel"}
+
+
+def test_the_israeli_board_is_offered_first_and_is_therefore_the_default() -> None:
+    """MON-716. The order *is* the default — see `PREFERRED_BOARDS` and `SetupScreen.tsx`.
+
+    Asserted on the first element rather than on the whole tuple, because what the product promises is
+    "a family who presses nothing plays the Israeli board", and that is this one fact. The rest of the
+    order is the alphabet, checked below.
+    """
+    assert BOARDS[0] == "israel"
+
+
+def test_the_boards_after_the_preferred_ones_stay_alphabetical() -> None:
+    """A picker that reshuffles between two reads is one nobody can describe over the phone."""
+    rest = [board_id for board_id in BOARDS if board_id not in PREFERRED_BOARDS]
+    assert rest == sorted(rest)
+    assert available_boards() == BOARDS, "two reads disagreed"
+
+
+def test_a_preferred_board_that_does_not_ship_is_ignored_rather_than_raising() -> None:
+    """A preference, not a manifest: removing a board must not take the picker down with it."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr("kesef_engine.board.loader.PREFERRED_BOARDS", ("no-such-board", "israel"))
+        assert available_boards()[0] == "israel"
 
 
 @pytest.mark.parametrize("board_id", BOARDS)
