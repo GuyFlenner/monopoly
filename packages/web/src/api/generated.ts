@@ -1799,8 +1799,8 @@ export interface components {
          *     exactly as it stamps a live one.
          *
          *     **A bare ``GameState`` still loads.** Every file saved before ADR-011 is one, and
-         *     :meth:`from_document` reads it as the state with no events. ``GameState`` declares no field
-         *     called ``state``, so the test is a fact about the shape rather than a guess about it.
+         *     :meth:`from_json` reads it as the state with no events. The two shapes cannot be confused: an
+         *     envelope has a ``state`` field and ``GameState`` declares none, so neither validates as the other.
          *
          *     **No version of its own.** Whether a save loads is decided by ``state.schema_version``, and the
          *     events are validated by the same union the live log is built from. A second version field beside
