@@ -79,13 +79,14 @@ import { ReplayButton } from "@/replay";
 import { MuteToggle, useSoundCues } from "@/sound";
 import { ACTION_THEME, COMFORT_ATTRIBUTE, Icon, KIDS_COMFORT } from "@/theme";
 
-import { useAutoEndTurn } from "./autoEndTurn";
+import { endTurnAfterDecline, useAutoEndTurn } from "./autoEndTurn";
 import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
 import { useAutoEndTurnPreference } from "./autoEndTurnPreference";
 import { presentationFor, type Presentation } from "./presentation";
 import { SaveGameButton } from "./SaveGameButton";
 import { useUiStore } from "./uiStore";
 import { useGame } from "./useGame";
+import { useMoney } from "@/i18n";
 
 export interface GameScreenProps {
   /** Leave this game and go back to the setup screen. */
@@ -193,6 +194,7 @@ function TurnSummary({
   turnNumber,
   cashPulse,
   t,
+  money,
 }: {
   readonly players: readonly PlayerView[];
   readonly currentId: number;
@@ -201,6 +203,8 @@ function TurnSummary({
   readonly cashPulse?: number | undefined;
   /** The screen's translate, so the well's wording matches the column beside it. */
   readonly t: Translate;
+  /** The screen's money formatter, passed for the same reason `t` is (MON-720). */
+  readonly money: (amount: number) => string;
 }): React.JSX.Element {
   const current = players.find((player) => player.id === currentId);
   const seat = current === undefined ? undefined : seatOf(players, current.id);
@@ -216,10 +220,12 @@ function TurnSummary({
       </p>
       <p className="flex items-baseline gap-2 text-xs">
         <span className="opacity-80">{t("label.cash")}</span>
-        {/* The figure is the projection's; the beat only decides whether it arrives with a swell. */}
+        {/* The figure is the projection's; the beat only decides whether it arrives with a swell. The
+            symbol is the language's (MON-720) — `dir="ltr"` stays, because `50 ₪` is a left-to-right
+            sequence of characters inside a right-to-left page either way. */}
         <Pulse nonce={cashPulse}>
           <span dir="ltr" className="font-bold tabular-nums">
-            {current?.cash ?? 0}
+            {money(current?.cash ?? 0)}
           </span>
         </Pulse>
       </p>
@@ -292,6 +298,7 @@ function SquareRent({
 
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const money = useMoney();
   const { state, board, legalCommands, send, validate, events, status, refetch } = useGame();
   // The wire from the event stream to the one `<Announcer>`. Called here because this is the
   // component that renders a live game, and calling it twice would say every roll twice.
@@ -374,19 +381,6 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   );
 
   /**
-   * Post a command.
-   *
-   * The rejection is caught rather than left floating: the mutation already records it and
-   * `status.error` is where it is rendered, so a second report would be the same failure twice.
-   */
-  const dispatch = useCallback(
-    (command: Command) => {
-      void send(command).catch(() => undefined);
-    },
-    [send],
-  );
-
-  /**
    * Hand the dice on after a purchase, so nobody has to press "I'm done" (owner request).
    *
    * Two things about this composition are load-bearing and neither is visible in the call:
@@ -404,6 +398,35 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
    * the chrome hides the switch there rather than offering a six-year-old a fourth toggle.
    */
   const { autoEndTurn: autoEndTurnPreferred } = useAutoEndTurnPreference();
+
+  /**
+   * Post a command, and hand the dice on if the command was "no thanks" (owner request).
+   *
+   * The rejection is caught rather than left floating: the mutation already records it and
+   * `status.error` is where it is rendered, so a second report would be the same failure twice.
+   *
+   * The follow-through reads the **response**, which is the view the engine returned, and asks it
+   * whether `end_turn` is now on offer for that seat. That is the whole decision and it lives in
+   * `endTurnAfterDecline` — including why a decline needs this route while a purchase is served by the
+   * log-watching hook below, and why neither an auctions check nor a doubles check belongs here.
+   *
+   * Chained rather than awaited into a second `dispatch`, so a failed decline cannot produce an
+   * `end_turn`: `then` only runs on the accepted one.
+   */
+  const dispatch = useCallback(
+    (command: Command) => {
+      void send(command)
+        .then((view) => {
+          const follow = endTurnAfterDecline(command, view, autoEndTurnPreferred);
+          if (follow !== null) {
+            void send(follow).catch(() => undefined);
+          }
+        })
+        .catch(() => undefined);
+    },
+    [send, autoEndTurnPreferred],
+  );
+
   const autoEndTurnEnabled = presentation.kids || autoEndTurnPreferred;
   useAutoEndTurn({
     events,
@@ -634,6 +657,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                     turnNumber={state.turn_number}
                     cashPulse={cashPulse(state.current_player_id)}
                     t={translate}
+                    money={money}
                   />
                   {/*
                   The switch lives in the chrome, so the tray does not draw a second one. The settle

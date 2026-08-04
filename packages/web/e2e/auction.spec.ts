@@ -100,6 +100,36 @@ test.describe("a table that leaves the setup screen alone", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByTestId("auction-place-bid")).toHaveCount(0);
   });
+
+  test("hands the dice on by itself when a purchase is declined", async ({ page }) => {
+    test.slow();
+    /*
+      The owner's second ask about declining (2026-08-04): *"if I chose not to purchase, end the turn;
+      the next click should be the next player rolling."* The decision is a unit test
+      (`autoEndTurn.test.ts`); what needs a browser is the *sequence* — two commands posted from one
+      press, the second built from the first's response.
+
+      The assertion is deliberately "no `end_turn` chit, and a `roll_dice` one", because that holds
+      **both** ways the engine can answer and so cannot be flaky about the deal:
+
+      * an ordinary roll — the turn ends, the next seat is at `AWAITING_ROLL`;
+      * doubles — `end_turn` was never offered, and the same seat rolls again.
+
+      Either way the player is never left holding an "I'm done" button after saying "no thanks", which
+      is the whole of what was asked for.
+    */
+    await startGame(page);
+    await skipAnimations(page);
+
+    expect(await declineSomething(page, false), "never reached a purchase decision").toBe(true);
+
+    const actions = page.locator("#kesef-actions");
+    await expect(actions.locator('[data-command-kind="roll_dice"]')).toBeVisible();
+    await expect(
+      actions.locator('[data-command-kind="end_turn"]'),
+      "the player was left to press end-turn after declining",
+    ).toHaveCount(0);
+  });
 });
 
 test.describe("a table that turns auctions on", () => {
