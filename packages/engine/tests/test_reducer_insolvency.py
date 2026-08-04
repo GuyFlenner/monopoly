@@ -459,6 +459,57 @@ def test_a_pending_trade_involving_the_bankrupt_is_voided_by_the_system() -> Non
     assert new_state.properties[1].owner == 1, "the tile went to the creditor, not the trade"
 
 
+def test_a_debt_owed_to_a_leaving_creditor_loses_only_that_creditors_share() -> None:
+    """The *partial* void: one creditor of several leaves, and the frame survives without them.
+
+    `_without_claims_of` says an obligation owed *to* the leaver is "dropped as uncollectable" — the
+    money has nobody to reach — while the rest of the frame stands. That is the branch where the frame
+    is neither kept whole nor dropped whole, and MON-209's mutation gate found it unasserted
+    (MON-722): nine mutants survived in that function, and the existing tests all end with
+    `interrupts == ()`, which cannot distinguish "voided the leaver's share" from "voided the frame".
+
+    The shape is reachable exactly as the module describes: a card charging every other player creates
+    one frame with several obligations (G-7), and a second debt can open on one of those creditors.
+    Player 2 concedes on their own frame; player 0 still owes player 1.
+    """
+    owed_to_one = Obligation(creditor=1, amount=60)
+    owed_to_leaver = Obligation(creditor=2, amount=40)
+    multi = DebtFrame(
+        resume=Phase.AWAITING_END_TURN,
+        debtor=0,
+        obligations=(owed_to_one, owed_to_leaver),
+        reason=CashReason.CARD,
+        source_tile=1,
+    )
+    # Player 2's own debt, on top, is the one they concede.
+    theirs = DebtFrame(
+        resume=Phase.DEBT_SETTLEMENT,
+        debtor=2,
+        obligations=(Obligation(creditor="bank", amount=500),),
+        reason=CashReason.TAX,
+        source_tile=4,
+    )
+    state = make_state(
+        seats=(make_player(0, cash=0), make_player(1), make_player(2, cash=0)),
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(multi, theirs),
+        current=0,
+    )
+
+    new_state, _ = apply(state, DeclareBankruptcy(player=2))
+
+    assert len(new_state.interrupts) == 1, "the debt player 0 still owes was dropped with the creditor"
+    survivor = new_state.interrupts[0]
+    assert isinstance(survivor, DebtFrame)
+    assert survivor.obligations == (owed_to_one,), (
+        f"expected only player 1's claim to survive, got {survivor.obligations}"
+    )
+    # And the frame still describes the same debtor and the same debt — this is a claim being
+    # written off, not a debt being re-opened.
+    assert survivor.debtor == 0 and survivor.reason is CashReason.CARD
+    assert new_state.phase is Phase.DEBT_SETTLEMENT, "player 0 still has a debt to settle"
+
+
 # --- Two debts on one debtor: the frame a concession used to leave behind -----
 
 

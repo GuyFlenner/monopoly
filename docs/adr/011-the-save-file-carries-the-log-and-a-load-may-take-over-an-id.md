@@ -111,8 +111,20 @@ stores whatever `save_game` returned.
   nothing fills its mailbox; the socket stays open until the client closes it. This is exactly what
   `DELETE /games/{id}` has always done to a watcher, so `replace` inherits a known limitation rather
   than inventing one — and the published build has no cross-tab socket at all, because each tab is
-  its own server. Fixing it means a close reason for "your view is no longer this game", which is a
-  socket-protocol change and its own item.
+  its own server.
+
+  **Examined on 2026-08-04 and deliberately accepted, not merely deferred.** The obvious fix — a close
+  code meaning "your view is no longer this game", so the watcher reconnects — is *worse than the
+  limitation on its own*, and the reason is the cursor. A reconnecting client re-opens with its own
+  high-water mark (`queue.cursor`), and `Session.events_since` returns only entries **above** it. A
+  replaced session's log restarts at `seq 1`, so a watcher sitting at 12 reconnects and receives
+  silence: the same quiet socket, with a reconnect loop in front of it. Doing it properly means the
+  close reason must *reset* the client's cursor, which means clearing the animation queue's high-water
+  and its log — a protocol change plus a change to the queue's public surface.
+
+  That machinery is what ADR-006 says waits for networked play, and it belongs there: a second tab
+  watching a hotseat game is a development affordance, not a product feature. **Revisit trigger:
+  MON-901.** Until then the honest position is a stated limitation rather than a half-built resync.
 - **After a `copy`, the game that was left is no longer the one `localStorage` insures** in the
   published build: the next mutation snapshots the copy. Both games are live in the tab; only one has
   reload insurance.

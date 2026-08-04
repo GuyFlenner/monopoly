@@ -732,6 +732,65 @@ def test_legal_commands_is_deterministic_and_stably_ordered() -> None:
     assert legal_commands(clone) == first
 
 
+def test_the_order_groups_by_kind_across_seats_rather_than_by_seat() -> None:
+    """``legal_commands`` promises *"sorted by kind, actor, then parameter"* — assert the first two.
+
+    The determinism test above passes under **any** sort key, which is why MON-209's mutation gate
+    found survivors in ``_sort_key`` (MON-722): each produced a different order that was still a
+    *stable* one. And this order is not cosmetic — ``ActionBar`` renders ``legal_commands`` verbatim
+    ("in the engine's order. Rendered as given"), so it is the order of the buttons on screen.
+
+    **Two players is what makes this falsifiable.** Portfolio commands are legal for any solvent
+    player in a portfolio phase (MON-204), so both seats have builds and mortgages here. Sorting by
+    kind first interleaves the seats; sorting by seat first groups them. With one player the two are
+    indistinguishable, which is exactly how the weaker version of this test passed while seeing
+    nothing.
+    """
+    state = make_state(
+        players=2,
+        properties=brown_pair(0, 1, 1) | {index: owned(1) for index in LIGHT_BLUE},
+        phase=Phase.AWAITING_END_TURN,
+    )
+
+    keys = [(command.kind, command.player) for command in legal_commands(state)]
+
+    assert len({player for _, player in keys}) == 2, "this fixture was supposed to arm both seats"
+    assert keys == sorted(keys), f"not ordered by kind then actor: {keys}"
+
+
+def test_the_order_within_one_kind_and_seat_follows_the_parameter() -> None:
+    """The third and fourth elements of the key — and the honest limit of what a test can see here.
+
+    Both halves were checked by hand-mutating ``_sort_key`` and watching this test, rather than
+    assumed, and the answer was not the one expected:
+
+    * **Dropping ``detail`` is caught.** It looks equivalent — ``_candidates`` already yields holdings
+      in ascending tile order and ``sorted`` is stable — but with ``detail`` gone the *variant*
+      dominates, so every non-demolishing ``SellHouse`` sorts ahead of every demolishing one and the
+      tiles come back ``6, 8, 9, 6, 8, 9`` instead of ``6, 6, 8, 8, 9, 9``. The first assertion below
+      sees that.
+    * **Dropping ``variant`` is genuinely equivalent.** The generator yields ``False`` then ``True``
+      for one tile and the sort is stable, so the output is identical for every state this engine can
+      build. That mutant cannot be killed by observing output, and MON-722 records it as equivalent
+      rather than pretending an assertion could reach it.
+
+    What is pinned either way is the contract a caller relies on: within one kind and one seat,
+    commands arrive in ascending tile order, and the two demolish variants have a fixed order.
+    """
+    state = make_state(
+        properties={index: owned(0, houses=5) for index in LIGHT_BLUE},
+        phase=Phase.AWAITING_END_TURN,
+    )
+    commands = legal_commands(state)
+
+    sells = [command for command in commands if command.kind == "sell_house"]
+    assert [command.tile for command in sells] == sorted(command.tile for command in sells)
+
+    on_one_tile = [command for command in sells if command.tile == LIGHT_BLUE[0]]
+    assert len(on_one_tile) == 2, f"expected both demolish variants, got {on_one_tile}"
+    assert [command.demolish_hotel for command in on_one_tile] == [False, True]
+
+
 def test_a_legality_result_is_truthy_only_when_legal() -> None:
     assert LegalityResult(legal=True)
     assert not LegalityResult(legal=False, reason_key="error.wrong_phase")

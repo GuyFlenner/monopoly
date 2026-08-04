@@ -1145,7 +1145,7 @@ MON-901 network-play exposures listed in the M3 review.
 
 ## E10 — What the mutation gate found (M8)
 
-### MON-722 — The tests the mutation gate says are weakest 🔴 **OPEN**
+### MON-722 — The tests the mutation gate says are weakest 🟡 **PARTLY DONE**
 **Tier**: Fable (insolvency) / Opus (legality) · **Size**: M · *(found 2026-08-04, by MON-209's gate
 running for the first time)*
 
@@ -1177,6 +1177,57 @@ order with no assertion behind it. The insolvency cluster is the valuable one an
 since a wrong claim-voiding rule is exactly the class of bug this project's golden games exist to catch.
 
 The full survivor list is in the `mutmut-results` artifact of any nightly run.
+
+#### What was done, 2026-08-04 — and how each test was checked
+
+Three assertions, each **verified by hand-mutating the implementation and watching the test go red**.
+That step is the whole discipline here: the first version of the ordering test passed and killed
+*nothing*, which is precisely the failure this item is about, and only the check found it.
+
+| Test | Kills |
+|---|---|
+| `test_the_order_groups_by_kind_across_seats_rather_than_by_seat` | swapping `kind`/`player` in `_sort_key`; dropping `kind` |
+| `test_the_order_within_one_kind_and_seat_follows_the_parameter` | dropping `detail` |
+| `test_a_debt_owed_to_a_leaving_creditor_loses_only_that_creditors_share` | keeping every obligation; voiding the wrong side of `!=`; dropping the frame whole |
+
+Two findings from doing it:
+
+* **The ordering test needed two seats to be falsifiable at all.** With one player, "sorted by kind
+  then actor" and "sorted by actor then kind" produce identical output — so the single-seat version
+  asserted a tautology. `ActionBar` renders this order verbatim, so it is button order on screen.
+* **One survivor is a genuinely *equivalent* mutant.** Dropping `variant` from `_sort_key` cannot change
+  the output of any state this engine can build: `_candidates` already yields `False` before `True` for
+  one tile and `sorted` is stable. It is unkillable by observing behaviour, and it is recorded as such
+  rather than chased. Dropping `detail`, which looks equally equivalent, is *not* — with `detail` gone
+  the variant dominates and the tiles interleave. Both answers came from measurement, and one of them
+  contradicted the prediction written here first.
+
+#### One flake found on the way, and fixed
+
+`test_soundness_every_enumerated_command_is_accepted_by_apply` failed once in a full-suite run and then
+passed six times in isolation. Not a soundness bug, and the six clean runs are what prove it rather than
+luck: hypothesis saves a failing example and replays it first, so no saved example means `apply` never
+raised — which leaves the two **run-level** assertions after `check()`, the ones outside `@given`.
+
+The coverage floor is a statement about a distribution: the test's own comment says *"the rarest floor
+kind lands 5-25 times per run"*, and a floor of five is zero often enough to matter. So the property is
+now `derandomize=True`. A gate that fails for reasons unrelated to the code under test costs more than a
+fresh seed buys, because the first response to a flaky gate is to stop reading it — and the exploration
+is not lost: the same 600 structurally-generated states still exercise soundness every run, the goldens
+replay real games, and every other property in the file stays random.
+
+Pre-existing, and unrelated to this session's changes; tripped by chance while re-running the suite.
+
+#### What is deliberately left
+
+The **legality-predicate cluster** (`_build_house` 13, `_trade_side` 11, `_sell_house` 7,
+`_unmortgage` 6) and the remaining **insolvency** survivors. Left open on purpose rather than run to
+zero, for the reason stated above: a mutant killed by an assertion nobody would otherwise have written
+is a test that exists to satisfy a tool. These four predicates are covered by unit tests, the golden
+games and the `legal_commands`/`apply` agreement property; what the survivors say is that some of their
+*boundary* arithmetic (even-build edges, group completeness, mortgage interactions) is asserted less
+tightly than the happy path. That is worth a deliberate session at the Fable tier with the rules open,
+not a sweep.
 
 ---
 
