@@ -118,6 +118,11 @@ def _response(response: Any) -> Answer:
     return response.status_code, (None if response.status_code == 204 else response.json())
 
 
+def _with_game_id(body: Any, game_id: str) -> Any:
+    """A view with its game id overwritten — see :meth:`Pair.load_as_a_copy`."""
+    return body | {"state": body["state"] | {"game_id": game_id}}
+
+
 @dataclass
 class Pair:
     """One game played twice at once: over HTTP, and through the browser facade.
@@ -151,12 +156,42 @@ class Pair:
     def games(self) -> Answer:
         return self.same("GET /games", _response(self.http.get("/games")), _envelope(self.facade.list_games()))
 
-    def load(self, state: object) -> Answer:
+    def load(self, save: object, if_exists: str | None = None) -> Answer:
+        query = "" if if_exists is None else f"?if_exists={if_exists}"
         return self.same(
             "POST /games/load",
-            _response(self.http.post("/games/load", json=state)),
-            _envelope(self.facade.load_game(json.dumps(state))),
+            _response(self.http.post(f"/games/load{query}", json=save)),
+            _envelope(self.facade.load_game(json.dumps(save), if_exists)),
         )
+
+    def load_raw(self, body: str) -> Answer:
+        """``POST /games/load`` with bytes this harness did not encode.
+
+        Every other method hands its payload to ``json.dumps``, which is fine for a save and wrong for
+        a payload whose *shape* is the point: three thousand nested lists make the harness recurse
+        before either transport sees them. This is the seam for asserting on the input rather than on
+        a value.
+        """
+        return self.same(
+            "POST /games/load",
+            _response(self.http.post("/games/load", content=body.encode())),
+            _envelope(self.facade.load_game(body, None)),
+        )
+
+    def load_as_a_copy(self, save: object) -> tuple[Answer, tuple[str, str]]:
+        """``?if_exists=copy`` on both, compared with the minted id masked (ADR-011).
+
+        The one interaction whose two answers *cannot* be identical: a copy is seated under a
+        freshly minted ``game-<hex>`` and the two transports draw from their own ``secrets``. So the
+        id is masked for the comparison and handed back for the test to make its own claim about —
+        which is stricter than skipping the comparison, because every other field of the view still
+        has to match exactly.
+        """
+        over_http = _response(self.http.post("/games/load?if_exists=copy", json=save))
+        locally = _envelope(self.facade.load_game(json.dumps(save), "copy"))
+        ids = (over_http[1]["state"]["game_id"], locally[1]["state"]["game_id"])
+        masked = [(status, _with_game_id(body, "<minted>")) for status, body in (over_http, locally)]
+        return self.same("POST /games/load?if_exists=copy", masked[0], masked[1]), ids
 
     def get(self, game_id: str, since: int | str | None = None) -> Answer:
         query = "" if since is None else f"?since={since}"
@@ -380,8 +415,8 @@ def test_the_save_file_matches(pair: PairFactory) -> None:
     both.create()
     status, saved = both.save(GAME_ID)
     assert status == 200
-    assert saved["rng"], "the save carries the RNG (ADR-008 §2); without it this proves little"
-    assert len(saved["chance_deck"]) > 0, "and the deck order, which the projection hides"
+    assert saved["state"]["rng"], "the save carries the RNG (ADR-008 §2); without it this proves little"
+    assert len(saved["state"]["chance_deck"]) > 0, "and the deck order, which the projection hides"
 
 
 def test_a_saved_game_loads_the_same_way(pair: PairFactory) -> None:
@@ -408,9 +443,85 @@ def test_a_save_naming_an_unaddressable_game_is_the_same_refusal(pair: PairFacto
     both.create()
     saved = both.save(GAME_ID)[1]
     both.delete(GAME_ID)
-    saved["game_id"] = "kitchen/table"
+    saved["state"]["game_id"] = "kitchen/table"
     status, body = both.load(saved)
     assert (status, body["reason_key"]) == (422, "error.invalid_game_id")
+
+
+def test_the_save_carries_the_log_and_the_log_comes_back_with_it(pair: PairFactory) -> None:
+    """MON-715 / ADR-011, on both transports: a restored session has its history.
+
+    Asserted through ``?since=0``, which is what the client actually asks for on a first fetch — so
+    this is the path a reload takes, not a private view of the store.
+    """
+    both = pair()
+    both.create()
+    both.submit(GAME_ID, _roll(0))
+    saved = both.save(GAME_ID)[1]
+    played = [entry["event"]["type"] for entry in both.get(GAME_ID, 0)[1]["events"]]
+    assert played, "the game produced no events, so this test cannot tell a kept log from a lost one"
+    assert [event["type"] for event in saved["events"]] == played
+
+    both.delete(GAME_ID)
+    status, restored = both.load(saved)
+    assert status == 201
+    assert [entry["event"]["type"] for entry in both.get(GAME_ID, 0)[1]["events"]] == played
+    assert restored["event_cursor"] == len(played), "the restored log was not sequenced 1..N"
+
+
+def test_a_bare_gamestate_still_loads_on_both_transports(pair: PairFactory) -> None:
+    """Every save written before ADR-011 is one, and both transports read it the same way."""
+    both = pair()
+    both.create()
+    both.submit(GAME_ID, _roll(0))
+    legacy = both.save(GAME_ID)[1]["state"]
+    both.delete(GAME_ID)
+
+    status, restored = both.load(legacy)
+    assert status == 201
+    assert restored["state"]["game_id"] == GAME_ID
+    assert restored["event_cursor"] == 0, "a file with no log cannot restore one"
+
+
+def test_the_three_conflict_policies_answer_the_same_way(pair: PairFactory) -> None:
+    """ADR-011: refuse by default, replace on request, and copy to a minted id."""
+    both = pair()
+    both.create()
+    saved = both.save(GAME_ID)[1]
+    both.submit(GAME_ID, _roll(0))  # the live game is now ahead of the file
+
+    assert both.load(saved)[0] == 409, "the default is still the refusal it always was"
+    assert both.load(saved, "refuse")[0] == 409
+
+    assert both.load(saved, "replace")[0] == 201
+    assert both.get(GAME_ID, 0)[1]["events"] == [], "replace did not put the file's own log back"
+
+    (status, copied), (http_id, local_id) = both.load_as_a_copy(saved)
+    assert status == 201
+    for minted in (http_id, local_id):
+        assert minted.startswith("game-") and minted != GAME_ID
+    assert copied["state"]["game_id"] == "<minted>"  # masked; the ids themselves are above
+    assert both.get(GAME_ID)[0] == 200, "the copy ended the game it was supposed to leave alone"
+
+
+def test_an_unknown_conflict_policy_is_the_same_keyed_refusal(pair: PairFactory) -> None:
+    """FastAPI refuses the enum; ``browser._if_exists`` has to refuse it identically."""
+    both = pair()
+    both.create()
+    saved = both.save(GAME_ID)[1]
+    status, body = both.load(saved, "clobber")
+    assert (status, body["reason_key"], body["params"]["fields"]) == (422, "error.malformed_request", "if_exists")
+
+
+def test_a_deeply_nested_save_is_the_same_keyed_refusal(pair: PairFactory) -> None:
+    """Neither transport may have a Python recursion limit reachable from its input.
+
+    The browser facade takes its body as a string rather than through starlette, so it needs its own
+    proof: both parse with pydantic-core (``SaveFile.from_json``), and a ``json.loads`` in either one
+    would answer a 500 where the other answered a keyed 422 — a divergence this file exists to catch.
+    """
+    status, body = pair().load_raw("[" * 3000 + "]" * 3000)
+    assert (status, body["reason_key"]) == (422, "error.save_schema_mismatch")
 
 
 def test_an_oversized_save_is_the_same_refusal(pair: PairFactory) -> None:

@@ -45,11 +45,11 @@ export function SaveGameButton({ port, className }: SaveGameButtonProps): React.
     setSaving(true);
     setFailure(null);
     try {
-      const state = await client.saveGame(gameId);
-      // `state.turn_number` rather than a counter of our own: the file is named after the moment
+      const save = await client.saveGame(gameId);
+      // `save.state.turn_number` rather than a counter of our own: the file is named after the moment
       // the *server* says it captured, which is the moment it will restore to.
       const target = port ?? browserSaveFilePort();
-      target.save(saveFileName(gameId, state.turn_number), saveFileContents(state));
+      target.save(saveFileName(gameId, save.state.turn_number), saveFileContents(save));
     } catch (cause) {
       setFailure(asApiError(cause));
     } finally {

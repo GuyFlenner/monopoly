@@ -74,7 +74,15 @@ export function browserSaveSlot(key: string = LOCAL_SAVE_KEY): SaveSlot {
   };
 }
 
-/** The `game_id` inside a stored save, or `null` if the slot holds something that is not one. */
+/**
+ * The `game_id` inside a stored save, or `null` if the slot holds something that is not one.
+ *
+ * Read from `state.game_id`, which is where a `SaveFile` keeps it (ADR-011), and from the top level
+ * as well — a slot written by the build before ADR-011 is a bare `GameState`, and it is *this*
+ * function that decides whether that slot can still rescue a reload. Refusing it would throw away
+ * the game of every player who had the tab open across the deploy, which is precisely the failure
+ * ADR-010 exists to prevent.
+ */
 export function savedGameId(payload: string | null): string | null {
   if (payload === null) {
     return null;
@@ -84,7 +92,8 @@ export function savedGameId(payload: string | null): string | null {
     if (typeof parsed !== "object" || parsed === null) {
       return null;
     }
-    const id = (parsed as { game_id?: unknown }).game_id;
+    const envelope = parsed as { game_id?: unknown; state?: { game_id?: unknown } };
+    const id = envelope.state?.game_id ?? envelope.game_id;
     return typeof id === "string" && id !== "" ? id : null;
   } catch {
     // A half-written slot from a tab that was closed mid-write. Treated as empty.
@@ -114,8 +123,13 @@ export async function snapshotGame(
       return;
     }
     slot.write(JSON.stringify(envelope.body));
-  } catch {
-    // The bridge itself failed. The game in the tab is unaffected; only the insurance is.
+  } catch (cause) {
+    // The bridge itself failed. The game in the tab is unaffected; only the insurance is — so this
+    // must not throw, and it must not be silent either. A snapshot that stopped being written leaves
+    // a reload losing the game *exactly* as it did before ADR-010, with nothing in the console: the
+    // shape of the original defect. `warn` rather than `error` so a diagnostic cannot fail a page
+    // that is still working correctly.
+    console.warn("kesef: the game could not be snapshotted for a reload", cause);
   }
 }
 
@@ -136,16 +150,24 @@ export async function restoreGame(
     return false;
   }
   try {
-    const envelope = parseEnvelope(await bridge.loadGame(payload));
+    // No `if_exists`: this restores a game the store has just answered a 404 for, so there is
+    // nothing to conflict with, and a policy sent here would be this file deciding something the
+    // player was never asked (ADR-011). If a session *did* somehow hold the id, the honest 409 is
+    // handled by the branch below like any other refusal.
+    const envelope = parseEnvelope(await bridge.loadGame(payload, null));
     if (ok(envelope.status)) {
       return true;
     }
     // The engine refused it — a save written by an older `SCHEMA_VERSION` is the case MON-704
     // names. It will refuse it again on the next request, so the slot is dropped rather than
     // retried on every poll for the rest of the session.
+    console.warn("kesef: the stored game was refused", envelope.status, envelope.body);
     slot.clear();
     return false;
-  } catch {
+  } catch (cause) {
+    // Same reasoning as the snapshot's: the caller gets its honest 404 either way, and a restore that
+    // silently stopped working is a reload that silently loses the game.
+    console.warn("kesef: the stored game could not be restored", cause);
     return false;
   }
 }

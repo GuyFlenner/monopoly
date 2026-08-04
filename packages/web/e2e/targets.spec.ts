@@ -124,6 +124,36 @@ test.describe(`every control clears ${String(MIN_TARGET_PX)} px at 320 px`, () =
     }
   });
 
+  test("on the conflict question a refused load asks, in both languages", async ({ page }) => {
+    // A surface that only exists after a refusal, so the sweep above cannot reach it: the two answers
+    // to `error.game_already_exists` (MON-714). Measured rather than assumed, because `min-h-11` on a
+    // control whose padding pushes its line box is 44 px in English and can be otherwise in Hebrew,
+    // where the root font is larger.
+    await page.setViewportSize(PHONE);
+    await startGame(page);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("save-game").click(),
+    ]);
+    const file = await download.path();
+    expect(file, "the browser produced no file").not.toBeNull();
+
+    // Going to the setup screen does not end the session — that is the whole premise of the refusal
+    // being asked about — so each pass can start from a fresh setup screen and still conflict.
+    for (const locale of ["en", "he"] as const) {
+      await page.goto("/");
+      await page.locator(`label:has(input[name$="-locale"][value="${locale}"])`).click();
+      await expect(page.locator("html")).toHaveAttribute("lang", locale);
+      await page.locator('input[type="file"]').setInputFiles(file);
+      await expect(page.getByTestId("load-save-conflict")).toBeVisible();
+      expectAllClear(
+        await targets(page, INTERACTIVE),
+        MIN_TARGET_PX,
+        `conflict question in ${locale}`,
+      );
+    }
+  });
+
   test("on the game screen, with the tray, the hint and the replay open", async ({ page }) => {
     await page.setViewportSize(PHONE);
     await startGame(page);

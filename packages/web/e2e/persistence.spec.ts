@@ -13,8 +13,10 @@
  *    that the toggle in the chrome persists, in a real browser, and that the value is picked up on the
  *    next page load rather than after a hydration paint — needs two page loads.
  *
- * The save/load test below documents a **product limitation it found**, and says so where it asserts it.
- * See `docs/A11Y_AUDIT.md`.
+ * The save/load tests below once documented a **product limitation they found** — saving and loading in
+ * one sitting was refused, because leaving a game does not end its session. That was `docs/A11Y_AUDIT.md`
+ * D1, deferred as a product decision. It is decided: the refusal asks the player which game they meant
+ * (MON-714, ADR-011), and both answers are exercised here, in both languages.
  */
 
 import { readFileSync } from "node:fs";
@@ -49,11 +51,23 @@ test.describe("saving and loading a game", () => {
     // And it is a real save rather than a projection: the deck order and the RNG are in it, which is
     // the one payload in the product that carries hidden information (ADR-008 §2). Read here, because a
     // download that produced valid JSON with nothing useful in it would satisfy every other assertion.
-    const saved = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
-    expect(Object.keys(saved)).toContain("schema_version");
-    expect(saved["game_id"]).toBe(new URL(page.url()).searchParams.get("game"));
-    expect(saved["turn_number"]).toBe(turnBefore);
-    expect(saved["rng"], "the save carries no RNG, so it cannot reproduce the game").toBeDefined();
+    const saved = JSON.parse(readFileSync(file, "utf8")) as {
+      state: Record<string, unknown>;
+      events: unknown[];
+    };
+    expect(Object.keys(saved.state)).toContain("schema_version");
+    expect(saved.state["game_id"]).toBe(new URL(page.url()).searchParams.get("game"));
+    expect(saved.state["turn_number"]).toBe(turnBefore);
+    expect(
+      saved.state["rng"],
+      "the save carries no RNG, so it cannot reproduce the game",
+    ).toBeDefined();
+    // And the log, since ADR-011 — the half of a session a bare `GameState` had no room for, and the
+    // reason a restored game can show "What's happened" (MON-715).
+    expect(
+      saved.events.length,
+      "the save carries no events, so a restored game would have no history",
+    ).toBeGreaterThan(0);
 
     // --- the read half -----------------------------------------------------
     await page.getByRole("button", { name: "New game" }).click();
@@ -66,28 +80,90 @@ test.describe("saving and loading a game", () => {
     await page.locator('input[type="file"]').setInputFiles(file);
 
     /*
-      **This is a finding, not an assertion working around a flake.**
+      **This was the product's one deferred decision, and it is decided (MON-714, ADR-011).**
 
-      Leaving a game in the UI does not end it on the *server* — the session is still there, holding this
-      save's `game_id` — so `POST /games/load` answers `409 error.game_already_exists`
-      (`api.py::_create`). A player who saves and then loads in the same sitting cannot restore; the only
-      way through today is a server that has forgotten the game.
+      Leaving a game in the UI does not end the session, so the id in this save is still live and the
+      first attempt is refused with `409 error.game_already_exists`. What used to be a dead end is now
+      a question: the refusal is still the server's own key rendered as a sentence, and under it are the
+      two answers a player can actually mean.
 
-      Whether that is right is a product decision — does a load replace the live session, mint a new id,
-      or ask? — so it is filed in `docs/A11Y_AUDIT.md` as a follow-up rather than decided by an
-      accessibility audit. What this pins is the behaviour that *is* decided, and the two halves of it
-      that would be defects: the refusal is the server's own key rendered as a sentence rather than a
-      blank screen or a leaked key, and the picker is still there afterwards, because the retry is the
-      picker.
+      The whole exchange is pinned, because each half fails differently — a refusal rendered as a
+      leaked key is one defect, and two buttons wired to nothing is another.
     */
     await expect(page.getByTestId("load-save-error")).toContainText(
       "There's already a game with that name.",
     );
-    await expect(page.locator('input[type="file"]')).toBeAttached();
     await expect(page.getByText("error.game_already_exists")).toHaveCount(0);
-    // And a player who cannot restore can still start a game, which is the difference between a
-    // limitation and a dead end. The submit is disabled on a blank form — that is form state, not the
-    // refusal — so the check fills a name and watches it come back.
+    await expect(page.getByTestId("load-save-conflict")).toBeVisible();
+
+    // "Replace the game in progress": the save takes over the id it already carries, so the game comes
+    // back at the turn it was saved on and the URL does not change.
+    await page.getByTestId("load-save-replace").click();
+    await expect(page.getByTestId("board-grid")).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("game")).toBe(saved.state["game_id"]);
+    expect(await turnNumber(page), "the restored game is not at the turn it was saved on").toBe(
+      turnBefore,
+    );
+
+    // And the history came back with it (MON-715). A restored game's log used to start empty, which is
+    // what a bare `GameState` in the file cost. Found by its accessible name, the way `dossier.spec`
+    // finds it — the log carries no test id and does not need one.
+    await expect(
+      page.getByRole("region", { name: "What's happened" }).getByRole("listitem").first(),
+      "a restored game has no history",
+    ).toBeVisible();
+  });
+
+  test("can seat a save beside the game that is still running", async ({ page }) => {
+    test.slow();
+    // The other answer to the same question: "Load as a separate game" leaves the live game alone and
+    // seats the file under a minted id, so both are playable and the URL names the new one.
+    await startGame(page);
+    await playTurns(page, 2);
+
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("save-game").click(),
+    ]);
+    const file = await download.path();
+    expect(file, "the browser produced no file").not.toBeNull();
+    const original = new URL(page.url()).searchParams.get("game");
+
+    await page.getByRole("button", { name: "New game" }).click();
+    await page.locator('input[type="file"]').setInputFiles(file);
+    await expect(page.getByTestId("load-save-conflict")).toBeVisible();
+    await page.getByTestId("load-save-copy").click();
+
+    await expect(page.getByTestId("board-grid")).toBeVisible();
+    const copied = new URL(page.url()).searchParams.get("game");
+    expect(copied, "the copy was not given an id of its own").not.toBe(original);
+
+    // The game that was left is still being played, which is the whole difference between this answer
+    // and the other one. Reached by its own URL, because that is how a player would go back to it.
+    await page.goto(`/?game=${String(original)}`);
+    await expect(page.getByTestId("board-grid")).toBeVisible();
+    await expect(page.getByTestId("game-error")).toHaveCount(0);
+  });
+
+  test("lets a player cancel the choice and still start a game", async ({ page }) => {
+    // The difference between a question and a trap. Cancelling clears the refusal *and* the question,
+    // and the picker underneath is what a player does next.
+    await startGame(page);
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByTestId("save-game").click(),
+    ]);
+    const file = await download.path();
+
+    await page.getByRole("button", { name: "New game" }).click();
+    await page.locator('input[type="file"]').setInputFiles(file);
+    await page.getByTestId("load-save-cancel").click();
+
+    await expect(page.getByTestId("load-save-conflict")).toHaveCount(0);
+    await expect(page.getByTestId("load-save-error")).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toBeAttached();
+    // The submit is disabled on a blank form — that is form state, not the refusal — so the check
+    // fills a name and watches it come back.
     const seats = page.getByTestId("setup-seats").getByRole("listitem");
     await seats.nth(0).locator('input[type="text"]').fill("Ruti");
     await seats.nth(1).locator('input[type="text"]').fill("Dan");
@@ -121,6 +197,22 @@ test.describe("saving and loading a game", () => {
     await expect(note).toBeVisible();
     await expect(note).not.toContainText("{{");
     expect(await note.textContent(), "Latin text in a Hebrew refusal").not.toMatch(/[A-Za-z]{3,}/);
+
+    // And the question the refusal now asks, in the same language (MON-714). Three keys were added to
+    // both catalogues; an English fallback leaking through here is a Hebrew-speaking family being
+    // asked, in a language they may not read, which game to end.
+    const question = page.getByTestId("load-save-conflict");
+    await expect(question).toBeVisible();
+    await expect(question).not.toContainText("{{");
+    expect(await question.textContent(), "Latin text in the Hebrew conflict question").not.toMatch(
+      /[A-Za-z]{3,}/,
+    );
+
+    // The answer works from the Hebrew screen too, which is the part a translation check alone would
+    // not catch: a button that reads correctly and posts nothing is still a dead end.
+    await page.getByTestId("load-save-replace").click();
+    await expect(page.getByTestId("board-grid")).toBeVisible();
+    await expect(page.locator("html")).toHaveAttribute("lang", "he");
   });
 });
 

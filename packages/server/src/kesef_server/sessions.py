@@ -182,7 +182,14 @@ class SessionStore:
         for game_id in idle:
             del self._sessions[game_id]
 
-    def create(self, state: GameState) -> Session:
+    def create(self, state: GameState, events: tuple[Event, ...] = ()) -> Session:
+        """Seat a game. ``events`` is a restored log, stamped ``1..N`` (ADR-011).
+
+        A restored log is stamped here rather than carried in from the file for the reason the module
+        docstring gives: ``seq`` is this session's own numbering, and a file that brought its own
+        would be asking this session to honour a previous one's. Nothing is offered to a subscriber —
+        a session nobody has yet been handed cannot have one.
+        """
         self._evict_idle()
         if state.game_id in self._sessions:
             raise DuplicateGameError(state.game_id)
@@ -190,8 +197,27 @@ class SessionStore:
             raise SessionLimitReachedError(f"server is holding {self._max_sessions} games")
         now = self._clock()
         session = Session(state=state, started_at=now, touched_at=now)
+        session.log.extend(LoggedEvent(seq=seq, event=event) for seq, event in enumerate(events, start=1))
         self._sessions[state.game_id] = session
         return session
+
+    def replace(self, state: GameState, events: tuple[Event, ...] = ()) -> Session:
+        """Let ``state`` take over its ``game_id`` from whatever is holding it (ADR-011).
+
+        The live session is **detached, not edited**. Editing one in place would keep its
+        subscribers pointed at a log whose numbering had just restarted — every event of the
+        restored game would arrive at or below their high-water mark and be dropped as a duplicate,
+        so a watching tab would go quiet forever and look like a working socket. Detaching leaves
+        that socket receiving nothing, which is what ``delete`` has always done to a watcher and is
+        at least the same failure the product already documents (ADR-011, "what this does not do").
+
+        Detaching is also what makes the bot driver safe: a driver that read the old session before
+        this call writes to the old session after it, and that write lands on an object nothing can
+        reach. See :meth:`update`.
+        """
+        self._evict_idle()
+        self._sessions.pop(state.game_id, None)
+        return self.create(state, events)
 
     def get(self, game_id: str) -> Session:
         self._evict_idle()
@@ -202,9 +228,18 @@ class SessionStore:
         session.touch(self._clock())
         return session
 
-    def update(self, game_id: str, state: GameState, events: tuple[Event, ...]) -> Session:
-        """Commit a command's result: the new state, and its events with ``seq`` assigned."""
-        session = self.get(game_id)
+    def update(self, session: Session, state: GameState, events: tuple[Event, ...]) -> Session:
+        """Commit a command's result: the new state, and its events with ``seq`` assigned.
+
+        **The session, not the id.** A caller reads a session, asks the engine, and writes the answer
+        back; between the read and the write there may be an ``await`` — the bot driver's thinking
+        delay — and :meth:`replace` may have put a *different* session under that id in the meantime.
+        Re-resolving the id here would append the old game's move to the new game's log, and
+        ``Session.advance_lock`` cannot prevent it because the replacement carries a different lock.
+        Writing to the session that was actually read means that stale move lands on a detached
+        object and is collected, which is the correct outcome and needs no lock at all.
+        """
+        session.touch(self._clock())
         session.state = state
         seq = session.cursor
         for event in events:

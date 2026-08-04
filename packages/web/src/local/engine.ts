@@ -99,8 +99,9 @@ interface BrowserFacade {
   list_rulesets(): string;
   create_game(requestJson: string): string;
   list_games(): string;
-  load_game(stateJson: string): string;
-  get_game(gameId: string, since: string | null): string;
+  // Optional on this side too, because that is how "not given" crosses into Python — see `bridgeTo`.
+  load_game(saveJson: string, ifExists?: string): string;
+  get_game(gameId: string, since?: string): string;
   save_game(gameId: string): string;
   submit_command(gameId: string, requestJson: string): string;
   validate_command(gameId: string, requestJson: string): string;
@@ -182,8 +183,26 @@ export function bridgeTo(facade: BrowserFacade): PyBridge {
     listRulesets: () => Promise.resolve(facade.list_rulesets()),
     createGame: (requestJson) => Promise.resolve(facade.create_game(requestJson)),
     listGames: () => Promise.resolve(facade.list_games()),
-    loadGame: (stateJson) => Promise.resolve(facade.load_game(stateJson)),
-    getGame: (gameId, since) => Promise.resolve(facade.get_game(gameId, since)),
+    /*
+      An absent optional parameter is *omitted*, never passed as `null`.
+
+      Pyodide stopped translating JS `null` to Python `None`: since 0.28 it arrives as a distinct
+      `JsNull`, so `raw is None` is false for it and `int(raw)` or `IfExists(raw)` fails on an object
+      the Python side has no reason to expect. Measured on the built artifact, that turned a restored
+      game into `422 error.malformed_request` and a reload back into the game-losing bug ADR-010 fixed
+      — `null` for `if_exists` was read as a *typo* rather than as "not given". The same hazard is on
+      `since`, where the value is `URLSearchParams.get`'s own `null` for an omitted query parameter.
+
+      Omitting the argument lets Python's own default apply, which is the only spelling of "absent"
+      that both languages agree on. `??` would not do: `undefined` is a JS value too, and relying on
+      its conversion is relying on the same table that has already changed once.
+    */
+    loadGame: (saveJson, ifExists) =>
+      Promise.resolve(
+        ifExists === null ? facade.load_game(saveJson) : facade.load_game(saveJson, ifExists),
+      ),
+    getGame: (gameId, since) =>
+      Promise.resolve(since === null ? facade.get_game(gameId) : facade.get_game(gameId, since)),
     saveGame: (gameId) => Promise.resolve(facade.save_game(gameId)),
     submitCommand: (gameId, requestJson) =>
       Promise.resolve(facade.submit_command(gameId, requestJson)),

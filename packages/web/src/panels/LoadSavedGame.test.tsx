@@ -42,8 +42,10 @@ describe("LoadSavedGame", () => {
 
     // The *parsed* document, not the `File` — and unvalidated, because whether it is a `GameState` is
     // the engine's question, answered on the far side of `POST /games/load`.
+    // `undefined` for `ifExists`: a first attempt carries no conflict policy, so the server's own
+    // default refuses and asks rather than this component deciding on the player's behalf (ADR-011).
     await waitFor(() => {
-      expect(onLoad).toHaveBeenCalledWith({ schema_version: 1, game_id: "kitchen" });
+      expect(onLoad).toHaveBeenCalledWith({ schema_version: 1, game_id: "kitchen" }, undefined);
     });
   });
 
@@ -119,6 +121,138 @@ describe("LoadSavedGame", () => {
       expect(await screen.findByText(sentence), key).toBeInTheDocument();
       unmount();
     }
+  });
+
+  /*
+    The conflict question (MON-714, ADR-011).
+
+    Every test below drives the *whole* exchange — upload, refusal, press, re-post — because the
+    thing worth asserting is what the second request carries. A test that only checked the buttons
+    appeared would pass against two buttons wired to nothing.
+  */
+  describe("when the game in the save is still being played", () => {
+    /** An `onLoad` that refuses a first attempt with the conflict and accepts any answer to it. */
+    function refusingFirst(): ReturnType<typeof vi.fn> {
+      return vi.fn((_save: unknown, ifExists?: string) =>
+        ifExists === undefined
+          ? Promise.reject(new ApiError(409, "error.game_already_exists", { game_id: "g1" }))
+          : Promise.resolve(),
+      );
+    }
+
+    it("offers the two answers, under the refusal that asked the question", async () => {
+      render(<LoadSavedGame onLoad={refusingFirst()} />);
+      await userEvent.upload(control(), savedGame());
+
+      // The sentence the player is answering is still on screen: the buttons are an answer to it,
+      // not a replacement for it.
+      expect(await screen.findByText("There's already a game with that name.")).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Replace the game in progress" }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Load as a separate game" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    });
+
+    it("re-posts the same file with replace when that is what the player chose", async () => {
+      const onLoad = refusingFirst();
+      render(<LoadSavedGame onLoad={onLoad} />);
+      await userEvent.upload(control(), savedGame({ schema_version: 1, game_id: "kitchen" }));
+
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Replace the game in progress" }),
+      );
+
+      // The *same document*, and the answer beside it. A retry that re-read the input would have
+      // nothing to read: `value` is cleared after every attempt (see the component).
+      await waitFor(() => {
+        expect(onLoad).toHaveBeenLastCalledWith(
+          { schema_version: 1, game_id: "kitchen" },
+          "replace",
+        );
+      });
+      expect(onLoad).toHaveBeenCalledTimes(2);
+    });
+
+    it("re-posts with copy when the player would rather keep both", async () => {
+      const onLoad = refusingFirst();
+      render(<LoadSavedGame onLoad={onLoad} />);
+      await userEvent.upload(control(), savedGame({ schema_version: 1, game_id: "kitchen" }));
+
+      await userEvent.click(await screen.findByRole("button", { name: "Load as a separate game" }));
+
+      await waitFor(() => {
+        expect(onLoad).toHaveBeenLastCalledWith({ schema_version: 1, game_id: "kitchen" }, "copy");
+      });
+    });
+
+    it("clears the question and the refusal on cancel, leaving the picker", async () => {
+      const onLoad = refusingFirst();
+      render(<LoadSavedGame onLoad={onLoad} />);
+      await userEvent.upload(control(), savedGame());
+
+      await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+      // Both go: a red message beside an unanswered question says the load is still failing when the
+      // player has decided not to make one.
+      expect(screen.queryByTestId("load-save-conflict")).toBeNull();
+      expect(screen.queryByText("There's already a game with that name.")).toBeNull();
+      expect(control()).toBeInTheDocument();
+      expect(onLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not drop the keyboard when the question is cancelled", async () => {
+      // The buttons unmount themselves, so without somewhere to put focus the browser drops it to
+      // `<body>`: a player who cancelled by keyboard is silently returned to the top of the tab order
+      // with nothing announced. MON-703's `disabled` finding in a different shape.
+      render(<LoadSavedGame onLoad={refusingFirst()} />);
+      await userEvent.upload(control(), savedGame());
+
+      await userEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+      expect(control(), "focus was dropped to the body").toHaveFocus();
+    });
+
+    it("does not ask twice when the answer is refused with the same key", async () => {
+      // The loop this prevents: a `replace` that came back 409 is a genuine failure, not the question
+      // again. Without the `ifExists === undefined` guard the prompt would reappear forever.
+      const onLoad = vi.fn(() =>
+        Promise.reject(new ApiError(409, "error.game_already_exists", { game_id: "g1" })),
+      );
+      render(<LoadSavedGame onLoad={onLoad} />);
+      await userEvent.upload(control(), savedGame());
+
+      await userEvent.click(
+        await screen.findByRole("button", { name: "Replace the game in progress" }),
+      );
+
+      await waitFor(() => {
+        expect(onLoad).toHaveBeenCalledTimes(2);
+      });
+      expect(screen.queryByTestId("load-save-conflict")).toBeNull();
+      expect(screen.getByText("There's already a game with that name.")).toBeInTheDocument();
+    });
+
+    it("asks nothing for a refusal that has no answer", async () => {
+      // A stale save is not a conflict, and offering to "replace the game in progress" would be
+      // offering something that cannot work.
+      render(
+        <LoadSavedGame
+          onLoad={() => Promise.reject(new ApiError(422, "error.save_schema_mismatch"))}
+        />,
+      );
+      await userEvent.upload(control(), savedGame());
+
+      await screen.findByText("This saved game was made by a different version of Kesef Street.");
+      expect(screen.queryByTestId("load-save-conflict")).toBeNull();
+    });
+
+    it("is axe clean with the question on screen", async () => {
+      const { container } = render(<LoadSavedGame onLoad={refusingFirst()} />);
+      await userEvent.upload(control(), savedGame());
+      await screen.findByTestId("load-save-conflict");
+      await expectAxeClean(container);
+    });
   });
 
   it("names a file that is not JSON at all, without asking the server", async () => {

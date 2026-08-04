@@ -25,12 +25,13 @@ import {
 import type {
   BoardSummary,
   Command,
-  GameState,
   GameSummary,
   GameView,
+  IfExists,
   LegalityView,
   NewGameRequest,
   RulesetView,
+  SaveFile,
 } from "./types";
 
 /** Just enough of `fetch` to be substitutable in a test. */
@@ -141,9 +142,15 @@ export class ApiClient {
     });
   }
 
-  /** The save file — the only response carrying hidden information (ADR-008 §2). */
-  saveGame(gameId: string, signal?: AbortSignal): Promise<GameState> {
-    return this.request<GameState>("GET", `/games/${encodeURIComponent(gameId)}/save`, { signal });
+  /**
+   * The save file — the only response carrying hidden information (ADR-008 §2).
+   *
+   * A `SaveFile` since ADR-011: the state *and* the session's log, so a restored game has its
+   * history. Nothing above this reads inside it; `SaveGameButton` names the file from
+   * `state.game_id` and `state.turn_number` and posts the rest back untouched.
+   */
+  saveGame(gameId: string, signal?: AbortSignal): Promise<SaveFile> {
+    return this.request<SaveFile>("GET", `/games/${encodeURIComponent(gameId)}/save`, { signal });
   }
 
   /**
@@ -159,9 +166,14 @@ export class ApiClient {
    *
    * The answer is an ordinary `GameView`, so a restored game reaches the UI exactly as a new one
    * does and nothing downstream has a "was this loaded" branch in it.
+   *
+   * `ifExists` is the player's answer to a 409 they have already been shown (ADR-011, MON-714), so
+   * it is *omitted* on a first attempt: the server's default is `refuse`, and a client that sent
+   * `replace` before anybody had been asked would be ending a game on its own initiative.
    */
-  loadGame(save: unknown, signal?: AbortSignal): Promise<GameView> {
-    return this.request<GameView>("POST", "/games/load", { body: save, signal });
+  loadGame(save: unknown, ifExists?: IfExists, signal?: AbortSignal): Promise<GameView> {
+    const query = ifExists === undefined ? "" : `?if_exists=${encodeURIComponent(ifExists)}`;
+    return this.request<GameView>("POST", `/games/load${query}`, { body: save, signal });
   }
 
   async deleteGame(gameId: string, signal?: AbortSignal): Promise<void> {

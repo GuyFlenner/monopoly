@@ -2,16 +2,20 @@
  * A game, to and from a file on the player's own disk (MON-704).
  *
  * `GameState` already serializes — the reducer's "the JSON is the save file" property, kept by
- * `GET /games/{id}/save` (ADR-008 §2) — so there is nothing to invent here. What is left is two
- * browser affordances and a name, and each of the three is a small decision worth writing down.
+ * `GET /games/{id}/save` (ADR-008 §2, since ADR-011 wrapped in a `SaveFile` that carries the
+ * session's log too) — so there is nothing to invent here. What is left is two browser affordances
+ * and a name, and each of the three is a small decision worth writing down.
  *
  * ## The file is the one payload with hidden information
  *
  * The save carries `rng` and the shuffled deck order. That is fine for a local file — it is the
  * player's own game, and a save that omitted the deal could not be resumed — and it is **not** fine
- * on screen. So nothing in this package ever renders a `GameState`: it goes from `fetch` to a
+ * on screen. So nothing in this package ever renders a save: it goes from `fetch` to a
  * `Blob` without being read, and comes back from a file to `POST /games/load` without being
  * inspected. `api/types.ts` says the same thing about the type; this is the code that honours it.
+ *
+ * The one field anybody reads is `state.turn_number`, in `SaveGameButton`, to name the file. A turn
+ * number is on screen already.
  *
  * ## Why there is a port
  *
@@ -22,7 +26,7 @@
  * the filename and the bytes — which is what a player actually gets.
  */
 
-import { ApiError, NO_RESPONSE, type GameState } from "@/api";
+import { ApiError, NO_RESPONSE, type SaveFile } from "@/api";
 
 /** Somewhere a save can be written. One call, no answers. */
 export interface SaveFilePort {
@@ -55,8 +59,8 @@ export function saveFileName(gameId: string, turnNumber: number): string {
  * and a bug report is much more useful with one. The cost is a few kilobytes of a file that is
  * written once.
  */
-export function saveFileContents(state: GameState): string {
-  return JSON.stringify(state, null, 2);
+export function saveFileContents(save: SaveFile): string {
+  return JSON.stringify(save, null, 2);
 }
 
 /**

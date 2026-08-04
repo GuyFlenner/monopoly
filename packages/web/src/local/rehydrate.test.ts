@@ -57,12 +57,14 @@ function bridgeWith(games: Record<string, unknown>): PyBridge & {
   forget: () => void;
   loads: number;
   saves: number;
+  policies: (string | null)[];
 } {
   const held = new Map(Object.entries(games));
   const fake = {
     held,
     loads: 0,
     saves: 0,
+    policies: [] as (string | null)[],
     forget: () => {
       held.clear();
     },
@@ -75,11 +77,15 @@ function bridgeWith(games: Record<string, unknown>): PyBridge & {
           : envelope(200, state),
       );
     },
-    loadGame: (stateJson: string) => {
+    loadGame: (saveJson: string, ifExists: string | null) => {
       fake.loads += 1;
-      const state = JSON.parse(stateJson) as { game_id: string };
-      held.set(state.game_id, state);
-      return Promise.resolve(envelope(201, state));
+      // Asserted rather than ignored: a restore must send no conflict policy (ADR-011). There is
+      // nothing to conflict with — the store has just answered a 404 — and a `replace` from here
+      // would be this module deciding something the player was never asked.
+      fake.policies.push(ifExists);
+      const save = JSON.parse(saveJson) as { game_id: string };
+      held.set(save.game_id, save);
+      return Promise.resolve(envelope(201, save));
     },
     getGame: (gameId: string) =>
       Promise.resolve(
@@ -87,7 +93,12 @@ function bridgeWith(games: Record<string, unknown>): PyBridge & {
           ? envelope(200, held.get(gameId))
           : envelope(404, { reason_key: "error.game_not_found", params: {} }),
       ),
-  } as unknown as PyBridge & { forget: () => void; loads: number; saves: number };
+  } as unknown as PyBridge & {
+    forget: () => void;
+    loads: number;
+    saves: number;
+    policies: (string | null)[];
+  };
   return fake;
 }
 
@@ -106,6 +117,13 @@ describe("which request a restore can rescue", () => {
 
 describe("reading the slot", () => {
   it("finds the game a save is about", () => {
+    expect(savedGameId(JSON.stringify({ state: { game_id: "g7" }, events: [] }))).toBe("g7");
+  });
+
+  it("still finds it in a slot written before the save became an envelope", () => {
+    // A bare `GameState` is what the build before ADR-011 wrote, and this function is what decides
+    // whether that slot can still rescue a reload. Refusing it would throw away the game of every
+    // player who had the tab open across the deploy — the exact failure ADR-010 exists to prevent.
     expect(savedGameId(JSON.stringify({ game_id: "g7", players: [] }))).toBe("g7");
   });
 
@@ -116,6 +134,8 @@ describe("reading the slot", () => {
     expect(savedGameId("[]")).toBeNull();
     expect(savedGameId(JSON.stringify({ game_id: 42 }))).toBeNull();
     expect(savedGameId(JSON.stringify({ game_id: "" }))).toBeNull();
+    expect(savedGameId(JSON.stringify({ state: { game_id: 42 } }))).toBeNull();
+    expect(savedGameId(JSON.stringify({ state: {} }))).toBeNull();
   });
 });
 
@@ -127,6 +147,18 @@ describe("the snapshot", () => {
     await snapshotGame(bridge, "g1", slot);
 
     expect(JSON.parse(slot.value ?? "null")).toEqual({ game_id: "g1", turn_number: 4 });
+  });
+
+  it("keeps whatever the save carries, including the log the reload used to lose", async () => {
+    // MON-715 / ADR-011. This module moves an opaque payload, so the log survives a reload *because*
+    // the payload grew — which is only true if nothing here reshapes what `saveGame` answered.
+    const save = { state: { game_id: "g1", turn_number: 4 }, events: [{ type: "turn_started" }] };
+    const bridge = bridgeWith({ g1: save });
+    const slot = memorySlot();
+
+    await snapshotGame(bridge, "g1", slot);
+
+    expect(JSON.parse(slot.value ?? "null")).toEqual(save);
   });
 
   it("empties the slot for a game the engine no longer has", async () => {
@@ -173,6 +205,9 @@ describe("the restore", () => {
     expect(parseEnvelope(await bridge.getGame("g1", null)).status).toBe(404);
 
     expect(await restoreGame(bridge, "g1", slot)).toBe(true);
+    // No conflict policy on the way in (ADR-011): there is nothing live to conflict with, and a
+    // `replace` sent from here would end a game on nobody's instruction.
+    expect(bridge.policies).toEqual([null]);
     const answer = parseEnvelope(await bridge.getGame("g1", null));
     expect(answer.status).toBe(200);
     expect(answer.body).toEqual({ game_id: "g1", turn_number: 9 });

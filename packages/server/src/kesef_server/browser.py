@@ -68,7 +68,6 @@ from kesef_engine.factory import new_game
 from kesef_engine.legality import is_legal
 from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset
-from kesef_engine.state import GameState
 from kesef_server import errors, transport
 from kesef_server.config import Settings, settings
 from kesef_server.errors import UNPROCESSABLE, ApiError
@@ -76,9 +75,10 @@ from kesef_server.log import configure_logging, get_logger
 from kesef_server.schemas import (
     CommandRequest,
     ErrorResponse,
+    IfExists,
     LegalityView,
     NewGameRequest,
-    is_addressable_game_id,
+    SaveFile,
 )
 from kesef_server.sessions import SessionStore, UnknownGameError
 
@@ -175,6 +175,22 @@ def _since(raw: str | int | None) -> int | None:
     return value
 
 
+def _if_exists(raw: str | None) -> IfExists:
+    """``?if_exists=`` as ``api.load_game``'s annotation reads it (ADR-011).
+
+    Omitted is :attr:`~kesef_server.schemas.IfExists.REFUSE`, which is the default on the HTTP route
+    too. Anything else is the ordinary ``error.malformed_request`` naming the parameter — what FastAPI
+    answers for a query parameter its enum refuses, so a page that sent a typo is told the same thing
+    by both transports.
+    """
+    if raw is None or raw == "":
+        return IfExists.REFUSE
+    try:
+        return IfExists(raw)
+    except ValueError:
+        raise errors.malformed_request("if_exists") from None
+
+
 class BrowserHost:
     """One page's worth of games: a session store, the settings, and the bot pump's state.
 
@@ -220,7 +236,7 @@ class BrowserHost:
             state = new_game(
                 [seat.to_seat() for seat in request.seats],
                 seed=seed,
-                game_id=request.game_id or f"game-{secrets.token_hex(8)}",
+                game_id=request.game_id or transport.minted_game_id(),
                 board_id=request.board_id,
                 # The named rule set, plus whatever this table asked to change (MON-712).
                 ruleset=request.house_rules.applied_to(Ruleset.by_name(request.ruleset)),
@@ -245,25 +261,26 @@ class BrowserHost:
     def list_games(self) -> str:
         return self._answer("/games", lambda: Reply(OK, _listed(transport.game_summaries(self.store))))
 
-    def load_game(self, state_json: str) -> str:
-        """``POST /games/load``. The body is exactly what :meth:`save_game` returned."""
-        return self._answer("/games/load", lambda: self._load_game(state_json))
+    def load_game(self, save_json: str, if_exists: str | None = None) -> str:
+        """``POST /games/load?if_exists=``. The body is exactly what :meth:`save_game` returned."""
+        return self._answer("/games/load", lambda: self._load_game(save_json, if_exists))
 
-    def _load_game(self, state_json: str) -> Reply:
-        raw = state_json.encode("utf-8")
+    def _load_game(self, save_json: str, if_exists: str | None) -> Reply:
+        raw = save_json.encode("utf-8")
         if len(raw) > self.config.max_save_bytes:
             raise errors.save_too_large(self.config.max_save_bytes)
+        policy = _if_exists(if_exists)
         try:
-            state = GameState.model_validate_json(raw)
+            # Both save shapes ADR-011 accepts — the same one line `api.load_game` runs, and parsed
+            # by pydantic for the reason `SaveFile.from_json` gives.
+            save = SaveFile.from_json(raw)
         except (ValidationError, ValueError, EngineError):
             # One key for every way a save fails to load: a stale `schema_version` raises
             # `ValueError`, an unknown board raises `BoardDataError`. From the player's side the
             # file does not load, and that is the whole of what there is to say.
             raise errors.save_schema_mismatch() from None
-        if not is_addressable_game_id(state.game_id):
-            raise errors.invalid_game_id()
-        session = transport.create(self.store, state)
-        self._open_budget(state.game_id)
+        session = transport.load(self.store, save, policy)
+        self._open_budget(session.state.game_id)
         return Reply(CREATED, _dumped(transport.view(session)))
 
     def get_game(self, game_id: str, since: str | int | None = None) -> str:
@@ -277,10 +294,14 @@ class BrowserHost:
         return Reply(OK, _dumped(transport.view(session, events)))
 
     def save_game(self, game_id: str) -> str:
-        """``GET /games/{id}/save`` — the only answer carrying hidden information (ADR-008 §2)."""
+        """``GET /games/{id}/save`` — the only answer carrying hidden information (ADR-008 §2).
+
+        The state *and* the session's log since ADR-011, which is also what makes the reload
+        insurance in ``src/local/rehydrate.ts`` keep the event log: it stores whatever this returns.
+        """
         return self._answer(
             f"/games/{game_id}/save",
-            lambda: Reply(OK, _dumped(transport.session(self.store, game_id).state)),
+            lambda: Reply(OK, _dumped(transport.save_file(transport.session(self.store, game_id)))),
         )
 
     def submit_command(self, game_id: str, request_json: str) -> str:
@@ -291,7 +312,7 @@ class BrowserHost:
         request = self._command(request_json)
         session = transport.session(self.store, game_id)
         state, events = apply(session.state, transport.stamped(self.store, session, request.command))
-        updated = self.store.update(game_id, state, events)
+        updated = self.store.update(session, state, events)
         # The human's command may have handed the table to a computer — by ending a turn, by
         # declining a purchase into an auction a bot is eligible for, or by proposing a trade a bot
         # must answer. The budget says the pump may run; the page is what runs it.
@@ -436,8 +457,8 @@ def list_games() -> str:
     return host().list_games()
 
 
-def load_game(state_json: str) -> str:
-    return host().load_game(state_json)
+def load_game(save_json: str, if_exists: str | None = None) -> str:
+    return host().load_game(save_json, if_exists)
 
 
 def get_game(game_id: str, since: str | int | None = None) -> str:

@@ -83,6 +83,28 @@ export type RentQuote = Schemas["RentQuote"];
  */
 export type GameState = Schemas["GameState"];
 
+/**
+ * A save file: the state, and the events that produced it (ADR-011).
+ *
+ * The envelope `GET /games/{id}/save` answers with and `POST /games/load` accepts. It exists
+ * because a session is more than a `GameState` — the event log is not a state field, so a restored
+ * game used to come back with its board exactly right and no history at all.
+ *
+ * `state` carries the same hidden information the bare `GameState` did, and the same rule applies:
+ * nothing in this package reads a field of it. `SaveGameButton` reads `state.game_id` and
+ * `state.turn_number` to *name the file*, which is the one exception and is not a rule.
+ */
+export type SaveFile = Schemas["SaveFile"];
+
+/**
+ * What a load should do when that save's game is already live (ADR-011, MON-714).
+ *
+ * `"refuse"` is the default and the first attempt; the other two are what the player answered when
+ * the refusal asked them. The engine does not decide this and neither does the UI — the *player*
+ * does, and this is the shape their answer travels in.
+ */
+export type IfExists = Schemas["IfExists"];
+
 /** Narrow a `GameEvent` to one member of the union by its `type` tag. */
 export type EventOfType<T extends GameEventType> = Extract<GameEvent, { type: T }>;
 

@@ -200,7 +200,7 @@ async def test_a_mailbox_that_overflows_closes_its_own_socket_and_nothing_else()
     ):
         pump = asyncio.create_task(stream_events(cast(WebSocket, healthy), session, roomy, since=0))
         for turn in range(1, 6):
-            store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=turn),))
+            store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=turn),))
         await _wait_for_frames(healthy, 5)
         assert small.overflowed.is_set(), "queue_size=1 should not have absorbed five events"
 
@@ -262,7 +262,7 @@ async def test_an_event_already_replayed_is_never_pushed_a_second_time() -> None
     """
     store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
     store.create(minimal_state())
-    session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    session = store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
     already_seen = session.log[0]
     fresh = LoggedEvent(seq=2, event=TurnStarted(player=1, turn_number=2))
 
@@ -283,7 +283,7 @@ async def test_the_helper_stops_when_the_client_goes_away() -> None:
     """A disconnect is an ordinary end of stream, not an error to escalate."""
     store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
     store.create(minimal_state())
-    session = store.update("g", minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    session = store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
 
     class _GoneSocket(_FakeSocket):
         async def send_json(self, payload: dict[str, Any]) -> None:
