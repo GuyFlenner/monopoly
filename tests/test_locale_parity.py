@@ -284,6 +284,25 @@ def test_the_hebrew_card_catalogue_says_what_each_card_actually_does() -> None:
                 )
 
 
+def test_every_card_that_names_a_figure_names_its_currency() -> None:
+    """MON-720. The two catalogues have to agree about money, not just about amounts.
+
+    This is the defect the owner reported, in its original form: eighteen English cards said ``$50``
+    because a card is prose somebody wrote, their Hebrew twins said ``50``, and every figure the UI
+    computed said ``50`` in both. So a child read "pay $50" on a card and watched a bare 50 leave their
+    pile — the game contradicting itself about its own currency.
+
+    The decision was ``$50`` in English and ``50 ₪`` in Hebrew (`web/src/i18n/money.ts`). Interpolated
+    figures get it from the formatter; a card's figures are *in the sentence*, so they get it here, and
+    nothing but a test keeps the eighteenth card honest when somebody adds a nineteenth.
+    """
+    symbols = {"en": "$", "he": "₪"}
+    for locale, symbol in symbols.items():
+        catalogue = _load("cards", locale)
+        silent = sorted(card_id for card_id, text in catalogue.items() if re.search(r"\d", text) and symbol not in text)
+        assert not silent, f"{locale} cards state a figure without naming the currency ({symbol}): {silent}"
+
+
 def test_the_card_catalogue_covers_every_card_id() -> None:
     """Every id `decks.py` can deal needs a catalogue entry, or a card lands face blank.
 
@@ -299,6 +318,13 @@ def test_the_card_catalogue_covers_every_card_id() -> None:
 
 
 def _placeholders(value: str) -> set[str]:
+    """The parameter *names* a string interpolates, ignoring any format spec.
+
+    ``{{amount, money}}`` names ``amount``. The spec was added by MON-720 so a sentence can say that
+    its figure is currency (``$50`` / ``50 ₪``), and the pattern has to see through it: matching only
+    ``{{name}}`` would have quietly stopped checking all thirty-two money placeholders in the product —
+    a test that still passes and no longer looks, which is the failure mode this file exists to avoid.
+    """
     import re
 
-    return set(re.findall(r"\{\{(\w+)\}\}", value))
+    return set(re.findall(r"\{\{\s*(\w+)\s*(?:,[^}]*)?\}\}", value))

@@ -26,7 +26,7 @@ test.describe("proposing and answering a trade", () => {
 
     // Put cash on the proposer's side. Cash needs nothing owned, so this works on turn one — which
     // keeps the spec about the trade flow rather than about acquiring property first.
-    await builder.getByRole("button", { name: "Add 10" }).first().click();
+    await builder.getByRole("button", { name: "Add $10" }).first().click();
 
     // The send button is hidden until a side carries something (the MON-410 amendment), so its
     // appearance is itself the signal that the draft is non-empty.
@@ -38,7 +38,8 @@ test.describe("proposing and answering a trade", () => {
     // showing what was offered. This is the assertion the whole item exists for.
     const review = page.getByRole("dialog");
     await expect(review.getByRole("heading", { name: "An offer for you" })).toBeVisible();
-    await expect(review.getByTestId("offer-cash")).toHaveText("10");
+    // `$10` since MON-720: the offer's cash carries the language's currency like every other figure.
+    await expect(review.getByTestId("offer-cash")).toHaveText("$10");
     await expect(review.getByTestId("trade-accept")).toBeVisible();
     await expect(review.getByTestId("trade-decline")).toBeVisible();
 
@@ -55,7 +56,7 @@ test.describe("proposing and answering a trade", () => {
     await startGame(page);
 
     await page.getByRole("button", { name: "Offer a trade" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Add 10" }).first().click();
+    await page.getByRole("dialog").getByRole("button", { name: "Add $10" }).first().click();
     await page.getByRole("dialog").getByRole("button", { name: "Send this offer" }).click();
 
     const review = page.getByRole("dialog");

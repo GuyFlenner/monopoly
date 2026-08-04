@@ -66,6 +66,7 @@ import { Icon } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
 import { EmptyState, LoadingState } from "./States";
+import { useMoney } from "@/i18n";
 
 /** The offer and its two halves, taken off the command union rather than restated. */
 export type TradeOffer = CommandOfKind<"propose_trade">["offer"];
@@ -511,6 +512,7 @@ function OfferSide({
   readonly renderDossier?: ((playerId: number) => ReactNode) | undefined;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const money = useMoney();
   const empty = side.cash === 0 && side.tiles.length === 0 && side.jail_cards.length === 0;
 
   return (
@@ -532,7 +534,7 @@ function OfferSide({
         <p className="mt-3 text-sm font-semibold">
           {t("trade.cash")}
           <span data-testid="offer-cash" dir="ltr" className="ms-2 tabular-nums">
-            {side.cash}
+            {money(side.cash)}
           </span>
         </p>
       )}

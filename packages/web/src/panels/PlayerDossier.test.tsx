@@ -147,8 +147,8 @@ describe("the projected numbers win — the falsifier", () => {
     // later, and this asserts there is none.
     const player = seat({ cash: 1500, net_worth: 4242, tiles_owned: [1] });
     renderDossier(player, propertiesAt({ 1: property() }));
-    expect(screen.getByTestId("dossier-net-worth")).toHaveTextContent("4242");
-    expect(screen.getByTestId("dossier-cash")).toHaveTextContent("1500");
+    expect(screen.getByTestId("dossier-net-worth")).toHaveTextContent("$4,242");
+    expect(screen.getByTestId("dossier-cash")).toHaveTextContent("$1,500");
   });
 
   it("takes houses and mortgage counts per set from the roll-up, not from the squares", () => {

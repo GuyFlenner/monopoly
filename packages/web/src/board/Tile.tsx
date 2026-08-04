@@ -46,6 +46,7 @@ import {
   type TileProjection,
 } from "./projection";
 import { TokenCluster, type TokenOccupant } from "./Token";
+import { useMoney } from "@/i18n";
 
 /** Tailwind's rotation utilities, keyed by the angle `geometry.ts` computed. */
 const ROTATION_CLASS: Readonly<Record<TileRotation, string>> = {
@@ -172,6 +173,7 @@ export function Tile({
   domId,
   ariaColIndex,
 }: TileProps): React.JSX.Element {
+  const money = useMoney();
   const themeKey = tileThemeKey(tile);
   const houses = property?.houses ?? 0;
   const mortgaged = property?.mortgaged ?? false;
@@ -228,9 +230,10 @@ export function Tile({
               </span>
             )}
             {tile.price !== null && tile.price !== undefined && (
-              // Latin numerals stay LTR inside a Hebrew page (GAP G-43).
+              // Latin numerals stay LTR inside a Hebrew page (GAP G-43), and carry the language's
+              // currency since MON-720 — a price on a square and a price in the log now agree.
               <span dir="ltr" className="text-[11cqw] leading-none tabular-nums opacity-75">
-                {tile.price}
+                {money(tile.price)}
               </span>
             )}
           </span>

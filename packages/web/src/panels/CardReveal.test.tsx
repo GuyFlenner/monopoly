@@ -94,7 +94,11 @@ describe("what the card says", () => {
     // says 175: this component does no arithmetic and knows what no card does.
     mount({ delta: 175, balance: 1675 });
     expect(stripIsolates(screen.getByTestId("card-reveal-figure").textContent)).toContain("175");
-    expect(stripIsolates(screen.getByTestId("card-reveal-balance").textContent)).toContain("1675");
+    // `$1,675`, not `1675`: money carries the language's symbol and its thousands separator
+    // since MON-720. The figure is still the one the *event* stated — see the assertion above.
+    expect(stripIsolates(screen.getByTestId("card-reveal-balance").textContent)).toContain(
+      "$1,675",
+    );
   });
 
   it("picks the verb from the sign of the figure", () => {
