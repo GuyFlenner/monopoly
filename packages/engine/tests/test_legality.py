@@ -344,6 +344,14 @@ def test_build_requires_cash_for_the_house() -> None:
     assert verdict.reason_key == "error.insufficient_funds"
     assert verdict.params == {"required": 50, "available": 49}
 
+    # The other side of the same shekel (MON-722): the price is affordable *at* the price,
+    # not one over it. Only the rejection was asserted, so `cash < cost` could become
+    # `cash <= cost` and take the last house of the game away from the player who could
+    # exactly afford it.
+    seats = (make_player(0, cash=50), make_player(1))
+    state = make_state(seats=seats, phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 0, 0))
+    approved(state, BuildHouse(player=0, tile=BROWN_A))
+
 
 def test_build_needs_a_property_not_a_railroad() -> None:
     state = make_state(phase=Phase.AWAITING_END_TURN, properties={RAILROAD: owned(0)})
@@ -379,6 +387,19 @@ def test_the_hotel_build_needs_a_hotel_not_a_house() -> None:
     assert rejected(state, BuildHouse(player=0, tile=BROWN_A)) == "error.no_hotels_left"
 
 
+def test_the_banks_last_hotel_is_still_a_legal_build() -> None:
+    """MON-722. The stock tests above pin the *empty* bank at both ends; the boundary
+    between them — one hotel left — was asserted nowhere, so ``hotels_remaining < 1``
+    could become ``<= 1`` or ``< 2`` and quietly retire the twelfth hotel of the game."""
+    one_left = Ruleset(name=RulesetName.UNIVERSAL, hotels_available=1)
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 4, 4), ruleset=one_left)
+    approved(state, BuildHouse(player=0, tile=BROWN_A))
+
+    # And once it is standing, the group's other hotel is the one the bank cannot supply.
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 4), ruleset=one_left)
+    assert rejected(state, BuildHouse(player=0, tile=BROWN_B)) == "error.no_hotels_left"
+
+
 def test_selling_a_hotel_with_no_houses_in_the_bank_is_the_demolition_only() -> None:
     """MON-201 (G-B3b) rewrote this from "the empty-bank drop is an *effect*": an implicit
     branch inside ``apply`` could not be rendered as a button, and a lone hotel dropping to
@@ -386,6 +407,22 @@ def test_selling_a_hotel_with_no_houses_in_the_bank_is_the_demolition_only() -> 
     the one-level sale is what the empty bank vetoes."""
     ruleset = Ruleset(name=RulesetName.UNIVERSAL, houses_available=0)
     state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 5), ruleset=ruleset)
+    assert rejected(state, SellHouse(player=0, tile=BROWN_A)) == "error.no_houses_left"
+    approved(state, SellHouse(player=0, tile=BROWN_A, demolish_hotel=True))
+
+
+def test_a_hotel_comes_down_as_four_houses_and_the_bank_must_have_all_four() -> None:
+    """MON-722. A hotel is sold by *becoming* four houses, so the bank needs four — not
+    three, and not five. Only the empty bank was asserted, which left the boundary itself
+    (``houses_remaining < HOTEL_LEVEL - 1``) free to move in either direction: at exactly
+    four the one-level sale is legal, and at three the whole-group demolition is the only
+    way down."""
+    exactly_four = Ruleset(name=RulesetName.UNIVERSAL, houses_available=4)
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 5), ruleset=exactly_four)
+    approved(state, SellHouse(player=0, tile=BROWN_A))
+
+    one_short = Ruleset(name=RulesetName.UNIVERSAL, houses_available=3)
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=brown_pair(0, 5, 5), ruleset=one_short)
     assert rejected(state, SellHouse(player=0, tile=BROWN_A)) == "error.no_houses_left"
     approved(state, SellHouse(player=0, tile=BROWN_A, demolish_hotel=True))
 
@@ -467,6 +504,14 @@ def test_unmortgage_is_not_offered_while_raising_cash() -> None:
     """G-5: a player who owes money may not tie more of it up."""
     state = debt_state(debtor_cash=500, properties={RAILROAD: owned(0, mortgaged=True)})
     assert rejected(state, UnmortgageProperty(player=0, tile=RAILROAD)) == "error.wrong_phase"
+
+    # The auction half of the same rule, unasserted until MON-722: a bidder may sell and
+    # mortgage on their bid turn (G-B1a) but not *lift* a mortgage, because that is
+    # spending, not raising. Only the debt half was covered, so `auction_ok=False` could
+    # flip to `True` and hand the bidding player a way to spend their bid away.
+    bidding = auction_state(bidder_cash=500, properties={RAILROAD: owned(1, mortgaged=True)})
+    assert rejected(bidding, UnmortgageProperty(player=1, tile=RAILROAD)) == "error.wrong_phase"
+    assert not any(isinstance(command, UnmortgageProperty) for command in legal_commands(bidding))
 
 
 # --- Auction arithmetic --------------------------------------------------------
@@ -789,6 +834,21 @@ def test_the_order_within_one_kind_and_seat_follows_the_parameter() -> None:
     on_one_tile = [command for command in sells if command.tile == LIGHT_BLUE[0]]
     assert len(on_one_tile) == 2, f"expected both demolish variants, got {on_one_tile}"
     assert [command.demolish_hotel for command in on_one_tile] == [False, True]
+
+
+def test_the_two_answers_to_a_trade_arrive_decline_before_accept() -> None:
+    """The last reachable corner of ``_sort_key`` (MON-722), and the only *pair* of commands
+    the parameter has to separate outside the estate kinds.
+
+    ``RespondToTrade`` is the one kind ``_candidates`` yields twice for a single seat, and it
+    yields ``accept=True`` first; ``detail = int(command.accept)`` is what reverses that into the
+    documented ascending-parameter order. Nothing asserted it, so dropping ``detail`` on this
+    branch left both answers tied, and a stable sort then handed the caller the generator's order
+    instead of the contract's — a silent swap of the two buttons an offer is answered with.
+    """
+    state = trade_state()
+    answers = [command for command in legal_commands(state) if isinstance(command, RespondToTrade)]
+    assert [command.accept for command in answers] == [False, True]
 
 
 def test_a_legality_result_is_truthy_only_when_legal() -> None:

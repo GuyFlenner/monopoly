@@ -1145,7 +1145,7 @@ MON-901 network-play exposures listed in the M3 review.
 
 ## E10 — What the mutation gate found (M8)
 
-### MON-722 — The tests the mutation gate says are weakest 🟡 **PARTLY DONE**
+### MON-722 — The tests the mutation gate says are weakest ✅ **DONE** (2026-08-05)
 **Tier**: Fable (insolvency) / Opus (legality) · **Size**: M · *(found 2026-08-04, by MON-209's gate
 running for the first time)*
 
@@ -1218,16 +1218,102 @@ replay real games, and every other property in the file stays random.
 
 Pre-existing, and unrelated to this session's changes; tripped by chance while re-running the suite.
 
-#### What is deliberately left
+#### The second pass, 2026-08-05 — the deliberate session the row above asked for
 
-The **legality-predicate cluster** (`_build_house` 13, `_trade_side` 11, `_sell_house` 7,
-`_unmortgage` 6) and the remaining **insolvency** survivors. Left open on purpose rather than run to
-zero, for the reason stated above: a mutant killed by an assertion nobody would otherwise have written
-is a test that exists to satisfy a tool. These four predicates are covered by unit tests, the golden
-games and the `legal_commands`/`apply` agreement property; what the survivors say is that some of their
-*boundary* arithmetic (even-build edges, group completeness, mortgage interactions) is asserted less
-tightly than the happy path. That is worth a deliberate session at the Fable tier with the rules open,
-not a sweep.
+Nightly run **#12** on `d1da2b7` reports **3285/3445 = 95.4%**, up from 94.2%: the 2026-08-04 work
+emptied `_without_claims_of` (9 → 0) and cut `_void_claims_of` from 17 to 4. What follows is the
+remaining clusters, read one mutant at a time out of that run's `mutants/` artifact rather than
+guessed at — `mutmut results` names a survivor, and the artifact holds the source it was generated
+from, so every disposition below is a diff somebody looked at.
+
+**Eight assertions, each verified by hand-mutating the implementation and watching the named test go
+red.** Fourteen surviving mutants, fourteen reds. The measurement contradicted the prediction twice,
+and both times the measurement is what is recorded.
+
+| Test | Kills |
+|---|---|
+| `test_the_banks_last_hotel_is_still_a_legal_build` | `hotels_remaining < 1` → `<= 1`, `< 2` |
+| `test_build_requires_cash_for_the_house` (extended) | `actor.cash < cost` → `<=` |
+| `test_a_hotel_comes_down_as_four_houses_and_the_bank_must_have_all_four` | `houses_remaining < HOTEL_LEVEL - 1` → `<=`, `< HOTEL_LEVEL + 1` |
+| `test_unmortgage_is_not_offered_while_raising_cash` (extended) | `auction_ok=False` → `True` |
+| `test_the_two_answers_to_a_trade_arrive_decline_before_accept` | dropping `detail` on the `RespondToTrade` branch of `_sort_key` |
+| `test_a_mortgaged_deed_is_valued_net_of_its_mortgage_when_the_estate_divides` | `value -= mortgage` → `+=`, and → no discount at all |
+| `test_a_receiver_who_can_exactly_afford_the_transfer_fee_pays_it_outright` | `cash >= fee` → `>` |
+| `test_every_receiver_of_a_mortgaged_deed_is_charged_not_only_the_first` | `continue` → `break` on the no-fee share |
+| `test_a_frame_above_a_voided_one_inherits_the_phase_it_suspended` | `continue` → `break`; `inherited is not None` → `is None` |
+| `test_the_phase_comes_from_the_top_of_what_survives_a_void` | `kept[-1]` → `kept[0]` |
+
+Three things worth keeping:
+
+* **Every boundary that moved was a bank-stock or exact-cash edge, and every one of them had its
+  *rejection* asserted and its *approval* not.** The suite knew a player with 49 could not buy a
+  50 house; nothing said a player with exactly 50 could. That asymmetry is the shape of the whole
+  cluster, and it is cheap to look for elsewhere: an `error.` assertion with no approving twin.
+* **`_tile_value`'s mortgage discount needed equal claims to be visible at all.** The allotment
+  compares `total_value * claim` against `received * total_claims`, so scaling every asset changes
+  nothing — only the *relative* worth of one deed against another moves a deed. With two equal
+  claims the rule degenerates to "give it to whoever has least", and the mortgaged railroad's value
+  is exactly what decides who that is on the third deed. An unequal-claims fixture would have passed
+  under all three mutants.
+* **The four-deep interrupt stack is the only shape in which `kept[-1]` means anything**, and the
+  mis-aimed index does not return a wrong phase — it raises out of `GameState._check_interrupts`
+  ("phase card_resolution contradicts the live debt interrupt"), because phase and stack are one fact
+  the model already holds together. So that test earns its place for covering a stack nothing else
+  builds, not for killing the mutant. Measured, not assumed.
+
+#### What is deliberately left, and why each one is not a test
+
+The remaining survivors in these functions were each read and dispositioned. None is a missing
+assertion.
+
+**19 of them are dropped rejection *params* — and the params are dead data.** `_no('error.not_owner',
+tile=command.tile)` → `_no('error.not_owner')` survives in `_build_house`, `_sell_house`,
+`_unmortgage` and `_trade_side` because **no catalogue sentence interpolates any of them**. Checked
+mechanically against both locales: 35 keyed rejections carry params, and **19 carry at least one param
+no `common.en.json` or `common.he.json` sentence uses** — `tile`, `group`, `deck`, `player`, `phase`,
+and `insufficient_funds`'s `required`/`available`. Pinning them would be the exact thing this item
+exists to refuse. The *real* defect is on the other side of that boundary and is now **MON-723**.
+
+**The rest are equivalent mutants**, each unkillable by observing behaviour:
+
+| Mutant | Why no state can tell the difference |
+|---|---|
+| `tile.house_cost or 0` → `or 1`, `tile.mortgage or 0` → `or 1`, `board_tile.price or 1` | the fallback is unreachable: the board validator guarantees a price, mortgage and house cost on every tile that reaches those lines |
+| `_tile_value`: `value = mortgage` instead of `price - mortgage`; `max(value, 1)` | on both shipped boards `mortgage` is exactly half of `price`, so `price - mortgage == mortgage`; and the difference is therefore always positive, so the `max` floor never binds |
+| `_portfolio_gate(state, None, ...)`, `debt_ok=None`, `auction_ok=None` | `None` is falsy, so identical to `False`; and the `player` argument is unread on every path a build or an unmortgage can take |
+| `_charge_mortgage_transfer_fees`: `'bank'` → `'XXbankXX'` / `'BANK'` | step 6 of `handle_declare_bankruptcy` clears the mortgage on every deed the bank receives *before* this runs, so a bank share's fee is 0 and the branch is indistinguishable from the skip |
+| `_charge_mortgage_transfer_fees`: `continue` → `break` on the bank check | the bank sorts last in `_creditor_rank`, so there is never a share behind it to abandon |
+| `_void_claims_of`: `dropped = False` → `True` / `None` | with nothing dropped the phase is recomputed from the top surviving frame, which is the phase the state already had |
+| `_sort_key`: the initial `detail`/`variant`, and `detail` on the `PlaceBid` branch | only one command of those kinds is enumerated per state, so the tie-break is never reached |
+| `_sort_key`: `variant = int(command.demolish_hotel)` → `None` | recorded 2026-08-04 and re-confirmed: `_candidates` yields `False` before `True` for one tile and `sorted` is stable |
+
+The floor stays at 80%. Chasing the last few points would mean writing the tests this row was filed to
+argue against.
+
+### MON-723 — The rejection params the copy never spends
+**Tier**: Sonnet (copy) / Opus (contract) · **Size**: S · *(found 2026-08-05 by MON-722's second pass)*
+
+`legality.py`'s docstring promises that a rejection carries "the context params the catalogue sentence
+needs (G-33)", and names the example: "`error.insufficient_funds` can say how much short". It does not.
+The sentence is "Not enough cash for that." in English and its Hebrew twin, and the `required` and
+`available` the engine hands it go nowhere. The same holds for `tile`, `group`, `deck`, `player` and
+`phase` across **19 of the 35 keyed rejections** — the engine computes and ships them, both catalogues
+ignore them, and no test notices because there is nothing to notice.
+
+Two honest ways out, and the choice is the owner's because it is a copy decision, not a code one:
+
+* **Spend them.** "Not enough cash — that costs ₪50 and you have ₪49." is a better sentence for a
+  six-year-old than "Not enough cash for that.", and it is the sentence the engine was built to
+  support. Costs: 19 sentences × 2 locales, and the money ones want `{{required, money}}` so MON-720's
+  currency formatting applies. This is the option the docstring already assumes.
+* **Stop shipping them.** Delete the params, and delete the promise from the docstring with them.
+
+What must **not** happen is the third option — a test asserting the params are present. That pins dead
+data in place and makes the drift permanent; MON-722 records why.
+
+Whichever is chosen, the gap that let this sit unnoticed is worth closing in the same change: nothing
+cross-checks engine-emitted keys and params against the catalogues. A contract test in the web package
+(where both sides are readable) would have caught it the day it appeared.
 
 ---
 

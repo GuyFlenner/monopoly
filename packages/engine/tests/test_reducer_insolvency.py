@@ -364,6 +364,75 @@ def test_a_multi_creditor_estate_divides_proportionally_to_claim() -> None:
     _assert_ledger_reconciles(state, new_state, events)
 
 
+def test_a_mortgaged_deed_is_valued_net_of_its_mortgage_when_the_estate_divides() -> None:
+    """G-7's yardstick, and the half of it no test reached until MON-722.
+
+    ``_tile_value`` prices a deed for the *allotment* only — printed price, less the mortgage
+    still owed on it — because a creditor receiving a pledged deed receives less. Every existing
+    division test used unmortgaged tiles, so six mutants lived in those three lines: the
+    subtraction could become an addition, or vanish entirely, and nothing changed colour.
+
+    Two equal claims turn the rule into something a test can see. The allotment hands each asset
+    to whoever is furthest below their entitlement, so with equal claims it simply alternates —
+    and *how much* the mortgaged railroad counts for decides who is behind when the third deed is
+    dealt. Valued net (200 - 100 = 100) the three deeds are worth the same, and the first creditor
+    takes two of them. Valued gross the railroad alone outweighs the other two, and the second
+    creditor takes both of those instead.
+    """
+    seats = (make_player(0, cash=0), make_player(1), make_player(2))
+    # Board facts: tile 5 is a railroad (price 200, mortgage 100); tiles 6 and 8 are light blue
+    # at 100 each. Mortgaged, the railroad is worth exactly what an unmortgaged light blue is.
+    props = {5: PropertyState(owner=0, mortgaged=True), 6: PropertyState(owner=0), 8: PropertyState(owner=0)}
+    obligations = (Obligation(creditor=1, amount=200), Obligation(creditor=2, amount=200))
+    state = _indebted_state(obligations=obligations, seats=seats, properties=props)
+    new_state, events = apply(state, DeclareBankruptcy(player=0))
+
+    assert new_state.tiles_owned_by(1) == (5, 8), "three deeds of equal worth deal 1, 2, 1"
+    assert new_state.tiles_owned_by(2) == (6,)
+    bankrupted = next(e for e in events if isinstance(e, PlayerBankrupted))
+    assert [(s.creditor, s.tiles) for s in bankrupted.shares] == [(1, (5, 8)), (2, (6,))]
+    _assert_ledger_reconciles(state, new_state, events)
+
+
+def test_a_receiver_who_can_exactly_afford_the_transfer_fee_pays_it_outright() -> None:
+    """The boundary between paying the 10% and owing it (G-13). The two existing tests sit far
+    on either side — 1500 against a fee of 38, and 10 against the same 38 — so ``cash >= fee``
+    was free to become ``cash > fee`` and open a debt on a creditor who could pay to the shekel.
+    """
+    seats = (make_player(0, cash=0), make_player(1, cash=20), make_player(2))
+    state = _indebted_state(amount=500, seats=seats, properties={39: PropertyState(owner=0, mortgaged=True)})
+    new_state, events = apply(state, DeclareBankruptcy(player=0))
+
+    assert new_state.player(1).cash == 0, "20 of cash met a fee of 20 exactly"
+    assert new_state.interrupts == (), "paid on the spot, so no debt opened on the creditor"
+    fee = [e for e in events if isinstance(e, CashChanged) and e.reason is CashReason.MORTGAGE_TRANSFER_FEE]
+    assert [(e.player, e.delta, e.counterparty) for e in fee] == [(1, -20, "bank")]
+    assert not any(isinstance(e, DebtIncurred) for e in events)
+
+
+def test_every_receiver_of_a_mortgaged_deed_is_charged_not_only_the_first() -> None:
+    """The fee is charged per receiver, and the loop must not stop at the first who owes nothing.
+
+    ``_charge_mortgage_transfer_fees`` skips a share with no mortgaged deeds in it. Every existing
+    test has exactly one paying receiver, so ``continue`` could become ``break`` — abandoning every
+    receiver behind the first empty-handed one — with the suite still green. Here the estate
+    divides 100 / 300, the whole of it falls to the larger claim, and the *first* share in
+    settlement order is the one that owes nothing.
+    """
+    seats = (make_player(0, cash=0), make_player(1), make_player(2))
+    props = {6: PropertyState(owner=0), 8: PropertyState(owner=0), 39: PropertyState(owner=0, mortgaged=True)}
+    obligations = (Obligation(creditor=1, amount=100), Obligation(creditor=2, amount=300))
+    state = _indebted_state(obligations=obligations, seats=seats, properties=props)
+    new_state, events = apply(state, DeclareBankruptcy(player=0))
+
+    bankrupted = next(e for e in events if isinstance(e, PlayerBankrupted))
+    shares = [(s.creditor, s.tiles) for s in bankrupted.shares]
+    assert shares == [(1, ()), (2, (6, 8, 39))], "the empty share has to come first for this to bite"
+    fee = [e for e in events if isinstance(e, CashChanged) and e.reason is CashReason.MORTGAGE_TRANSFER_FEE]
+    assert [(e.player, e.delta) for e in fee] == [(2, -20)], "the second receiver still pays their 10%"
+    _assert_ledger_reconciles(state, new_state, events)
+
+
 def test_a_bank_claim_beside_a_players_takes_its_share_in_cash_only() -> None:
     """The bank has no use for a deed except to re-sell it, so when a player creditor is
     standing there the property is already back in play: the bank's proportional share
@@ -508,6 +577,115 @@ def test_a_debt_owed_to_a_leaving_creditor_loses_only_that_creditors_share() -> 
     # written off, not a debt being re-opened.
     assert survivor.debtor == 0 and survivor.reason is CashReason.CARD
     assert new_state.phase is Phase.DEBT_SETTLEMENT, "player 0 still has a debt to settle"
+
+
+def test_a_frame_above_a_voided_one_inherits_the_phase_it_suspended() -> None:
+    """The re-threading in ``_void_claims_of``, which nothing reached until MON-722.
+
+    Every other void test drops the *last* frame on the stack, so the loop's two hardest lines —
+    skip this frame but keep walking, and hand the phase it was suspending up to the frame above —
+    were exercised only in the shape where neither can be observed. Four mutants lived there: the
+    ``continue`` could become a ``break`` (silently discarding every frame above the dropped one),
+    and the ``inherited is not None`` guard could invert (leaving the survivor resuming into a
+    phase whose frame is gone).
+
+    The stack is the deeper of the two shapes the docstring names, built bottom-up: a trade review
+    between players 0 and 2, a card-driven debt of player 0's suspended on top of it, and player
+    2's own debt on top of that. Player 2 concedes on their own frame; the trade dies with them,
+    and player 0's debt — which has nothing to do with player 2 — has to survive *and* take over
+    resuming the turn the trade review had interrupted.
+    """
+    review = TradeFrame(
+        resume=Phase.AWAITING_END_TURN,
+        offer=TradeOffer(proposer=0, recipient=2, give=TradeSide(cash=10), receive=TradeSide()),
+    )
+    # Player 0's debt suspended the review; player 2's suspended that.
+    zeros_debt = DebtFrame(
+        resume=Phase.TRADE_REVIEW,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=60),),
+        reason=CashReason.CARD,
+        source_tile=1,
+    )
+    theirs = DebtFrame(
+        resume=Phase.DEBT_SETTLEMENT,
+        debtor=2,
+        obligations=(Obligation(creditor="bank", amount=500),),
+        reason=CashReason.TAX,
+        source_tile=4,
+    )
+    state = make_state(
+        seats=(make_player(0, cash=0), make_player(1), make_player(2, cash=0)),
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(review, zeros_debt, theirs),
+        current=0,
+    )
+
+    new_state, events = apply(state, DeclareBankruptcy(player=2))
+
+    assert any(isinstance(e, TradeCancelled) for e in events), "the review died with the party to it"
+    assert len(new_state.interrupts) == 1, "player 0's debt is nobody else's business and must remain"
+    survivor = new_state.interrupts[0]
+    assert isinstance(survivor, DebtFrame)
+    assert (survivor.debtor, survivor.obligations) == (0, (Obligation(creditor=1, amount=60),))
+    assert survivor.resume is Phase.AWAITING_END_TURN, (
+        "the surviving frame inherits what the dropped one was suspending — resuming into "
+        "TRADE_REVIEW would send the game back to a review that no longer exists"
+    )
+    assert new_state.phase is Phase.DEBT_SETTLEMENT, "the live frame is still player 0's debt"
+
+
+def test_the_phase_comes_from_the_top_of_what_survives_a_void() -> None:
+    """The same re-threading one level deeper: *two* frames survive below the dropped one.
+
+    Worth its own test for the shape rather than for the mutant. ``_void_claims_of`` recomputes
+    the phase from ``kept[-1]`` — the topmost survivor, the one that is live — and pointing that
+    at ``kept[0]`` instead cannot be observed while only one frame ever survives, which is true of
+    every other test here. Measured rather than assumed: with this stack the mis-aimed index does
+    not return a wrong phase, it raises out of ``GameState._check_interrupts`` ("phase
+    card_resolution contradicts the live debt interrupt"), because phase and stack are one fact
+    the model already holds together. So the assertions below are not what makes that safe — they
+    are what makes the *shape* covered, and the module docstring is explicit that a card can nest
+    above a trade review and a debt above the card.
+
+    Bottom to top: a review between players 0 and 2, a card suspended on it, player 0's
+    card-driven debt above that, and player 2's own debt on top. Player 2 concedes: the review
+    dies, and the two frames above it keep their order while the phase they resume into shifts
+    down one.
+    """
+    review = TradeFrame(
+        resume=Phase.AWAITING_END_TURN,
+        offer=TradeOffer(proposer=0, recipient=2, give=TradeSide(cash=10), receive=TradeSide()),
+    )
+    card = CardFrame(resume=Phase.TRADE_REVIEW, card_id="card.chance.advance_to_go", deck=Deck.CHANCE)
+    zeros_debt = DebtFrame(
+        resume=Phase.CARD_RESOLUTION,
+        debtor=0,
+        obligations=(Obligation(creditor=1, amount=60),),
+        reason=CashReason.CARD,
+        source_tile=1,
+    )
+    theirs = DebtFrame(
+        resume=Phase.DEBT_SETTLEMENT,
+        debtor=2,
+        obligations=(Obligation(creditor="bank", amount=500),),
+        reason=CashReason.TAX,
+        source_tile=4,
+    )
+    state = make_state(
+        seats=(make_player(0, cash=0), make_player(1), make_player(2, cash=0)),
+        phase=Phase.DEBT_SETTLEMENT,
+        interrupts=(review, card, zeros_debt, theirs),
+        current=0,
+    )
+
+    new_state, _ = apply(state, DeclareBankruptcy(player=2))
+
+    assert [frame.kind for frame in new_state.interrupts] == ["card", "debt"], "order is preserved"
+    survivors = new_state.interrupts
+    assert survivors[0].resume is Phase.AWAITING_END_TURN, "the card took over what the review suspended"
+    assert survivors[1].resume is Phase.CARD_RESOLUTION, "and nothing above it moved"
+    assert new_state.phase is Phase.DEBT_SETTLEMENT, "the live frame is the topmost survivor, not the first"
 
 
 # --- Two debts on one debtor: the frame a concession used to leave behind -----
