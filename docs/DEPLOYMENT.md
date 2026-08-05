@@ -220,4 +220,71 @@ must be hosted by GitHub specifically and the plan must stay free.
 
 ---
 
-**Owner**: Guy Flenner · **Item**: MON-805
+## 6. The API behind online play (MON-901)
+
+Everything above stands: the static site keeps working, keeps needing no server, and keeps costing
+nothing. This section adds the **second** mode — two people at two machines sharing one game — and
+that genuinely does need a server, for the reason §2 gives from the other side. The engine in your
+browser is *your* engine; two browsers running it are two unrelated games. Something has to hold the
+one game they both act on.
+
+`packages/server` already is that something — sessions, a WebSocket event stream (MON-303), bot
+driving (MON-304), all built and tested. It has simply never been deployed.
+
+### 6.1 Deploy it
+
+`render.yaml` at the repository root is a Render **blueprint**: the build, the start command, the
+health check and the environment are all read from it, so a deploy is reviewable in a diff.
+
+1. **Render → New → Blueprint** → pick this repository → **Apply**.
+2. First build takes a few minutes. The service URL is `https://kesef-street-api.onrender.com`
+   (Render appends a suffix if that name is taken — use whatever it shows you).
+3. Check it: `https://<your-service>.onrender.com/health` should answer, and `/docs` should render
+   the API.
+
+Nothing secret is involved. There is no API key to hold, no token to store, and nothing to paste
+anywhere — Render's GitHub app watches `main` and redeploys on merge.
+
+### 6.2 The two limits of the free plan, stated honestly
+
+**It sleeps after 15 minutes idle**, and the next request waits ~a minute while it wakes. This is
+better than it sounds: an active game keeps its socket busy, so the sleep only ever happens *between*
+sessions. The first player to arrive on a Sunday waits; nobody waits mid-game.
+
+**Games live in memory** (`SessionStore`, `sessions.py`) with a TTL and no persistence, so a sleep or
+a redeploy drops a game in progress. Also not fatal — MON-704's save-to-file and MON-714's load flow
+already exist — but it is a real property of this deployment and not an oversight. Whether an online
+game should survive a restart is a MON-901 design question, and it should be answered with a
+measurement of how often this actually bites rather than in advance.
+
+### 6.3 The setting that will not start the server
+
+`KESEF_CORS_ORIGINS` **must be a JSON array**, and this is worth its own paragraph because the
+failure looks like something else:
+
+```
+KESEF_CORS_ORIGINS='["https://guyflenner.github.io"]'   # correct
+KESEF_CORS_ORIGINS='https://guyflenner.github.io'       # SettingsError, process never starts
+```
+
+`Settings.cors_origins` is a `tuple[str, ...]`, and pydantic-settings parses complex types as JSON.
+Given a bare URL it raises at import time — so the process dies before it can serve `/health`, and a
+health-checked deploy that never comes up reads as "still building". The blueprint has the right form
+already; this only bites if somebody edits it in Render's dashboard.
+
+The origin has to be there at all because the page is served from `github.io` and the API answers
+from `onrender.com`: every call is cross-origin.
+
+### 6.4 What is deliberately not done yet
+
+The web build has a transport switch already — `VITE_ENGINE=local` selects the in-browser engine, and
+any other value selects the real API client. What it does **not** have is a way to point that client
+at another origin: `ApiClient`'s `DEFAULT_BASE_URL` is `/api`, relative, which assumes the API and
+the page share a host. They will not.
+
+So a `VITE_API_URL` is the next change, and it is deliberately not in this commit: it wants the real
+service URL to be written against and tested with, rather than a guess at what Render will name it.
+
+---
+
+**Owner**: Guy Flenner · **Items**: MON-805 (§1–5), MON-901 (§6)
