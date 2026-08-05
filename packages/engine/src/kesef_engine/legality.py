@@ -21,8 +21,20 @@ The three ADR-005 properties (as amended 2026-07-26):
    enumerated (the trade builder validates its draft through :func:`is_legal`).
 
 Rejections carry i18n keys (``error.not_your_turn``), never prose, plus the context
-params the catalogue sentence needs (G-33) — ``error.insufficient_funds`` can say how
-much short.
+params the catalogue sentence needs (G-33) — ``error.insufficient_funds`` says how much
+short, and ``error.group_incomplete`` names the set.
+
+A param that names something the catalogue can translate carries a **key**, not a value,
+and is spelled ``<name>_key``: ``group_key="group.light_blue"``, ``deck_key="deck.chance"``.
+That is MON-415's convention, shared with ``RentQuote.note_params``, and the client resolves
+any ``*_key`` param without knowing what a ColorGroup is. Shipping ``group.value`` instead put
+the engine's English identifier into a Hebrew sentence.
+
+Not every param is destined for a sentence, and ``tests/test_key_contract.py`` is where each
+is held to its purpose: it fails if a catalogue placeholder has no param behind it, **or** if
+a param is neither interpolated nor listed there with a reason. ``tile`` is the standing
+example of the second kind — an index a client uses to *highlight* the offending square
+rather than to name it (MON-723).
 
 Checks run in a fixed, documented order — game over, actor seated, actor solvent, phase,
 whose turn, then the command-specific rules in reading order — so a rejection's
@@ -297,9 +309,9 @@ def _build_house(state: GameState, command: BuildHouse, actor: PlayerState) -> L
     group = tile.group
     assert group is not None  # a PROPERTY tile always carries one; the board validator enforces it
     if not state.owns_whole_group(command.player, group):
-        return _no("error.group_incomplete", group=group.value)
+        return _no("error.group_incomplete", group_key=f"group.{group.value}")
     if any(state.properties[member].mortgaged for member in state.board.group_members(group)):
-        return _no("error.group_mortgaged", group=group.value)
+        return _no("error.group_mortgaged", group_key=f"group.{group.value}")
     if prop.houses >= HOTEL_LEVEL:
         return _no("error.at_maximum_development", tile=command.tile)
     if state.ruleset.even_build_enforced and prop.houses > min(_levels(state, group)):
@@ -378,7 +390,7 @@ def _mortgage(state: GameState, command: MortgageProperty) -> LegalityResult:
     if prop.mortgaged:
         return _no("error.already_mortgaged", tile=command.tile)
     if tile.group is not None and any(_levels(state, tile.group)):
-        return _no("error.group_has_buildings", group=tile.group.value)
+        return _no("error.group_has_buildings", group_key=f"group.{tile.group.value}")
     return _LEGAL
 
 
@@ -445,10 +457,10 @@ def _trade_side(state: GameState, party: PlayerState, side: TradeSide) -> Legali
         if state.properties[index].owner != party.id:
             return _no("error.not_owner", tile=index)
         if tile.group is not None and any(_levels(state, tile.group)):
-            return _no("error.group_has_buildings", group=tile.group.value)
+            return _no("error.group_has_buildings", group_key=f"group.{tile.group.value}")
     for card in side.jail_cards:
         if card not in party.jail_cards:
-            return _no("error.jail_card_not_held", deck=card.value)
+            return _no("error.jail_card_not_held", deck_key=f"deck.{card.value}")
     return _LEGAL
 
 

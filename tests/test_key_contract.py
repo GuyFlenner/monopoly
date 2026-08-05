@@ -318,6 +318,166 @@ def test_a_boards_catalogue_ready_flag_tells_the_truth(board_id: str) -> None:
     )
 
 
+# --- Rejection params: the other half of the contract (MON-723) -----------------------------
+
+
+UNSPENT_PARAMS: dict[str, str] = {
+    "tile": (
+        "A board index, not a name. A client uses it to *highlight* the offending square — which is "
+        "a better answer than naming one, because the square is on screen. Interpolating it would "
+        "print `You don't own 39.`; interpolating a name instead would need the render boundary to "
+        "board-scope a `tile.*` key, and `groupLabel` board-scopes only `group.*` today, with a "
+        "`common` fallback that `tile.*` has no equivalent of. Filed rather than half-done."
+    ),
+    "player": (
+        "A seat id. A player's name is typed in at the setup screen, so no catalogue can carry it "
+        "and no `*_key` can resolve it — naming the player needs the seat list, which is game state "
+        "the error boundary deliberately does not hold. `error.bankrupt` and its two siblings say "
+        "'that player' and are correct."
+    ),
+    "phase": (
+        "Engine jargon. `error.wrong_phase` carries `phase=state.phase.value` for a future "
+        "explain-screen and its sentence deliberately does not render it — a raw "
+        "`awaiting_purchase_decision` inside a Hebrew sentence is the GAP A5 defect. The same "
+        "decision is recorded against `Phase` in `_undisplayed_enums()`."
+    ),
+    "status": "An HTTP status. `api.py` attaches it for a bug report, not for a sentence.",
+}
+"""Params the engine ships that no sentence interpolates, each with the reason it still ships.
+
+The point of a *positive* list: a param that is neither spent nor written down here fails
+:func:`test_every_rejection_param_is_spent_or_declared`, so the next one to be added is triaged
+rather than inheriting an exemption nobody re-read. That is the whole defect MON-723 was — 19 of
+these existed, none of them written down, and the mutation gate found them by noticing that
+deleting any one of them changed nothing.
+"""
+
+KEY_SUFFIX = "_key"
+"""MON-415's convention, mirrored from ``panels/EventLogLines.ts``: a param named ``<name>_key``
+carries an i18n key, and the catalogue sentence interpolates the bare ``<name>``."""
+
+
+def _rejection_params() -> dict[str, set[str]]:
+    """``{reason key: every param name any ``_no`` call attaches to it}``, read off the source.
+
+    An AST walk rather than a regex, because a param's *name* is the contract and
+    ``f"group.{group.value}"`` as a value would defeat a textual scan.
+    """
+    import ast
+
+    source = (ENGINE_SRC / "legality.py").read_text(encoding="utf-8")
+    found: dict[str, set[str]] = {}
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_no"):
+            continue
+        if not (node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str)):
+            continue
+        found.setdefault(node.args[0].value, set()).update(
+            keyword.arg for keyword in node.keywords if keyword.arg is not None
+        )
+    return found
+
+
+def _placeholders(sentence: str) -> set[str]:
+    """The names a catalogue sentence interpolates, format spec discarded.
+
+    ``{{required, money}}`` is the name ``required`` and MON-720's per-string money format; the
+    contract is about the name.
+    """
+    return {match.split(",")[0].strip() for match in re.findall(r"\{\{([^}]+)\}\}", sentence)}
+
+
+def _spendable(params: set[str]) -> set[str]:
+    """What the catalogue may name: a ``*_key`` param is spent as its bare name."""
+    return {param.removesuffix(KEY_SUFFIX) if param.endswith(KEY_SUFFIX) else param for param in params}
+
+
+@pytest.mark.parametrize("language", ("en", "he"))
+def test_every_rejection_placeholder_has_a_param_behind_it(language: str) -> None:
+    """A sentence cannot ask for something the engine does not send.
+
+    This is the direction that shows: an unfilled ``{{group}}`` renders literally in front of a
+    player, in whichever language forgot it. Checked per language because the two catalogues are
+    written separately and a Hebrew sentence can reach for a param the English one does not.
+    """
+    catalogue = _catalogue("common", language)
+    unfilled = {
+        key: sorted(_placeholders(catalogue[key]) - _spendable(params))
+        for key, params in sorted(_rejection_params().items())
+        if key in catalogue and _placeholders(catalogue[key]) - _spendable(params)
+    }
+    assert not unfilled, f"{language} sentences interpolating params the engine never sends: {unfilled}"
+
+
+def test_every_rejection_param_is_spent_or_declared() -> None:
+    """And the engine cannot send something no sentence spends, unspoken.
+
+    The direction MON-723 was filed for, and the one no test had. 19 of the 35 keyed rejections
+    carried a param neither catalogue used — the engine computing context for a sentence that had
+    quietly stopped asking for it. `legality.py`'s docstring promised the opposite in as many words.
+
+    A param may still be unspent; it may not be unspent *silently*. Either **its own key's** sentence
+    interpolates it in at least one language — English and Hebrew are allowed to differ in how much
+    they name, which is a translator's call — or it is in :data:`UNSPENT_PARAMS` with a reason a
+    reader can disagree with.
+
+    Per key, and that is load-bearing: the first version of this test asked whether the param name
+    appeared *anywhere* in the catalogue, and `{{group}}` does — in `rent.note.full_group_doubled`.
+    So it passed with `error.group_incomplete` back to saying "the whole colour set", which is the
+    exact defect it was written to catch. It was only found by reverting the copy and watching the
+    test stay green.
+    """
+    catalogues = {language: _catalogue("common", language) for language in ("en", "he")}
+    undeclared: dict[str, list[str]] = {}
+    for key, params in sorted(_rejection_params().items()):
+        spent = {
+            placeholder
+            for catalogue in catalogues.values()
+            if key in catalogue
+            for placeholder in _placeholders(catalogue[key])
+        }
+        unspent = sorted(param for param in _spendable(params) if param not in spent and param not in UNSPENT_PARAMS)
+        if unspent:
+            undeclared[key] = unspent
+    assert not undeclared, (
+        "these params are computed, shipped over the wire, and interpolated by nothing — "
+        f"spend them in the copy or add them to UNSPENT_PARAMS with the reason: {undeclared}"
+    )
+
+
+def test_no_rejection_param_names_an_enum_value_instead_of_a_key() -> None:
+    """MON-415's convention, enforced rather than remembered.
+
+    A param whose value is an engine enum must be sent as ``<name>_key`` carrying
+    ``"group.light_blue"``, never as ``<name>`` carrying ``"light_blue"`` — the second puts the
+    engine's English identifier inside a Hebrew sentence, which is GAP A5 with extra steps.
+
+    A param in :data:`UNSPENT_PARAMS` is exempt, and the exemption is the convention read correctly
+    rather than a hole in it: ``_key`` exists so a value the catalogue *renders* can resolve, and one
+    no sentence renders has nothing to resolve. ``phase`` is the case — there are no ``phase.*``
+    leaves precisely because inventing ten phase nouns nobody displays would be ten fabrications
+    (see :func:`_undisplayed_enums`). Should a sentence ever start naming a phase, this test goes red
+    the moment it is spent, because the exemption is keyed to the param being unspent.
+    """
+    import ast
+
+    source = (ENGINE_SRC / "legality.py").read_text(encoding="utf-8")
+    offenders: list[str] = []
+    for node in ast.walk(ast.parse(source)):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_no"):
+            continue
+        for keyword in node.keywords:
+            if keyword.arg is None or keyword.arg.endswith(KEY_SUFFIX) or keyword.arg in UNSPENT_PARAMS:
+                continue
+            # `x.value` on an enum member — the shape MON-415 deleted from the rent notes.
+            if isinstance(keyword.value, ast.Attribute) and keyword.value.attr == "value":
+                offenders.append(f"{ast.unparse(node.args[0])}: {keyword.arg}={ast.unparse(keyword.value)}")
+    assert not offenders, (
+        "an enum value shipped as a plain param — send a key and name it `<param>_key` "
+        f"(MON-415, and see legality.py's docstring): {offenders}"
+    )
+
+
 def test_no_catalogue_key_is_camel_case() -> None:
     """``snake_case`` at every level of every namespace (ADR-003 §6).
 

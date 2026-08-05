@@ -608,7 +608,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             different one, which is the action bar. A "Try again" that re-posts a 422 would say the
             same thing twice.
           */}
-          {status.error !== undefined && <ErrorState error={status.error} />}
+          {status.error !== undefined && <ErrorState error={status.error} boardId={board.id} />}
 
           {/*
             Whose turn it is, at a size a pre-reader can follow across the room (MON-604). Above the

@@ -159,19 +159,49 @@ describe("legality is the validator's answer, never the panel's opinion", () => 
     });
   });
 
-  it("refuses a draft the validator rejects, and shows the engine's reason", async () => {
+  it("refuses a draft the validator rejects, and says how much short", async () => {
     const user = userEvent.setup();
     const { sent } = renderBuilder({
-      answer: { legal: false, reason_key: "error.insufficient_funds", params: {} },
+      answer: {
+        legal: false,
+        reason_key: "error.insufficient_funds",
+        // The params the engine has always sent and the sentence never spent until MON-723. Asserted
+        // with their figures in, because "Not enough cash for that." passed for both.
+        params: { required: 100, available: 40 },
+      },
     });
 
     await user.click(within(tray("Ruti")).getByRole("checkbox", { name: /Mediterranean/ }));
 
     await waitFor(() => {
-      expect(screen.getByText("Not enough cash for that.")).toBeInTheDocument();
+      expect(
+        screen.getByText("Not enough cash — that costs $100 and you have $40."),
+      ).toBeInTheDocument();
     });
     expect(sendButton()).toBeDisabled();
     expect(sent).toEqual([]);
+  });
+
+  it("resolves a *_key param through the catalogue rather than printing the engine's enum", async () => {
+    const user = userEvent.setup();
+    renderBuilder({
+      answer: {
+        legal: false,
+        reason_key: "error.group_has_buildings",
+        // MON-415's convention on a refusal (MON-723). `_trade_side` is the engine path that emits
+        // this, and it now sends the *key*: printing `light_blue` here would be the engine's English
+        // identifier inside a sentence, which is the whole reason `_key` exists.
+        params: { group_key: "group.light_blue" },
+      },
+    });
+
+    await user.click(within(tray("Ruti")).getByRole("checkbox", { name: /Mediterranean/ }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Sell the houses on the Light blue set before mortgaging."),
+      ).toBeInTheDocument();
+    });
   });
 
   it("interpolates the params the engine sent with the reason", async () => {

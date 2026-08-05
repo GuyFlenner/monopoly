@@ -62,6 +62,8 @@ import type {
   PlayerView,
 } from "@/api";
 import { seatOf, Token, TOKEN_PX } from "@/board";
+import type { GroupNameScope } from "@/i18n/groupNames";
+import { resolveNoteParams } from "@/panels/EventLogLines";
 import { Icon } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
@@ -290,7 +292,7 @@ function TradeDraft({
       }
       footer={
         <>
-          <Seal checking={checking} verdict={verdict} empty={draftEmpty} />
+          <Seal checking={checking} verdict={verdict} empty={draftEmpty} boardId={board.id} />
           {/* Hidden, not disabled, until the offer says something. An empty draft is legal and
               still not worth sending — the MON-410 amendment. */}
           {!draftEmpty && (
@@ -697,17 +699,34 @@ function Tray({
  * `reason_key` is rendered with `params` and nothing is added to it: the sentence explaining why a
  * trade is refused is the engine's to write, in both languages, and a friendlier paraphrase here
  * would be a second wording to keep in step with the rules.
+ *
+ * The one transformation is MON-415's `*_key` convention, applied to a refusal (MON-723): the engine
+ * sends `group_key: "group.dark_blue"` and `deck_key: "deck.chance"`, and `resolveNoteParams` turns
+ * them into the `{{group}}` and `{{deck}}` the sentence names. This panel is where it matters most —
+ * `_trade_side` is the source of both, and a trade is refused with the board *not* under the
+ * player's finger, so "sell the houses on the Tel Aviv set" is the sentence that says which set.
  */
 function Seal({
   checking,
   verdict,
   empty,
+  boardId,
 }: {
   readonly checking: boolean;
   readonly verdict: LegalityView | null;
   readonly empty: boolean;
+  /** Scopes a group's name to the board being played — see `i18n/groupNames.ts`. */
+  readonly boardId: string;
 }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const scope = useMemo<GroupNameScope>(
+    () => ({
+      boardId,
+      translate: (key, params) => t(key, params ?? {}),
+      exists: i18n.exists.bind(i18n),
+    }),
+    [boardId, t, i18n],
+  );
   if (empty) {
     return <EmptyState messageKey="trade.empty" className="grow font-medium opacity-100" />;
   }
@@ -731,7 +750,7 @@ function Seal({
       <Icon name="cross" size={18} />
       {verdict.reason_key === null || verdict.reason_key === undefined
         ? t("trade.refused")
-        : t(verdict.reason_key, verdict.params)}
+        : t(verdict.reason_key, resolveNoteParams(verdict.params, scope))}
     </p>
   );
 }
