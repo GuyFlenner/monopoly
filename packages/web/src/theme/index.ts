@@ -101,6 +101,7 @@ export {
   ACTION_THEME,
   ACTION_TONE,
   COMMAND_KINDS,
+  NEVER_COLLAPSED,
   PORTFOLIO_COMMANDS,
   requiresConfirmation,
   TERMINAL_COMMANDS,
@@ -114,4 +115,9 @@ export {
   type ToneColors,
 } from "./actions";
 
-export { emphasisFor, PHASE_EMPHASIS, RAISING_EMPHASIS_PHASES } from "./prominence";
+export {
+  emphasisFor,
+  GROWTH_COMMANDS,
+  PHASE_EMPHASIS,
+  RAISING_EMPHASIS_PHASES,
+} from "./prominence";

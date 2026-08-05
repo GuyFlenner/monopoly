@@ -376,3 +376,109 @@ compared by identity.
 Deleting the zoning leaves it green (it is a claim about the set, not the layout). Deleting a zone's
 `<ul>`, mis-typing a `zone` value so a kind lands nowhere, or forgetting to render a zone's members
 turns it red at step 3 or 4.
+
+---
+
+## 6. Amendment (MON-724): the estate zone and the move that had no signal
+
+**Owner report, 2026-08-05**: *"when I get a complete series of streets, how can I purchase houses? I
+don't see a button."*
+
+### 6.1 What was actually on screen
+
+Nothing was broken below the presentation layer, which is worth stating first because it is the
+expensive thing to get wrong. `legality.py` was offering `BuildHouse` for every square in the group,
+`transport.view` was passing the tuple through unaltered, `useGame` was handing it over verbatim, and
+`ActionBar` was rendering all of it. Reproduced by rendering the bar with the legal set an owner of a
+complete light-blue group actually has in `AWAITING_ROLL`, the buttons present on arrival were:
+
+```
+[🎲 Roll the dice]
++ YOUR PROPERTIES · 6 moves          ← aria-expanded="false", 11px, opacity 70
+```
+
+Reaching a build took **three presses** — the zone fold, then the collapsed `build_house` group, then
+the street — and neither of the first two contained the word "build". §3.4's safety argument ("a wrong
+entry can only leave a labelled, one-keystroke disclosure folded") was sound and still is. What it did
+not anticipate is that *one keystroke away is not the same as discoverable* when the player does not
+know the move exists yet, and the player who has just completed their first colour group is by
+definition in that position.
+
+### 6.2 Why the phase table could not fix this on its own
+
+`PHASE_EMPHASIS` answers "the estate is the only way out of this position", which is why it names the
+two raising phases and nothing else. Completing a colour group is **not a phase** — it is a fact about
+the legal set, and there is no phase to key it on. `AWAITING_ROLL` is the same phase whether the player
+owns nothing or has just completed Mayfair.
+
+### 6.3 What changed
+
+Two entries, in the two tables that already existed for this class of decision:
+
+| Table | Entry | Effect |
+|---|---|---|
+| `prominence.ts` → `GROWTH_COMMANDS` | `build_house` | The estate zone **arrives open** when a build is in the legal set, whatever the phase says |
+| `actions.ts` → `NEVER_COLLAPSED` | `build_house` | Builds render **one chit per street** instead of collapsing behind a count |
+
+Three presses become one, and the words "Build a house" and the street's name are on screen the moment
+the group is completed:
+
+```
+[🎲 Roll the dice]
+
+− YOUR PROPERTIES · 6 moves
+   [🏠+ Build a house]  Oriental Avenue
+   [🏠+ Build a house]  Vermont Avenue
+   [🏠+ Build a house]  Connecticut Avenue
+   [📄− Mortgage · 3 squares]
+```
+
+### 6.4 Why building alone, in both tables
+
+The exemption is one kind wide in both, and the boundary carries the whole argument — a second entry
+in either would undo MON-711.
+
+Building is the only portfolio move that **creates** rather than raises. It is the point of collecting
+a complete group, and it becomes legal at a moment the game gives no other signal for: a deed changes
+hands and nothing on the screen says "you may now build". Every other portfolio kind is either
+available from the first deed (`mortgage_property`) or a response to a position the phase table already
+covers (`sell_house`, `unmortgage_property` while raising). Putting one of those in `GROWTH_COMMANDS`
+would emphasise the estate on nearly every turn, which is exactly the clutter this document set out to
+remove.
+
+`NEVER_COLLAPSED` has a real cost and it is accepted rather than denied: a player holding three
+complete groups is offered a build on every square at the group minimum, so the estate zone can reach
+nine rows late in a game. The rows are the *point* of that position — a player with three complete
+groups is a player who is building — where nine mortgage rows would be noise. If it proves too dense in
+play, the correction is a threshold in `groupCommands`, not a removal of the entry.
+
+### 6.5 The invariant, unchanged
+
+Both are placement tables, evaluated against the engine's own vocabulary and nothing else. Their
+answers reach one `useState` initial value and one `collapsible` boolean. **Neither can add, remove,
+filter, reorder across kinds, or disable a command**, and §5's reachability suite — which opens every
+fold and clicks every chit, comparing delivered objects to the input set by identity — passes unchanged
+over all seven positions. What is new is a suite that asserts the *opposite* direction for one kind:
+`describe("a completed colour group announces itself")` renders the position above and requires the
+three streets to be pressable **with no gesture at all**, which is a claim no reachability test can
+make.
+
+`prominence.test.ts` additionally pins the boundary from the other side: every portfolio kind *except*
+building, all at once, must still leave the zone folded.
+
+### 6.6 Still open: why you cannot build is never said
+
+The absent button is the mechanism (§1.3), and it is the right mechanism — but it is silent. A player
+who has a complete group and is ₪40 short of a house sees no build button and no reason, which is the
+same screen as a player whose group is mortgaged, and the same screen as one who does not have the
+group at all. MON-723 already wrote the sentence this wants — `error.insufficient_funds` now reads
+"Not enough cash — that costs {{required, money}} and you have {{available, money}}" — and nothing can
+currently trigger it for a build, because a command that is not offered is never sent and so is never
+rejected.
+
+The architecturally clean route exists and is not taken here: `POST /validate` returns
+`LegalityView{legal, reason_key, params}`, which is how `TradeBuilder`'s seal explains a refusal
+without owning a rule. An affordance that asks the engine "why can I not build on this street?" and
+renders the key it answers with would put the explanation on screen with no rule leaving the engine.
+Left as a separate decision rather than smuggled in with a fold default, because it is a new
+affordance, new copy in two catalogues, and a new a11y surface.

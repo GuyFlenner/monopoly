@@ -46,7 +46,14 @@
 
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-import { playQuietly, skipAnimations, startGame, turnNumber } from "./helpers";
+import {
+  playQuietly,
+  QUIET_KINDS,
+  quietSelector,
+  skipAnimations,
+  startGame,
+  turnNumber,
+} from "./helpers";
 
 /** Log rows by the key that produced them, rather than by the sentence the key renders as. */
 function logRows(page: Page, key: string): Locator {
@@ -95,7 +102,9 @@ async function press(page: Page, kind: string): Promise<void> {
       }
       continue;
     }
-    await playQuietly(page, async () => (await chit.count()) > 0, 4);
+    // `kind` is withheld from the fallback: without that, this loop could press the command it is
+    // waiting for and then report that it was never offered. See `playQuietly`.
+    await playQuietly(page, async () => (await chit.count()) > 0, 4, kind);
   }
   throw new Error(`the bar never offered ${kind} — ${await whereWeGotTo(page)}`);
 }
@@ -232,3 +241,37 @@ for (const locale of ["en", "he"] as const) {
     await expect(page.getByTestId("turn-banner")).toContainText("Ruti");
   });
 }
+
+/*
+  A guard on the helper rather than on the product, and it earns its place: the defect it pins cost a
+  CI run and looked exactly like a regression in the app.
+
+  `press(kind)` falls back to `playQuietly`, whose repertoire is `QUIET_KINDS` — which contains
+  `end_turn`. So the fallback could press the command `press` was waiting for, after which the chit
+  was legitimately gone, the loop ran out its budget, and it reported "the bar never offered end_turn"
+  about a button it had clicked itself. Nothing in the product was wrong.
+
+  No browser needed: the guarantee is a property of the selector, so it is asserted on the selector.
+*/
+test.describe("the helper cannot press the command it is waiting for", () => {
+  test("withholds the awaited kind from the quiet fallback", () => {
+    for (const kind of QUIET_KINDS) {
+      expect(quietSelector(kind), `${kind} is still pressable while awaited`).not.toContain(
+        `"${kind}"`,
+      );
+    }
+  });
+
+  test("and withholds nothing else", () => {
+    // The other half, so the fix cannot be "exclude everything": every *other* kind must survive, or
+    // the fallback stops being able to advance the game towards the command at all.
+    for (const kind of QUIET_KINDS) {
+      const selector = quietSelector(kind);
+      const survivors = QUIET_KINDS.filter((other) => other !== kind);
+      for (const other of survivors) {
+        expect(selector, `${other} was lost while awaiting ${kind}`).toContain(`"${other}"`);
+      }
+    }
+    expect(quietSelector()).toContain('"end_turn"');
+  });
+});

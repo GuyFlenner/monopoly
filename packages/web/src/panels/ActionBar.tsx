@@ -15,12 +15,15 @@
  * What the bar *does* decide is **placement**, in three ways and no others:
  *
  * 1. **Grouping.** When several commands of one tile-scoped kind are legal at once — four
- *    `build_house`, one per square — they collapse behind a single affordance that reveals them, and
- *    the squares offered are the squares in the legal set. See {@link groupCommands}.
+ *    `mortgage_property`, one per square — they collapse behind a single affordance that reveals them,
+ *    and the squares offered are the squares in the legal set. `NEVER_COLLAPSED` exempts `build_house`,
+ *    which stays one chit per street (MON-724). See {@link groupCommands}.
  * 2. **Zoning.** Each kind is filed under one of two labelled zones by `ACTION_THEME[kind].zone`:
  *    what the game is waiting for, then estate management. See {@link zoneCommands}.
- * 3. **Emphasis.** The estate zone is a disclosure, and it *begins open* when
- *    `PHASE_EMPHASIS[phase]` says the estate is the point — which in `DEBT_SETTLEMENT` it is.
+ * 3. **Emphasis.** The estate zone is a disclosure, and it *begins open* when `emphasisFor` says the
+ *    estate is the point: because of the phase, which in `DEBT_SETTLEMENT` it is, or because a
+ *    `GROWTH_COMMANDS` kind is in the legal set, which is how completing a colour group announces
+ *    itself (MON-724).
  *
  * All three answers come from static tables keyed on the engine's own vocabulary, evaluated against
  * nothing. **A wrong entry in any of them can move a chit or leave a zone folded; it cannot remove
@@ -72,6 +75,7 @@ import {
   ACTION_THEME,
   emphasisFor,
   Icon,
+  NEVER_COLLAPSED,
   requiresConfirmation,
   ZONE_ORDER,
   zoneOf,
@@ -138,10 +142,13 @@ export interface ActionBarProps {
   /**
    * `state.phase`, for one decision only: whether the estate zone begins open.
    *
-   * `PHASE_EMPHASIS[phase]` is a static table in `theme/prominence.ts`, and its output reaches
-   * exactly one `useState` initial value. It cannot add, remove, filter or disable a command — the
-   * set is `commands` — and the worst a wrong entry does is leave a labelled, announced, one-keystroke
+   * `emphasisFor` reads a static table in `theme/prominence.ts`, and its output reaches exactly one
+   * `useState` initial value. It cannot add, remove, filter or disable a command — the set is
+   * `commands` — and the worst a wrong entry does is leave a labelled, announced, one-keystroke
    * disclosure folded. Presentation, in the sense `game/presentation.ts` sets out.
+   *
+   * Not the only input to that answer since MON-724: a `GROWTH_COMMANDS` kind in `commands` opens the
+   * estate whatever the phase says, which is why a game that omits this prop can still arrive open.
    *
    * Omitted, the estate zone begins folded, which is the quieter presentation.
    */
@@ -168,6 +175,10 @@ interface CommandGroup {
  * grouping exists for, and is asked of the commands themselves rather than of a hand-kept list of
  * kinds that would go stale the first time a fifth tile-scoped command lands. Two `respond_to_trade`
  * commands (accept and decline) therefore stay side by side, as they must.
+ *
+ * `NEVER_COLLAPSED` is the one exception, and it is a list of kinds precisely because it is *not*
+ * derivable from the commands: "building deserves a row per street" is a judgement about the move,
+ * not a fact about its shape (MON-724). It can only ever make the bar flatter.
  */
 export function groupCommands(commands: readonly Command[]): readonly CommandGroup[] {
   const order: CommandKind[] = [];
@@ -188,7 +199,10 @@ export function groupCommands(commands: readonly Command[]): readonly CommandGro
     return {
       kind,
       commands: members,
-      collapsible: members.length > 1 && members.every((member) => tileOf(member) !== undefined),
+      collapsible:
+        !NEVER_COLLAPSED.has(kind) &&
+        members.length > 1 &&
+        members.every((member) => tileOf(member) !== undefined),
     };
   });
 }
@@ -488,7 +502,7 @@ function ZoneHeading({ zone, children, t }: ZoneShellProps): React.JSX.Element {
 interface ZoneFoldProps extends ZoneShellProps {
   /** How many commands are inside. The engine's count, reported so the fold is not a mystery box. */
   readonly count: number;
-  /** `PHASE_EMPHASIS` says the estate is the point. See {@link ActionBarProps.phase}. */
+  /** `emphasisFor` says the estate is the point. See {@link ActionBarProps.phase}. */
   readonly emphasised: boolean;
   /** The hint's badge, when the marked command is one of the ones inside. */
   readonly badge: string | undefined;
@@ -855,7 +869,15 @@ export function ActionBar({
    */
   const zones = zoneCommands(commands);
   const zoned = zones.length > 1;
-  const emphasis = emphasisFor(phase);
+  /*
+    Two reasons the estate can arrive open, both `emphasisFor`'s to weigh: the phase, and a growth
+    move being in the legal set (MON-724). The kinds are passed rather than the commands, so what
+    reaches the table is the engine's vocabulary and not a state to compare figures against.
+  */
+  const emphasis = emphasisFor(
+    phase,
+    commands.map((command) => command.kind),
+  );
 
   /**
    * One zone's rows: a disclosure for a collapsed tile-scoped kind, a chit for everything else.

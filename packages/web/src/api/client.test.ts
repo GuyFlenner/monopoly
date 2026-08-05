@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiClient } from "./client";
+import { ApiClient, DEFAULT_BASE_URL, defaultBaseUrl } from "./client";
 import { ApiError, isApiError } from "./errors";
 import type { Command, GameView } from "./types";
 
@@ -245,6 +245,47 @@ describe("ApiClient — the event stream url", () => {
     expect(client.eventStreamUrl("g1")).toBe("wss://kesef.test/api/games/g1/ws?since=0");
   });
 
+  it("sends the socket to the API's own host when the API is not on this origin", () => {
+    // MON-901's split deployment: the page is served from GitHub Pages, the API answers from
+    // Render. `new URL(path, base)` lets the absolute base win, so the socket has to leave the
+    // page's host entirely — a relative resolution here would open a socket back at github.io,
+    // which has no server behind it.
+    const client = new ApiClient({
+      baseUrl: "https://kesef-street-api.onrender.com",
+      origin: "https://guyflenner.github.io/monopoly/",
+    });
+
+    expect(client.eventStreamUrl("g1", 3)).toBe(
+      "wss://kesef-street-api.onrender.com/games/g1/ws?since=3",
+    );
+  });
+
+  it("takes wss from the API's scheme, not the page's", () => {
+    // The asymmetry worth pinning: the scheme that matters is the one the socket actually connects
+    // with. A plain-http page pointed at an https API must still get `wss` — and, the direction that
+    // would be a real defect, an https *page* must not launder an http API into looking encrypted.
+    const encrypted = new ApiClient({
+      baseUrl: "https://api.kesef.test",
+      origin: "http://localhost:5173/",
+    });
+    expect(encrypted.eventStreamUrl("g1")).toBe("wss://api.kesef.test/games/g1/ws?since=0");
+
+    const plain = new ApiClient({
+      baseUrl: "http://api.kesef.test",
+      origin: "https://kesef.test/play",
+    });
+    expect(plain.eventStreamUrl("g1")).toBe("ws://api.kesef.test/games/g1/ws?since=0");
+  });
+
+  it("treats a trailing slash on the API url as the same place", () => {
+    const client = new ApiClient({
+      baseUrl: "https://api.kesef.test/",
+      origin: "https://kesef.test/",
+    });
+
+    expect(client.eventStreamUrl("g1")).toBe("wss://api.kesef.test/games/g1/ws?since=0");
+  });
+
   it("opens the socket through the injected factory at the cursor it is given", () => {
     const created: string[] = [];
     const client = new ApiClient({
@@ -264,5 +305,35 @@ describe("ApiClient — the event stream url", () => {
     client.openEventStream("g1", 5);
 
     expect(created).toEqual(["ws://kesef.test/api/games/g1/ws?since=5"]);
+  });
+});
+
+describe("defaultBaseUrl — which API a client with no opinion talks to", () => {
+  /*
+    `import.meta.env` is frozen per module in Vitest, so these stub it rather than assigning to it.
+    The behaviour is worth pinning at all because both directions are silent failures: an unset
+    build that starts pointing somewhere absolute would send a developer's browser at production,
+    and a split build that fell back to `/api` would fetch the *page's* host and 404 with no clue
+    why.
+  */
+  it("stays same-origin when the build set nothing", () => {
+    vi.stubEnv("VITE_API_URL", undefined);
+    expect(defaultBaseUrl()).toBe(DEFAULT_BASE_URL);
+    vi.unstubAllEnvs();
+  });
+
+  it("uses the API url the build was given", () => {
+    vi.stubEnv("VITE_API_URL", "https://kesef-street-api.onrender.com");
+    expect(defaultBaseUrl()).toBe("https://kesef-street-api.onrender.com");
+    vi.unstubAllEnvs();
+  });
+
+  it("ignores a blank value rather than fetching the empty string", () => {
+    // A CI variable that exists and is empty is the ordinary way this goes wrong: `VITE_API_URL=`
+    // is set, so a truthiness check on `!== undefined` alone would make every request relative to
+    // nothing.
+    vi.stubEnv("VITE_API_URL", "   ");
+    expect(defaultBaseUrl()).toBe(DEFAULT_BASE_URL);
+    vi.unstubAllEnvs();
   });
 });

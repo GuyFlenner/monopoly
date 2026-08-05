@@ -18,4 +18,16 @@ interface ImportMetaEnv {
    * newer, because both wheels declare `requires-python = ">=3.13"` and micropip enforces it.
    */
   readonly VITE_PYODIDE_VERSION?: string;
+  /**
+   * Where the HTTP API lives, when it is not on the page's own origin (MON-901).
+   *
+   * Unset is the ordinary case and stays `/api`: the Vite dev server proxies that path, and a
+   * same-origin deployment serves both from one host. It is needed only when the page and the API
+   * are on different hosts — a static site on GitHub Pages talking to the server on Render — where a
+   * relative path would resolve against the *page*, and 404.
+   *
+   * An absolute origin, no trailing slash: `https://kesef-street-api.onrender.com`. The WebSocket
+   * URL is derived from it, so `https` here is what makes the event stream `wss`.
+   */
+  readonly VITE_API_URL?: string;
 }

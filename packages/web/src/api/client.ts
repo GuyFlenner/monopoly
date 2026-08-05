@@ -55,7 +55,12 @@ export interface SocketLike {
 export type SocketFactory = (url: string) => SocketLike;
 
 export interface ApiClientOptions {
-  /** Where the API lives. The Vite dev proxy puts it at `/api`, same-origin as production. */
+  /**
+   * Where the API lives. Defaults to {@link defaultBaseUrl}.
+   *
+   * The Vite dev proxy puts it at `/api`, same-origin — which is every deployment except the one
+   * MON-901 adds, where the page is on GitHub Pages and the API is on Render.
+   */
   readonly baseUrl?: string;
   readonly fetch?: FetchLike;
   readonly createSocket?: SocketFactory;
@@ -64,6 +69,28 @@ export interface ApiClientOptions {
 }
 
 export const DEFAULT_BASE_URL = "/api";
+
+/**
+ * Where the API is, for a client that was not told.
+ *
+ * `VITE_API_URL` when the build set one, `/api` otherwise — and `/api` stays the default on purpose,
+ * because same-origin is every deployment except the split one. A relative path is also the *safer*
+ * default: it cannot accidentally point a developer's browser at production.
+ *
+ * Nothing downstream needs to know which it got. `request` concatenates and `eventStreamUrl` resolves
+ * through `new URL(path, base)`, where an absolute path simply wins over the page's origin — so an
+ * `https://` value yields `wss://` for the event stream by the same line that already turned an https
+ * *page* into a `wss` socket. Verified in `client.test.ts` rather than reasoned about, since "the
+ * socket quietly opened unencrypted" is not a failure you would see.
+ *
+ * A trailing slash is trimmed by the constructor, so `https://host/` and `https://host` behave alike.
+ */
+export function defaultBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL;
+  return configured !== undefined && configured.trim() !== ""
+    ? configured.trim()
+    : DEFAULT_BASE_URL;
+}
 
 /** 204 has no body, and `response.json()` on an empty body is a `SyntaxError`. */
 const NO_CONTENT = 204;
@@ -75,7 +102,7 @@ export class ApiClient {
   private readonly origin: string | undefined;
 
   constructor(options: ApiClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+    this.baseUrl = (options.baseUrl ?? defaultBaseUrl()).replace(/\/$/, "");
     this.doFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.makeSocket = options.createSocket ?? ((url) => new WebSocket(url) as SocketLike);
     this.origin = options.origin;
@@ -185,9 +212,11 @@ export class ApiClient {
   /**
    * The WebSocket URL for this game's event stream, replaying from `since`.
    *
-   * Built rather than configured: `baseUrl` is relative in both dev and production, and a
-   * `WebSocket` constructor needs an absolute `ws:`/`wss:` URL. The scheme follows the
-   * page's, so an https deployment cannot silently open an unencrypted socket.
+   * Built rather than configured, and the one line does both cases. `new URL(path, base)` resolves
+   * a *relative* `baseUrl` against the page — the same-origin default — and lets an *absolute* one
+   * win outright, which is what a split deployment needs (MON-901). The scheme then follows whatever
+   * won: an https page, or an https `VITE_API_URL`, so neither can silently open an unencrypted
+   * socket.
    */
   eventStreamUrl(gameId: string, since = 0): string {
     const base = this.origin ?? globalThis.location.href;

@@ -18,8 +18,13 @@ import { URL as NodeURL, fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import type { Phase } from "../api/types";
-import { ZONE_ORDER } from "./actions";
-import { PHASE_EMPHASIS, RAISING_EMPHASIS_PHASES, emphasisFor } from "./prominence";
+import { PORTFOLIO_COMMANDS, ZONE_ORDER } from "./actions";
+import {
+  GROWTH_COMMANDS,
+  PHASE_EMPHASIS,
+  RAISING_EMPHASIS_PHASES,
+  emphasisFor,
+} from "./prominence";
 
 /** Every member of the `Phase` enum, read out of the OpenAPI types. */
 function phasesFromContract(): readonly string[] {
@@ -71,5 +76,45 @@ describe("which phases put the estate front and centre", () => {
     // The first frame, before a view arrives. The quieter presentation, and safe by the argument in
     // the module docstring: a folded zone is still a reachable one.
     expect(emphasisFor(undefined)).toBe("flow");
+  });
+});
+
+describe("a growth move makes the estate the point whatever the phase says (MON-724)", () => {
+  it("holds the boundary at building alone", () => {
+    // Named, not derived: this is the decision, and its cost is that the estate zone opens on the turn
+    // a group is completed. `mortgage_property` here would open it on nearly every turn instead, which
+    // is the clutter MON-711 removed.
+    expect([...GROWTH_COMMANDS]).toEqual(["build_house"]);
+  });
+
+  it("opens the estate in the phases the table calls quiet", () => {
+    for (const phase of ["awaiting_roll", "awaiting_end_turn", "jail_decision"] as const) {
+      expect(emphasisFor(phase, ["roll_dice", "build_house"])).toBe("portfolio");
+    }
+  });
+
+  it("leaves a turn without a build alone", () => {
+    // The regression guard on the entry above: every *other* portfolio kind at once must still not
+    // open the zone, or the exception has quietly become the rule.
+    const noGrowth = [...PORTFOLIO_COMMANDS].filter((kind) => !GROWTH_COMMANDS.has(kind));
+    expect(
+      noGrowth.length,
+      "the portfolio zone should hold more than the growth move",
+    ).toBeGreaterThan(0);
+    expect(emphasisFor("awaiting_roll", noGrowth)).toBe("flow");
+  });
+
+  it("changes nothing about a phase that already emphasised the estate", () => {
+    // `legality.py` offers no build while raising, so this is the belt-and-braces case rather than a
+    // reachable one — but a growth kind must not be able to *close* anything.
+    for (const phase of [...RAISING_EMPHASIS_PHASES]) {
+      expect(emphasisFor(phase, ["sell_house"])).toBe("portfolio");
+      expect(emphasisFor(phase, ["build_house"])).toBe("portfolio");
+    }
+  });
+
+  it("treats an empty legal set as the phase's answer alone", () => {
+    expect(emphasisFor("awaiting_roll", [])).toBe("flow");
+    expect(emphasisFor("debt_settlement", [])).toBe("portfolio");
   });
 });

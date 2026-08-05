@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Command, Phase } from "@/api";
 import { makeBoard, makeTile } from "@/test/fixtures";
-import { COMMAND_KINDS, TERMINAL_COMMANDS } from "@/theme";
+import { COMMAND_KINDS, NEVER_COLLAPSED, TERMINAL_COMMANDS } from "@/theme";
 
 import { ActionBar, groupCommands, zoneCommands } from "./ActionBar";
 import { baseLabelKey, labelKeyFor } from "./actionCommand";
@@ -169,14 +169,19 @@ describe("one button per legal command", () => {
 });
 
 describe("parameterised commands", () => {
-  const builds: readonly Command[] = [
-    { kind: "build_house", player: 0, tile: 1 },
-    { kind: "build_house", player: 0, tile: 3 },
-    { kind: "build_house", player: 0, tile: 6 },
+  /*
+    `mortgage_property` rather than `build_house` since MON-724: building is in `NEVER_COLLAPSED`, so
+    it is no longer an example of this mechanism. The mechanism itself is unchanged and still needs
+    holding down — see the `build_house` suite below for the exemption's own tests.
+  */
+  const mortgages: readonly Command[] = [
+    { kind: "mortgage_property", player: 0, tile: 1 },
+    { kind: "mortgage_property", player: 0, tile: 3 },
+    { kind: "mortgage_property", player: 0, tile: 6 },
   ];
 
   it("groups a tile-scoped kind behind one affordance", () => {
-    renderBar(builds);
+    renderBar(mortgages);
     const toggles = commandButtons();
     expect(toggles).toHaveLength(1);
     expect(toggles[0]).toHaveAttribute("aria-expanded", "false");
@@ -185,7 +190,7 @@ describe("parameterised commands", () => {
   });
 
   it("reveals one real target per legal square, each naming its square", async () => {
-    const onCommand = renderBar(builds);
+    const onCommand = renderBar(mortgages);
     await userEvent.click(screen.getByRole("button", { expanded: false }));
 
     const revealed = commandButtons().filter((button) => button.dataset.group === undefined);
@@ -197,13 +202,13 @@ describe("parameterised commands", () => {
     ]);
 
     await userEvent.click(revealed[1] as HTMLElement);
-    expect(onCommand).toHaveBeenCalledWith(builds[1]);
+    expect(onCommand).toHaveBeenCalledWith(mortgages[1]);
   });
 
   it("offers only squares that are in the legal set", async () => {
     // Two of the board's three squares are legal. The third must not appear, because the bar has no
-    // idea which squares are buildable and must never guess.
-    renderBar([builds[0] as Command, builds[2] as Command]);
+    // idea which squares are mortgageable and must never guess.
+    renderBar([mortgages[0] as Command, mortgages[2] as Command]);
     await userEvent.click(screen.getByRole("button", { expanded: false }));
     expect(screen.queryByText(/Baltic Avenue/)).not.toBeInTheDocument();
     expect(screen.getByText(/Mediterranean Avenue/)).toBeInTheDocument();
@@ -211,7 +216,7 @@ describe("parameterised commands", () => {
   });
 
   it("closes on Escape and hands focus back to the affordance", async () => {
-    renderBar(builds);
+    renderBar(mortgages);
     const toggle = screen.getByRole("button", { expanded: false });
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
@@ -234,24 +239,123 @@ describe("parameterised commands", () => {
   });
 
   it("does not collapse a single tile-scoped command", () => {
-    renderBar([builds[0] as Command]);
+    renderBar([mortgages[0] as Command]);
     const [only] = commandButtons();
     expect(only?.dataset.group).toBeUndefined();
     expect(only?.textContent).toContain("Mediterranean Avenue");
   });
 });
 
+/**
+ * The reported defect, as the position that produced it (MON-724).
+ *
+ * An owner who had just completed a colour group could not find building at all. What they saw on
+ * arrival was two buttons: the dice, and an 11px collapsed heading reading "Your properties · 6
+ * moves". Reaching a build took three presses, and neither of the first two said "build".
+ *
+ * So the assertion is about **arrival**, with no `revealEverything()` and no click: the streets are
+ * pressable the moment the view lands. That is a different claim from the reachability suite below,
+ * which proves nothing is *lost*; this one proves the growth move is not merely reachable.
+ */
+describe("a completed colour group announces itself", () => {
+  /** `legal_commands` as the engine returns it in `AWAITING_ROLL` for the owner of a whole group. */
+  const wholeGroup: readonly Command[] = [
+    { kind: "build_house", player: 0, tile: 1 },
+    { kind: "build_house", player: 0, tile: 3 },
+    { kind: "build_house", player: 0, tile: 6 },
+    { kind: "mortgage_property", player: 0, tile: 1 },
+    { kind: "mortgage_property", player: 0, tile: 3 },
+    { kind: "roll_dice", player: 0 },
+  ];
+
+  function renderTurn(commands: readonly Command[] = wholeGroup, phase: Phase = "awaiting_roll") {
+    const onCommand = vi.fn();
+    render(
+      <ActionBar
+        commands={commands}
+        onCommand={onCommand}
+        board={BOARD}
+        jailFine={50}
+        phase={phase}
+      />,
+    );
+    return onCommand;
+  }
+
+  it("offers a build on every legal street with nothing folded over it", () => {
+    renderTurn();
+    const builds = chits().filter((chit) => chit.dataset.commandKind === "build_house");
+    expect(builds).toHaveLength(3);
+    expect(builds.map((chit) => chit.textContent)).toEqual([
+      expect.stringContaining("Mediterranean Avenue"),
+      expect.stringContaining("Baltic Avenue"),
+      expect.stringContaining("Oriental Avenue"),
+    ]);
+  });
+
+  it("sends the engine's own command for the street pressed, first press", async () => {
+    const onCommand = renderTurn();
+    const builds = chits().filter((chit) => chit.dataset.commandKind === "build_house");
+    await userEvent.click(builds[2] as HTMLElement);
+    // By identity: the object the engine offered for tile 6, not one this bar assembled.
+    expect(onCommand).toHaveBeenCalledWith(wholeGroup[2]);
+  });
+
+  it("opens the estate zone for a build even though the phase says flow", () => {
+    renderTurn();
+    const fold = document.querySelector<HTMLElement>('[data-zone="portfolio"]');
+    expect(fold, "the estate zone should be a fold here — both zones are occupied").not.toBeNull();
+    expect(fold).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps the estate folded on a turn with no build in it", () => {
+    // The MON-711 demotion, undisturbed: mortgage alone does not earn the zone being open.
+    renderTurn(
+      [
+        { kind: "mortgage_property", player: 0, tile: 1 },
+        { kind: "roll_dice", player: 0 },
+      ],
+      "awaiting_roll",
+    );
+    expect(document.querySelector('[data-zone="portfolio"]')).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("still collapses the mortgages beside the flattened builds", () => {
+    // The exemption is one kind wide. Two mortgageable squares are still one affordance.
+    renderTurn();
+    const groups = commandButtons().filter((button) => button.dataset.group === "true");
+    expect(groups.map((button) => button.dataset.commandKind)).toEqual(["mortgage_property"]);
+  });
+});
+
 describe("groupCommands", () => {
   it("buckets by kind at first appearance without reordering across kinds", () => {
     const groups = groupCommands([
-      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
       { kind: "end_turn", player: 0, elapsed_seconds: null },
-      { kind: "build_house", player: 0, tile: 3 },
+      { kind: "mortgage_property", player: 0, tile: 3 },
     ]);
-    expect(groups.map((group) => group.kind)).toEqual(["build_house", "end_turn"]);
+    expect(groups.map((group) => group.kind)).toEqual(["mortgage_property", "end_turn"]);
     expect(groups[0]?.commands).toHaveLength(2);
     expect(groups[0]?.collapsible).toBe(true);
     expect(groups[1]?.collapsible).toBe(false);
+  });
+
+  it("never collapses a kind the theme exempts, however many squares it holds", () => {
+    // MON-724. Asserted through `NEVER_COLLAPSED` rather than by naming `build_house`, so a second
+    // exempt kind cannot land without this test covering it.
+    for (const kind of NEVER_COLLAPSED) {
+      const groups = groupCommands([
+        { kind, player: 0, tile: 1 },
+        { kind, player: 0, tile: 3 },
+        { kind, player: 0, tile: 6 },
+      ] as readonly Command[]);
+      expect(groups[0]?.commands, `${kind} lost a command`).toHaveLength(3);
+      expect(groups[0]?.collapsible, `${kind} collapsed`).toBe(false);
+    }
   });
 
   it("loses nothing it was given", () => {
@@ -515,8 +619,14 @@ describe("nothing the engine offered can become unreachable", () => {
 });
 
 describe("the two zones", () => {
+  /*
+    Two *raising* estate moves since MON-724. This suite is about the MON-711 demotion — the estate
+    arriving folded on an ordinary turn — and `build_house` is now the one estate kind that overrides
+    exactly that, so using it here would be testing the override rather than the demotion. The
+    override has its own suite above.
+  */
   const flowAndEstate: readonly Command[] = [
-    { kind: "build_house", player: 0, tile: 1 },
+    { kind: "sell_house", player: 0, tile: 1, demolish_hotel: false },
     { kind: "mortgage_property", player: 0, tile: 3 },
     { kind: "roll_dice", player: 0 },
   ];
@@ -531,8 +641,8 @@ describe("the two zones", () => {
   it("shows the turn's own move first and folds the estate away behind a label", () => {
     renderBar(flowAndEstate);
 
-    // The complaint, inverted: in the engine's own order `build_house` and `mortgage_property` both
-    // precede `roll_dice`, because the sort is alphabetical by kind.
+    // The complaint, inverted: in the engine's own order `mortgage_property` precedes `roll_dice`,
+    // because the sort is alphabetical by kind.
     expect(chits().map((button) => button.dataset.commandKind)).toEqual(["roll_dice"]);
     expect(fold()).toHaveAttribute("aria-expanded", "false");
     expect(fold()).toHaveTextContent("Your properties");
@@ -666,17 +776,18 @@ describe("the two zones", () => {
   });
 
   it("carries the hint's badge when the marked command is folded away", () => {
-    const houses: readonly Command[] = [
+    // A raising move, so the zone really is folded — see the note on `flowAndEstate`.
+    const deeds: readonly Command[] = [
       { kind: "roll_dice", player: 0 },
-      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
     ];
     render(
       <ActionBar
-        commands={houses}
+        commands={deeds}
         onCommand={vi.fn()}
         board={BOARD}
         jailFine={50}
-        hinted={houses[1]}
+        hinted={deeds[1]}
         phase="awaiting_roll"
       />,
     );
@@ -689,7 +800,7 @@ describe("the two zones", () => {
   it("does not mark the fold when the hint points at something in the open", () => {
     const commands: readonly Command[] = [
       { kind: "roll_dice", player: 0 },
-      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
     ];
     render(
       <ActionBar
@@ -736,11 +847,23 @@ describe("zoneCommands", () => {
   it("still groups a tile-scoped kind inside its zone", () => {
     const zones = zoneCommands([
       { kind: "roll_dice", player: 0 },
-      { kind: "build_house", player: 0, tile: 1 },
-      { kind: "build_house", player: 0, tile: 3 },
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 3 },
     ]);
     expect(zones[1]?.groups).toHaveLength(1);
     expect(zones[1]?.groups[0]?.collapsible).toBe(true);
+  });
+
+  it("carries the never-collapsed exemption into a zone as well (MON-724)", () => {
+    // The zoning pass rebuilds the groups per zone, so the exemption has to survive that rebuild and
+    // not only `groupCommands` in isolation.
+    const zones = zoneCommands([
+      { kind: "roll_dice", player: 0 },
+      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "build_house", player: 0, tile: 3 },
+    ]);
+    expect(zones[1]?.groups[0]?.collapsible).toBe(false);
+    expect(zones[1]?.groups[0]?.commands).toHaveLength(2);
   });
 });
 
@@ -758,10 +881,10 @@ describe("the bar says nothing aloud", () => {
         jailFine={50}
       />,
     );
-    // Opened states included: a dialog and both kinds of disclosure — the estate zone and the
-    // collapsed `build_house` group inside it — are exactly where a second live region tends to get
-    // added, and the zone's expand/collapse is the newest candidate. There is one Announcer in the
-    // product and this is not it (GAP D1/G-54).
+    // Opened states included: a dialog and both kinds of disclosure — the estate zone and a collapsed
+    // kind group inside it — are exactly where a second live region tends to get added, and the zone's
+    // expand/collapse is the newest candidate. There is one Announcer in the product and this is not
+    // it (GAP D1/G-54).
     await revealEverything();
     await userEvent.click(screen.getByRole("button", { name: "Give up" }));
 
@@ -948,17 +1071,18 @@ describe("Kids Mode wording and the hint mark", () => {
   });
 
   it("marks a collapsed group whose hidden member is the hinted one", () => {
-    const houses: readonly Command[] = [
-      { kind: "build_house", player: 0, tile: 1 },
-      { kind: "build_house", player: 0, tile: 3 },
+    // A collapsing kind, which `build_house` no longer is (MON-724).
+    const deeds: readonly Command[] = [
+      { kind: "mortgage_property", player: 0, tile: 1 },
+      { kind: "mortgage_property", player: 0, tile: 3 },
     ];
     render(
       <ActionBar
-        commands={houses}
+        commands={deeds}
         onCommand={vi.fn()}
         board={BOARD}
         jailFine={50}
-        hinted={houses[1]}
+        hinted={deeds[1]}
       />,
     );
     // Otherwise the badge is invisible until the group is opened — the one state a child most needs

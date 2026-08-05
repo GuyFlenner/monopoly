@@ -186,11 +186,22 @@ export const QUIET_KINDS: readonly string[] = [
   "roll_for_jail",
 ];
 
+/**
+ * The CSS for {@link quietMoves}, as a pure function so the exclusion below can be asserted.
+ *
+ * `except` is what stops a caller waiting for a command from pressing that command itself — see
+ * {@link playQuietly}. Exported separately because the guarantee is worth a test that does not need
+ * a browser, and a `Locator` does not show you its selector.
+ */
+export function quietSelector(except?: string): string {
+  return QUIET_KINDS.filter((kind) => kind !== except)
+    .map((kind) => `#kesef-actions [data-command-kind="${kind}"]:visible`)
+    .join(", ");
+}
+
 /** Every quiet chit currently on the bar, as one locator. */
-export function quietMoves(page: Page): Locator {
-  return page.locator(
-    QUIET_KINDS.map((kind) => `#kesef-actions [data-command-kind="${kind}"]:visible`).join(", "),
-  );
+export function quietMoves(page: Page, except?: string): Locator {
+  return page.locator(quietSelector(except));
 }
 
 /**
@@ -265,13 +276,28 @@ export async function turnNumber(page: Page): Promise<number> {
  *
  * Returns `true` when `stop` was satisfied. The caller asserts on that rather than on a wall clock:
  * there is no `waitForTimeout` anywhere in this file.
+ *
+ * ## `except`, and the flake it fixes
+ *
+ * A caller waiting for a *particular* command passes its kind here, and this loop will not press it.
+ * Without that, `press("end_turn")` in `smoke.spec.ts` used this as its fallback while `end_turn` was
+ * in {@link QUIET_KINDS} — so the fallback could press the very chit the caller was waiting for. The
+ * game advanced correctly and the caller never saw its chit, looped out its budget, and reported
+ * *"the bar never offered end_turn"* about a command it had itself clicked. It only ever surfaced on
+ * the hard-bot spec, where a bot streaming moves over a real socket makes the polling windows
+ * irregular; every other spec's timing hid it.
+ *
+ * Excluding the target cannot strand the loop. `stop` is evaluated at the top of every attempt, and a
+ * caller's `stop` is "the chit is on the bar" — so in the one case where the excluded command is the
+ * only legal move, `stop` is already true and the loop returns before looking at the bar at all.
  */
 export async function playQuietly(
   page: Page,
   stop: () => Promise<boolean>,
   budget = 80,
+  except?: string,
 ): Promise<boolean> {
-  const moves = quietMoves(page);
+  const moves = quietMoves(page, except);
   /**
    * How many auction presses in a row this loop will make before treating the phase as stuck.
    *
