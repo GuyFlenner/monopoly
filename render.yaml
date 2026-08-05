@@ -23,7 +23,17 @@ services:
     # rule CI follows. `--no-dev` drops pytest, mypy, ruff and mutmut; it keeps both workspace
     # members, because the root project depends on them (checked, not assumed).
     buildCommand: pip install uv && uv sync --frozen --no-dev
-    startCommand: uv run uvicorn kesef_server.api:app --host 0.0.0.0 --port $PORT
+    # The venv's own interpreter, and **not** `uv run` — that was the first deploy's crash loop.
+    #
+    # `uv run` syncs the environment before it runs anything, and the `dev` group is a default
+    # group, so `uv run uvicorn` undid the `--no-dev` above on every boot: pytest, mypy, ruff,
+    # hypothesis, pip-audit and mutmut reinstalled into a 512 MB instance before uvicorn ever bound
+    # the port. Render's health check timed out, killed it and restarted, forever. Two requests in
+    # fifteen reached the app; the other thirteen got the edge's `x-render-routing: no-server`.
+    #
+    # Nothing at runtime needs uv, so nothing at runtime uses it. This also cannot drift from the
+    # build: there is no resolution step left to disagree with `uv.lock`.
+    startCommand: .venv/bin/python -m uvicorn kesef_server.api:app --host 0.0.0.0 --port $PORT
     # `/health` exists already (api.py). Render polls it to decide a deploy succeeded, so without
     # it a broken build looks live until somebody tries to play.
     healthCheckPath: /health

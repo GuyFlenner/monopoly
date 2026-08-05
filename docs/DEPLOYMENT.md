@@ -257,7 +257,33 @@ already exist — but it is a real property of this deployment and not an oversi
 game should survive a restart is a MON-901 design question, and it should be answered with a
 measurement of how often this actually bites rather than in advance.
 
-### 6.3 The setting that will not start the server
+### 6.3 A 404 that is not your 404
+
+Worth recognising on sight, because it sends you looking in the wrong place. When Render's edge has
+no instance to route to, it answers **`404 Not Found`** — not a 502, not a 503 — with:
+
+```
+x-render-routing: no-server
+```
+
+A real answer from the application carries `x-render-origin-server: uvicorn` and an `rndr-id`
+instead. So the test is the *header*, not the status: `curl -D -` and look at which one came back.
+This matters because the first deploy of this service looked exactly like a routing bug — `/boards`
+answered, `/health` 404'd — when in fact the app was fine and simply was not running most of the
+time.
+
+The other tell is **latency**. A sleeping free instance makes you *wait* (~a minute) and then
+answers. An instant 404 means the edge did not even try, which means no healthy instance existed —
+a crash loop, not a cold start.
+
+The first deploy had one, and the cause was in the start command. `uv run` syncs the environment
+before running anything, and `dev` is a default dependency group — so `uv run uvicorn` undid the
+build's `--no-dev` on every boot, reinstalling pytest, mypy, ruff, hypothesis and mutmut into a
+512 MB instance before uvicorn could bind the port. The health check timed out, Render restarted it,
+and it did the same thing again. Two requests in fifteen got through. The fix is to run the venv's
+interpreter directly; nothing at runtime needs uv.
+
+### 6.4 The setting that will not start the server
 
 `KESEF_CORS_ORIGINS` **must be a JSON array**, and this is worth its own paragraph because the
 failure looks like something else:
@@ -275,7 +301,7 @@ already; this only bites if somebody edits it in Render's dashboard.
 The origin has to be there at all because the page is served from `github.io` and the API answers
 from `onrender.com`: every call is cross-origin.
 
-### 6.4 What is deliberately not done yet
+### 6.5 What is deliberately not done yet
 
 The web build has a transport switch already — `VITE_ENGINE=local` selects the in-browser engine, and
 any other value selects the real API client. What it does **not** have is a way to point that client
