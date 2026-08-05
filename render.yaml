@@ -1,0 +1,43 @@
+# Render blueprint — the API behind online play (MON-901).
+#
+# This deploys `packages/server` only. It does NOT replace the static site: GitHub Pages keeps
+# serving the game with the engine in the browser (MON-805), and that build still needs no server
+# at all. This is the second mode — one authoritative game two machines can both reach.
+#
+# One click for the owner: Render → New → Blueprint → pick this repository. Everything below is
+# read from here rather than typed into a form, so the deployment is reviewable in a diff and a
+# rebuild cannot quietly differ from the last one.
+#
+# See docs/DEPLOYMENT.md §6 for the runbook, the free tier's two real limits, and the settings
+# that are deliberately *not* here.
+services:
+  - type: web
+    name: kesef-street-api
+    runtime: python
+    plan: free
+    # Frankfurt is Render's closest region to the people who play this. Latency matters more than
+    # usual here: a command is a round trip before the board moves.
+    region: frankfurt
+    branch: main
+    # `--frozen` so a deploy resolves to exactly `uv.lock`, never to whatever is newest — the same
+    # rule CI follows. `--no-dev` drops pytest, mypy, ruff and mutmut; it keeps both workspace
+    # members, because the root project depends on them (checked, not assumed).
+    buildCommand: pip install uv && uv sync --frozen --no-dev
+    startCommand: uv run uvicorn kesef_server.api:app --host 0.0.0.0 --port $PORT
+    # `/health` exists already (api.py). Render polls it to decide a deploy succeeded, so without
+    # it a broken build looks live until somebody tries to play.
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+      # **JSON, not a bare URL.** `Settings.cors_origins` is a `tuple[str, ...]`, and
+      # pydantic-settings parses complex types as JSON — given `https://guyflenner.github.io` it
+      # raises `SettingsError` and the process never starts. Measured, because a startup crash
+      # behind a health check reads as "the deploy is just slow".
+      #
+      # The browser needs this: the page is served from github.io and the API answers from
+      # onrender.com, so every call is cross-origin.
+      - key: KESEF_CORS_ORIGINS
+        value: '["https://guyflenner.github.io"]'
+      - key: KESEF_LOG_LEVEL
+        value: INFO
