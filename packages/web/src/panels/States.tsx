@@ -34,12 +34,14 @@
  * whole a11y layer is built to prevent.
  */
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useOptionalAnnounce } from "@/a11y";
 import type { ApiError } from "@/api";
 import type { Copy } from "@/i18n/copy";
+import type { GroupNameScope } from "@/i18n/groupNames";
+import { resolveNoteParams } from "@/panels/EventLogLines";
 
 /** Interpolation params for a state's sentence. The same shape the Announcer carries. */
 export type StateParams = Readonly<Record<string, string | number>>;
@@ -72,19 +74,39 @@ export type StateCopy = Copy;
  * under dev and test by design, so an unguarded `t()` on a key a newer server invented would
  * replace the error message with a blank screen. The fallback is chosen by HTTP class — a 4xx is
  * a refusal, anything else did not reach the rules at all — which is transport, not a rule.
+ *
+ * `params` go through {@link resolveNoteParams} first, which is MON-723's half of MON-415's
+ * convention: the engine sends `group_key: "group.light_blue"` rather than `"light_blue"`, and this
+ * turns it into the `{{group}}` the sentence interpolates. The *same* resolver the rent notes and
+ * the event log use, deliberately — a second one is how "the whole Tel Aviv set" and "the whole
+ * dark blue set" end up on the same screen.
+ *
+ * `boardId` is optional because {@link ErrorState} renders outside a game too (a save that will not
+ * load, a table that is full), and there is no board to scope a name to there. Without it a group
+ * still resolves, from `common`; it just cannot be renamed by the board being played, which is why
+ * an in-game caller should pass one.
  */
-export function useReasonText(): (error: ApiError) => string {
+export function useReasonText(boardId?: string): (error: ApiError) => string {
   const { t, i18n } = useTranslation();
+  const scope = useMemo<GroupNameScope>(
+    () => ({
+      boardId,
+      translate: (key, params) => t(key, params ?? {}),
+      exists: i18n.exists.bind(i18n),
+    }),
+    [boardId, t, i18n],
+  );
   return useCallback(
     (error: ApiError) => {
+      const params = resolveNoteParams(error.params, scope);
       if (i18n.exists(error.reasonKey)) {
-        return t(error.reasonKey, error.params);
+        return t(error.reasonKey, params);
       }
       const fallback =
         error.status >= 400 && error.status < 500 ? "error.illegal_move" : "error.network";
-      return t(fallback, error.params);
+      return t(fallback, params);
     },
-    [t, i18n],
+    [t, i18n, scope],
   );
 }
 
@@ -201,6 +223,15 @@ export interface ErrorStateProps {
   readonly className?: string;
   /** See {@link EmptyStateProps.testId}. */
   readonly testId?: string;
+  /**
+   * The board being played, when there is one.
+   *
+   * Only reaches {@link useReasonText}, and only matters for a refusal naming a colour group: on
+   * the Israeli board that group is a city, so "the whole Tel Aviv set" rather than "the whole dark
+   * blue set" (MON-723 via `i18n/groupNames.ts`). Optional because this component also renders
+   * before any game exists.
+   */
+  readonly boardId?: string;
 }
 
 export function ErrorState({
@@ -209,9 +240,10 @@ export function ErrorState({
   onRetry,
   className = "",
   testId,
+  boardId,
 }: ErrorStateProps): React.JSX.Element {
   const { t } = useTranslation();
-  const reasonText = useReasonText();
+  const reasonText = useReasonText(boardId);
 
   return (
     <div

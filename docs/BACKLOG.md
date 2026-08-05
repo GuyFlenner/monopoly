@@ -1290,7 +1290,7 @@ exists to refuse. The *real* defect is on the other side of that boundary and is
 The floor stays at 80%. Chasing the last few points would mean writing the tests this row was filed to
 argue against.
 
-### MON-723 — The rejection params the copy never spends
+### MON-723 — The rejection params the copy never spends ✅ **DONE** (2026-08-05)
 **Tier**: Sonnet (copy) / Opus (contract) · **Size**: S · *(found 2026-08-05 by MON-722's second pass)*
 
 `legality.py`'s docstring promises that a rejection carries "the context params the catalogue sentence
@@ -1300,20 +1300,59 @@ The sentence is "Not enough cash for that." in English and its Hebrew twin, and 
 `phase` across **19 of the 35 keyed rejections** — the engine computes and ships them, both catalogues
 ignore them, and no test notices because there is nothing to notice.
 
-Two honest ways out, and the choice is the owner's because it is a copy decision, not a code one:
+**Owner's call, 2026-08-05: spend them in the copy** — the option the docstring already assumed.
 
-* **Spend them.** "Not enough cash — that costs ₪50 and you have ₪49." is a better sentence for a
-  six-year-old than "Not enough cash for that.", and it is the sentence the engine was built to
-  support. Costs: 19 sentences × 2 locales, and the money ones want `{{required, money}}` so MON-720's
-  currency formatting applies. This is the option the docstring already assumes.
-* **Stop shipping them.** Delete the params, and delete the promise from the docstring with them.
+#### What shipped
 
-What must **not** happen is the third option — a test asserting the params are present. That pins dead
-data in place and makes the drift permanent; MON-722 records why.
+**Five sentences, both locales.** Every one where a param makes the sentence better *and* the render
+boundary already has what it needs to resolve it:
 
-Whichever is chosen, the gap that let this sit unnoticed is worth closing in the same change: nothing
-cross-checks engine-emitted keys and params against the catalogues. A contract test in the web package
-(where both sides are readable) would have caught it the day it appeared.
+| Key | Was | Now |
+|---|---|---|
+| `error.insufficient_funds` | "Not enough cash for that." | "Not enough cash — that costs {{required, money}} and you have {{available, money}}." |
+| `error.group_incomplete` | "…the whole colour set…" | "…the whole {{group}} set…" |
+| `error.group_mortgaged` | "…in this colour set…" | "…in the {{group}} set…" |
+| `error.group_has_buildings` | "…on this set…" | "…on the {{group}} set…" |
+| `error.jail_card_not_held` | "…that Get Out of Jail card." | "…the {{deck}} Get Out of Jail card." |
+
+`{{required, money}}` is MON-720's per-string money format, so the figures read `$100` or `100 ₪`.
+
+**The engine now sends keys, not values.** `group=group.value` became
+`group_key=f"group.{group.value}"` and `deck=card.value` became `deck_key=...` — MON-415's convention,
+the one already carrying `RentQuote.note_params`. Shipping `"light_blue"` would have put the engine's
+English identifier inside a Hebrew sentence. Because the group name is a **key**, the Israeli board
+renames it for free: `_trade_side`'s refusal says "sell the houses on the **Tel Aviv** set", not "the
+dark blue set", through the same `groupLabel` the dossier and the event log use.
+
+**One resolver, not a second one.** `useReasonText` and `TradeBuilder`'s `Seal` route params through
+the existing `resolveNoteParams`. That was written for the rent notes with the comment "the next
+engine note to interpolate a key needs no change here at all", and it was right — it needed none.
+`ErrorState` gained an optional `boardId`, optional because it also renders before any game exists.
+
+#### What stays unspent, now enforced instead of invisible
+
+`tests/test_key_contract.py` gained three tests. Together they close the loop in both directions:
+a sentence cannot ask for a param the engine never sends, a param cannot be shipped and spent by
+nothing without a written reason, and an enum value cannot be shipped where a key belongs.
+
+`UNSPENT_PARAMS` is the positive list, four entries, each with its argument: **`tile`** is an index a
+client uses to *highlight* the offending square, and naming one would need the render boundary to
+board-scope a `tile.*` key — `groupLabel` scopes only `group.*`, with a `common` fallback `tile.*` has
+no equivalent of; **`player`** is a seat id and a player's name is typed in at setup, so no catalogue
+can carry it; **`phase`** is engine jargon and its exclusion was already recorded against `Phase` in
+`_undisplayed_enums()`; **`status`** is an HTTP code for a bug report.
+
+The list is *positive* on purpose: a new param that is neither spent nor listed fails the gate, so the
+next one is triaged rather than inheriting an exemption nobody re-read. That absence is precisely what
+let 19 of these accumulate unnoticed.
+
+#### The bug in the first version of the check, and how it was found
+
+`test_every_rejection_param_is_spent_or_declared` first asked whether a param name appeared *anywhere*
+in the catalogue. `{{group}}` does — in `rent.note.full_group_doubled`. So it passed with
+`error.group_incomplete` reverted to "the whole colour set", which is the exact defect it exists to
+catch. Found only by reverting the copy and watching the test stay green; the check is per-key now.
+All three tests were confirmed to go red under the defect they name.
 
 ---
 
