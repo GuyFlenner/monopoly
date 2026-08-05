@@ -301,15 +301,58 @@ already; this only bites if somebody edits it in Render's dashboard.
 The origin has to be there at all because the page is served from `github.io` and the API answers
 from `onrender.com`: every call is cross-origin.
 
-### 6.5 What is deliberately not done yet
+### 6.5 Pointing the app at it — `VITE_API_URL`
 
-The web build has a transport switch already — `VITE_ENGINE=local` selects the in-browser engine, and
-any other value selects the real API client. What it does **not** have is a way to point that client
-at another origin: `ApiClient`'s `DEFAULT_BASE_URL` is `/api`, relative, which assumes the API and
-the page share a host. They will not.
+`ApiClient`'s default is `/api`: relative, which is right for every same-origin deployment and wrong
+for exactly this one, where the page is on `github.io` and the API answers from `onrender.com`. A
+relative path there resolves against the *page* and 404s.
 
-So a `VITE_API_URL` is the next change, and it is deliberately not in this commit: it wants the real
-service URL to be written against and tested with, rather than a guess at what Render will name it.
+```bash
+VITE_API_URL=https://kesef-street-api.onrender.com npm run build
+```
+
+Unset stays `/api`, and that default is deliberate — a relative path cannot accidentally point a
+developer's browser at production. A blank value is treated as unset, because `VITE_API_URL=` in CI
+is the ordinary way this goes wrong and "fetch relative to the empty string" is not a useful reading
+of it.
+
+Nothing downstream needed changing. `request` concatenates, and `eventStreamUrl` already resolved
+through `new URL(path, base)` — where an absolute base simply wins over the page's origin, and the
+existing scheme line then yields `wss:` from an `https:` API. That last part is asserted rather than
+reasoned about (`client.test.ts`), in both directions: an http page pointed at an https API must get
+`wss`, and an https *page* must not launder an http API into looking encrypted.
+
+### 6.6 What the two-client test proves, and what it does not
+
+`e2e/online.spec.ts` opens a **second browser context** — its own storage, its own socket — navigates
+it to the first's `?game=<id>` URL, and asserts that a roll made in the first window appears in the
+second **with nothing pressed there**. That row can only arrive over the second context's own
+WebSocket.
+
+It was checked by falsification, not just by passing: with `WebSocket` disabled in the guest context
+the test fails at exactly that assertion, which is what establishes there is no polling quietly
+standing in for the socket.
+
+Against the deployed service, the browser path was verified by preflight:
+
+```
+OPTIONS /games   Origin: https://guyflenner.github.io
+  → access-control-allow-origin: https://guyflenner.github.io
+  → access-control-allow-methods: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT
+```
+
+and an unlisted origin gets a 200 carrying **no** allow-origin header, so a browser refuses to hand
+the body to the page — CORS working, rather than CORS absent.
+
+**What is still open, and it is a product decision rather than a missing wire.** The Pages build sets
+`VITE_ENGINE=local`, which short-circuits to the in-browser engine before any API URL is consulted.
+So one build is either same-screen *or* online, and offering both from one deployment means deciding
+how a player chooses — a setup-screen control, two URLs, or a runtime switch that has to keep the
+Pyodide chunk out of the online path. That belongs in MON-901's design.
+
+**Seat ownership does not exist either.** The engine offers every legal command to whoever asks, so
+today both windows can act for either player. Fine for one household sharing a link; the thing to
+settle before this is "online play" in any stronger sense.
 
 ---
 

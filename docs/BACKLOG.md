@@ -1356,6 +1356,37 @@ All three tests were confirmed to go red under the defect they name.
 
 ---
 
+### MON-724 — Building had no signal ✅ **DONE** (2026-08-05)
+**Tier**: Opus · **Size**: S · *(owner report, 2026-08-05, from play)*
+
+> "When I get a complete series of streets, how can I purchase houses? I don't see a button."
+
+Nothing was wrong below the presentation layer: `legality.py` offered `BuildHouse` for every square in
+the group, and the bar rendered all of them. But on arrival in `AWAITING_ROLL` the only two buttons on
+screen were the dice and a collapsed 11px heading reading *"Your properties · 6 moves"*. Building was
+three presses deep — the zone fold, then the collapsed `build_house` group, then the street — and
+neither of the first two said "build". The most important move in the game had no signal at the one
+moment it becomes possible.
+
+**Fixed with two entries in the two placement tables that already existed** —
+`prominence.ts::GROWTH_COMMANDS` opens the estate zone when a build is in the legal set whatever the
+phase says, and `actions.ts::NEVER_COLLAPSED` renders builds one chit per street. Three presses become
+one. Both are one kind wide, and `docs/UX_ACTION_PROMINENCE.md` §6.4 carries the argument for why a
+second entry in either would undo MON-711's demotion.
+
+The ADR-005 invariant is untouched — neither table can add, remove, reorder or disable a command, and
+§5's reachability suite passes unchanged. The new suite asserts the opposite direction: the three
+streets must be pressable **with no gesture at all**.
+
+**Left open, deliberately** — see §6.6. A player who is short of cash sees no build button *and no
+reason*, which is the same screen as one whose group is mortgaged. MON-723 already wrote the sentence
+("Not enough cash — that costs … and you have …") and nothing can trigger it for a build, because an
+un-offered command is never sent and so never rejected. The clean route is `POST /validate`, which is
+how `TradeBuilder` explains a refusal without owning a rule. Not taken here: new affordance, new copy
+in two catalogues, new a11y surface, and an owner decision of its own.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |

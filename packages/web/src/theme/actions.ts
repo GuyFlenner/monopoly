@@ -262,6 +262,28 @@ export const PORTFOLIO_COMMANDS: ReadonlySet<CommandKind> = new Set(
   COMMAND_KINDS.filter((kind) => zoneOf(kind) === "portfolio"),
 );
 
+/**
+ * Kinds that stay flat in the bar even when several squares are legal at once (MON-724).
+ *
+ * `ActionBar`'s `groupCommands` collapses a tile-scoped kind behind one affordance when more than one
+ * square is offered, which is what stops four `mortgage_property` rows from burying the dice. For
+ * `build_house` that collapse was the second half of a reported defect: a player who had just
+ * completed their first colour group had to find a folded zone, then open a *second* disclosure, then
+ * choose a square — three presses to reach the move the whole colour group exists for, and no part of
+ * the first two said the word "build". See `docs/UX_ACTION_PROMINENCE.md` §6.
+ *
+ * So building is offered one chit per square, each naming its street. The cost is real and is the
+ * reason this is a list of one rather than a rule about tile-scoped kinds: a player holding three
+ * complete groups is offered a build on every square at the group minimum, so the estate zone can
+ * reach nine rows late in a game. That is the density `MON-711` set out to reduce, and it is accepted
+ * here for one kind on the grounds that the rows are the *point* of the position — a player with
+ * three complete groups is a player who is building — where nine mortgage rows are noise.
+ *
+ * Placement only, like everything else in this file: a kind here renders the same commands as a kind
+ * not here, in the same order, all of them operable. It cannot hide one.
+ */
+export const NEVER_COLLAPSED: ReadonlySet<CommandKind> = new Set<CommandKind>(["build_house"]);
+
 export interface ToneColors {
   /** Icon and text on a plain card face. Contrast ≥ 4.5:1 against `tile`. */
   readonly ink: string;
