@@ -1542,6 +1542,51 @@ is the next item. Today an online game has to be created by calling the API dire
 
 ---
 
+### MON-728 — Starting a game for people elsewhere ✅ **DONE** (2026-08-06)
+**Tier**: Opus · **Size**: M · *(the sending half MON-727 named and did not build)*
+
+MON-727 made a shared link open online. Nothing could *create* the game the link pointed at — an
+online game had to be posted to the API by hand, which made the whole path unusable by a player.
+
+#### What shipped
+
+The setup screen asks **"Where is everyone?"** above the seats, with two answers: *all on this
+screen* (the default, unchanged) and *people elsewhere*. Choosing the second swaps the transport,
+re-asks the **server** for the boards and rule sets, posts the game there, and leaves the `?game=`
+URL in the address bar as the link to send.
+
+**Above the seats, not with the house rules**, and that placement is the design: it is not a rule,
+and changing it re-asks the other engine for the lists — so a player who answered it after typing six
+names would watch the form reload underneath them.
+
+#### Three things that keep it honest
+
+1. **The offer and the follow-through read the same variable.** `canPlayOnline` (draw the control)
+   and `bootsOnline` (follow the link) both require `VITE_API_URL`, and a test asserts they agree for
+   every value of it. Without that, a build with no API url could offer to create a game and then
+   hand back a link it would itself refuse to open.
+2. **The two lists are cache-scoped by transport.** They are the only pre-game requests and the only
+   ones askable of *either* engine in one session. Unscoped, the cache serves the in-tab engine's
+   board list for a question now being asked of the server — invisible while the two agree, wrong the
+   moment a deployed server is a version ahead of the wheels.
+3. **The wait is stated in advance.** The free tier sleeps, so the note under "people elsewhere" says
+   the first connection can take up to a minute.
+
+The transport never reaches the request. What differs is *which server it is posted to*, which is
+`App`'s business — asserted, because a `transport` field quietly appearing in `NewGameRequest` would
+be a presentation choice crossing into the contract.
+
+14 tests, each verified red under a hand-mutation of the line it pins — including the client swap and
+the cache scope.
+
+**Wants an owner read**: five new Hebrew strings (`setup.where`, `where_here`, `where_elsewhere`,
+`where_here_note`, `where_elsewhere_note`).
+
+**Still open**: seat ownership. Both windows can act for either player — MON-726 settled that for one
+shared screen, but nothing knows which seat a *connection* speaks for (`DEPLOYMENT.md` §6.8).
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |

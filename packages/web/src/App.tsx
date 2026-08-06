@@ -42,6 +42,7 @@ import {
 } from "./api";
 import { GameScreen } from "./game/GameScreen";
 import { GameProvider, queryKeys } from "./game";
+import { canPlayOnline, type Transport } from "./local/mode";
 import { type Locale } from "./i18n";
 import { useLocale } from "./i18n/useLocale";
 import { LoadSavedGame } from "./panels/LoadSavedGame";
@@ -95,12 +96,43 @@ export interface AppProps {
    *
    * Injected in tests so the fake `fetch` and the fake socket go in at the edge rather than by
    * mocking a module — the same seam `GameProvider` offers, for the same reason.
+   *
+   * This is the **same-screen** transport. A game started for people elsewhere goes to an
+   * `ApiClient` of this component's own making, because the point of that control is to reach a
+   * server rather than whatever was injected here (MON-728).
    */
   readonly client?: ApiClient;
+  /**
+   * Offer the choice between playing here and playing with people elsewhere (MON-728).
+   *
+   * Defaults to {@link canPlayOnline}, which is true only for a build that has both an in-tab engine
+   * and an API URL — the published one. A prop so a test can render either answer without a build,
+   * and so the affordance is *absent* rather than broken where it could not work.
+   */
+  readonly offerOnline?: boolean;
 }
 
-export function App({ client }: AppProps = {}): React.JSX.Element {
-  const resolvedClient = useMemo(() => client ?? new ApiClient(), [client]);
+export function App({ client, offerOnline = canPlayOnline() }: AppProps = {}): React.JSX.Element {
+  const sameScreenClient = useMemo(() => client ?? new ApiClient(), [client]);
+  /*
+    The API, for a game being started for people elsewhere (MON-728).
+
+    Built even when it is not used — an `ApiClient` is a couple of fields and a `fetch` reference, not
+    a connection, so there is nothing to open lazily. Its base URL is `defaultBaseUrl()`, which is
+    `VITE_API_URL` on the published build and `/api` in dev.
+  */
+  const onlineClient = useMemo(() => new ApiClient(), []);
+  /*
+    Which engine this session is talking to.
+
+    Only ever changed *before* a game exists, by the setup screen's control. Once a game has been
+    created the id is in the URL, and a reload re-decides from scratch in `shell.tsx` — where the
+    answer is the same one, because a game created online is not in this browser's save slot. So this
+    piece of state cannot drift from what a reload would do, which is the property that makes the
+    address bar a link somebody can send.
+  */
+  const [transport, setTransport] = useState<Transport>("same-screen");
+  const resolvedClient = transport === "online" ? onlineClient : sameScreenClient;
   const [gameId, goTo] = useGameIdInUrl();
   // Read from i18next, not held beside it. Two controls can change the language now — the setup
   // screen's radio group and the game chrome's switch — and a copy in this component is how the
@@ -131,6 +163,8 @@ export function App({ client }: AppProps = {}): React.JSX.Element {
       {gameId === null ? (
         <SetupFlow
           client={resolvedClient}
+          transport={transport}
+          onTransportChange={offerOnline ? setTransport : undefined}
           locale={locale}
           onLocaleChange={switchLocale}
           onStarted={goTo}
@@ -150,6 +184,15 @@ export function App({ client }: AppProps = {}): React.JSX.Element {
 
 interface SetupFlowProps {
   readonly client: ApiClient;
+  /** Which engine `client` speaks to — the cache scope for the two lists (MON-728). */
+  readonly transport: Transport;
+  /**
+   * Offer the where-do-people-play control, and take its answer. Omitted where there is no choice.
+   *
+   * Optional rather than paired with a boolean: "no handler" and "no control" are the same thing,
+   * and a screen cannot then be given a switch that changes nothing.
+   */
+  readonly onTransportChange?: ((transport: Transport) => void) | undefined;
   readonly locale: Locale;
   readonly onLocaleChange: (locale: Locale) => void;
   readonly onStarted: (gameId: string) => void;
@@ -168,6 +211,8 @@ interface SetupFlowProps {
  */
 function SetupFlow({
   client,
+  transport,
+  onTransportChange,
   locale,
   onLocaleChange,
   onStarted,
@@ -175,12 +220,12 @@ function SetupFlow({
   const queryClient = useQueryClient();
 
   const boards = useQuery<BoardSummary[], ApiError>({
-    queryKey: queryKeys.boards(),
+    queryKey: queryKeys.boards(transport),
     queryFn: ({ signal }) => client.listBoards(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
   const rulesets = useQuery<RulesetView[], ApiError>({
-    queryKey: queryKeys.rulesets(),
+    queryKey: queryKeys.rulesets(transport),
     queryFn: ({ signal }) => client.listRulesets(signal),
     retry: (failureCount, error) => error.status >= 500 && failureCount < 2,
   });
@@ -279,6 +324,8 @@ function SetupFlow({
       onLocaleChange={onLocaleChange}
       onStart={start}
       onLoad={load}
+      transport={transport}
+      onTransportChange={onTransportChange}
     />
   );
 }

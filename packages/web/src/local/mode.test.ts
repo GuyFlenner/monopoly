@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { bootsOnline, isLocalEngineBuild, LOCAL_ENGINE, savedGameId } from "./mode";
+import { bootsOnline, canPlayOnline, isLocalEngineBuild, LOCAL_ENGINE, savedGameId } from "./mode";
 
 const API = "https://kesef-street-api.onrender.com";
 
@@ -80,6 +80,39 @@ describe("bootsOnline", () => {
     const context = { search: "?game=abc", apiUrl: API, savedId: null } as const;
     const answers = Array.from({ length: 5 }, () => bootsOnline(context));
     expect(new Set(answers)).toEqual(new Set([true]));
+  });
+});
+
+describe("canPlayOnline", () => {
+  it("offers the choice only when there are two engines to choose between", () => {
+    expect(canPlayOnline({ localBuild: true, apiUrl: API })).toBe(true);
+  });
+
+  it("offers nothing in a build that is already online", () => {
+    // The dev/server build. A control offering "online" there changes nothing, so it is not drawn.
+    expect(canPlayOnline({ localBuild: false, apiUrl: API })).toBe(false);
+  });
+
+  it("offers nothing when there is no server to reach", () => {
+    /*
+      The important half. Without this a published build with no `VITE_API_URL` would show the
+      control, create a game against its own origin, and hand the player a link nobody can open —
+      and `bootsOnline` would refuse to follow that link anyway, so the two would disagree. They read
+      the same variable so that they cannot.
+    */
+    expect(canPlayOnline({ localBuild: true, apiUrl: undefined })).toBe(false);
+    expect(canPlayOnline({ localBuild: true, apiUrl: "" })).toBe(false);
+    expect(canPlayOnline({ localBuild: true, apiUrl: "  " })).toBe(false);
+  });
+
+  it("agrees with `bootsOnline` about what counts as an API url", () => {
+    // Stated as a property rather than trusted: a build that will *offer* to create an online game
+    // must also be one that will *follow* the resulting link.
+    for (const apiUrl of [undefined, "", "   ", API]) {
+      const offers = canPlayOnline({ localBuild: true, apiUrl });
+      const follows = bootsOnline({ search: "?game=abc", apiUrl, savedId: null });
+      expect(offers, `disagreed about ${JSON.stringify(apiUrl)}`).toBe(follows);
+    }
   });
 });
 
