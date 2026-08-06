@@ -1427,6 +1427,66 @@ the tile never changes and a tile comparison alone would pass an answer about th
 
 ---
 
+### MON-726 — Whose move is this? ✅ **DONE** (2026-08-06)
+**Tier**: Opus · **Size**: S · *(found while scoping seat ownership; the first half of it that needed
+no online-play design)*
+
+`legal_commands` answers for **every seat that may act**, not for the seat being waited on — MON-204,
+and a real rule rather than an oversight: the estate is open in any portfolio phase, so a player may
+build, sell and mortgage while waiting for their turn (GAP G-5). The bar renders what it is given, so
+on seat 0's turn a table where seat 1 and a bot also held complete groups put this on screen:
+
+```
+[🏠+ Build a house]  Mediterranean Avenue     ← yours
+[🏠+ Build a house]  Baltic Avenue            ← Dan's, and nothing said so
+[🏠+ Build a house]  Oriental Avenue          ← a bot's, and nothing said so
+```
+
+Three identical rows, two of which spend somebody else's money. Survivable while builds collapsed
+behind one affordance; **MON-724 flattened them, which turned it into three rows of trap.**
+
+**Owner's call, 2026-08-06: humans' only, labelled.**
+
+#### What shipped
+
+`game/seatedCommands.ts`, two functions and one decision each:
+
+| | |
+|---|---|
+| `movesAtThisScreen` | Drops the **estate** moves of **bot** seats. A bot's portfolio is played by `bots.py`, so a chit that builds for it is a move no human would mean to press. |
+| `actingFor` | Names the seat a command acts for, when that is not the current one. Another human's moves stay offered — six seats round one screen is the product, and hiding them would repeal MON-204 in the UI. |
+
+The current player's own moves are deliberately **unlabelled**: a label on every row is a label nobody
+reads, and whose turn it is is already `TurnBanner`'s job in larger type.
+
+#### The bounds, because this narrows a stated invariant
+
+`GameScreen`'s docstring said `legalCommands` reaches the bar **verbatim**. It no longer does, and the
+docstring now says so rather than being left to mislead. Two bounds keep the filter from becoming a
+rule, and each is pinned by a test asserted over the *contract's own kind list* rather than a sample:
+
+1. **Turn flow is never filtered**, whoever it belongs to. A bot's `roll_dice` should not reach a
+   resting view — the driver advances every seat the engine is waiting on before the response is built
+   — but "should not" is not "cannot", and hiding an estate move costs a convenience where hiding the
+   move the game is waiting on costs the game.
+2. **No portfolio kind is ever dropped for a human.**
+
+`ActionBar`'s own invariant is untouched: it still renders what it is handed, whole, in order, by
+identity. What changed is which set the *screen* hands it — a question about who is holding the mouse
+rather than about what the rules allow.
+
+`is_bot` is **read from the projection**, not re-derived from `kind.bot_level`. A test feeds a
+self-contradicting seat to pin which field is authoritative, so an "improvement" to the derived form
+goes red instead of passing on every realistic fixture.
+
+16 tests, each verified red under a hand-mutation of the line it pins.
+
+**Still open** — the online half. Two browser contexts can still act for either seat, because seat
+*ownership* does not exist; this only settles who the moves are offered to on one shared screen.
+`DEPLOYMENT.md` §6.6.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |

@@ -6,9 +6,18 @@
  * Where a component goes, and nothing else. Every fact on screen arrives through `useGame()` and
  * is handed on unexamined:
  *
- * - `legalCommands` reaches `<ActionBar>` **verbatim** — no filter, no sort, no slice, no
- *   `disabled`. That is the ADR-005 line, and it is the one thing in this file that would be
- *   worth reverting a release over. A button exists because the engine offered the command.
+ * - `legalCommands` reaches `<ActionBar>` with **one filter and no other change** — no sort, no
+ *   slice, no `disabled`, nothing reordered. A button still exists because the engine offered the
+ *   command, which is the ADR-005 line and the thing in this file worth reverting a release over.
+ *
+ *   The filter is `movesAtThisScreen`, added by MON-726, and it is worth reading in full before
+ *   touching: it drops the **estate** moves of **bot** seats and nothing else. `legal_commands`
+ *   answers for every seat that may act rather than for the seat being waited on (MON-204), so it
+ *   carries the builds and mortgages of every solvent player — and a bot's estate is played by
+ *   `bots.py`, so offering it here was three rows of trap on one shared screen. Turn flow is never
+ *   filtered, whoever it belongs to, so no value of `players` can hide the move the game is waiting
+ *   on. The narrowing is an owner decision (2026-08-06) and is stated and tested in
+ *   `seatedCommands.ts`; what is left over is labelled with the seat it acts for rather than hidden.
  * - Which panel is up comes from `state.interrupts` and nothing else. The top of the interrupt
  *   stack is the live frame (`state.py`'s `top_interrupt`), so an auction frame shows the auction
  *   and a trade frame shows the trade panel. This file never infers "an auction is probably
@@ -85,6 +94,7 @@ import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
 import { useAutoEndTurnPreference } from "./autoEndTurnPreference";
 import { presentationFor, type Presentation } from "./presentation";
 import { SaveGameButton } from "./SaveGameButton";
+import { actingFor, movesAtThisScreen } from "./seatedCommands";
 import { useUiStore } from "./uiStore";
 import { useGame } from "./useGame";
 import { useMoney } from "@/i18n";
@@ -370,15 +380,37 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const presentation: Presentation = useMemo(() => presentationFor(state?.ruleset), [state]);
 
   /**
+   * The moves belonging to the people at this screen, and the resolver naming whose each one is
+   * (MON-726).
+   *
+   * `legal_commands` answers for every seat that *may* act rather than for the seat being waited on
+   * (MON-204), so it carries the estate moves of every solvent player — including the bots, whose
+   * estates `bots.py` already plays. `movesAtThisScreen` drops those and nothing else; `actingFor`
+   * marks what is left with the seat it acts for. The reasoning, and the bound that keeps turn flow
+   * out of it, are in `seatedCommands.ts`.
+   *
+   * Both feed the bar **and** the hint, deliberately: a hint pointing at a move the bar does not
+   * offer is worse than no hint, and "build on Dan's street" was never advice worth giving.
+   */
+  const seatedCommands = useMemo(
+    () => movesAtThisScreen(legalCommands, state?.players ?? []),
+    [legalCommands, state?.players],
+  );
+  const actingForSeat = useMemo(
+    () => actingFor(state?.players ?? [], state?.current_player_id ?? -1),
+    [state?.players, state?.current_player_id],
+  );
+
+  /**
    * The command the hint layer is pointing at (MON-605).
    *
-   * `legalCommands` in, one of its own elements out — so the action bar can mark it by identity and
+   * `seatedCommands` in, one of its own elements out — so the action bar can mark it by identity and
    * this file learns nothing about what any command means. Marked only where hints are prominent:
    * under the full rules the hint is folded away, and a permanent badge would not be "quieter".
    */
   const hintedCommand = useMemo(
-    () => (presentation.hintsProminent ? suggest(legalCommands)?.command : undefined),
-    [presentation.hintsProminent, legalCommands],
+    () => (presentation.hintsProminent ? suggest(seatedCommands)?.command : undefined),
+    [presentation.hintsProminent, seatedCommands],
   );
 
   /**
@@ -775,7 +807,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             point at a move the engine offered; see `panels/hints.ts`.
           */}
           <HintPanel
-            commands={legalCommands}
+            commands={seatedCommands}
             jailFine={state.ruleset.jail_fine}
             prominent={presentation.hintsProminent}
             kids={presentation.kids}
@@ -792,8 +824,9 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
           */}
           <ActionBar
             id={ACTIONS_REGION_ID}
-            commands={legalCommands}
+            commands={seatedCommands}
             onCommand={dispatch}
+            actingFor={actingForSeat}
             board={board}
             jailFine={state.ruleset.jail_fine}
             kids={presentation.kids}

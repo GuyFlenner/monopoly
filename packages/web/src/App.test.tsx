@@ -49,7 +49,7 @@ import {
   sockets,
   UNNAMED_BOARD,
 } from "./test/appHarness";
-import { KIDS_RULESET, loggedEvent, makeView } from "./test/fixtures";
+import { KIDS_RULESET, loggedEvent, makePlayer, makeView } from "./test/fixtures";
 import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
@@ -422,6 +422,88 @@ describe("App — the game screen", () => {
         expect(edge.calls.some((call) => call.path.endsWith("/validate"))).toBe(false);
       });
       expect(screen.queryByTestId("square-build")).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Whose moves the bar offers on one shared screen (MON-726).
+   *
+   * `legal_commands` answers for every seat that *may* act (MON-204), so a game with a bot in it put
+   * the bot's builds on the bar as rows nothing distinguished from the player's own. This is the
+   * whole composition — real client, real query cache — because the filter lives in `GameScreen` and
+   * the label lives in `ActionBar`, and the defect is only visible where the two meet.
+   */
+  describe("whose moves reach the bar (MON-726)", () => {
+    /** Seat 0 human (current), seat 1 human, seat 2 a bot — each with a buildable street. */
+    const TABLE = [
+      makePlayer(0, { name: "Ruti" }),
+      makePlayer(1, { name: "Dan" }),
+      makePlayer(2, { name: "Robo", kind: { bot_level: "normal" }, is_bot: true }),
+    ];
+
+    const BUILDS: readonly Command[] = [
+      ROLL,
+      { kind: "build_house", player: 0, tile: 1 },
+      { kind: "build_house", player: 1, tile: 3 },
+      { kind: "build_house", player: 2, tile: 6 },
+    ];
+
+    async function openTable(): Promise<void> {
+      openGameUrl("g1");
+      renderApp(
+        gameEdge(
+          makeView({
+            board: makeRingBoard(),
+            state: makeRingState({ players: TABLE, current_player_id: 0 }),
+            legal_commands: [...BUILDS],
+          }),
+        ),
+      );
+      await screen.findByTestId("board-grid");
+      // MON-724 opens the estate zone on a build, so the chits are already revealed.
+    }
+
+    function buildChits(): readonly HTMLElement[] {
+      return screen
+        .queryAllByRole("button")
+        .filter((button) => button.dataset.commandKind === "build_house");
+    }
+
+    it("does not offer a bot's estate, which the bot plays itself", async () => {
+      await openTable();
+      await waitFor(() => {
+        expect(buildChits()).toHaveLength(2);
+      });
+      /*
+        Asserted over the chits rather than the page. "Oriental Avenue" is legitimately on the *board*
+        and "Robo" is legitimately in the seat picker — holdings are public and every seat is listed
+        on anybody's turn (spec §5.2). What must not exist is a *button* that builds there.
+      */
+      const offered = buildChits().map((chit) => chit.textContent);
+      expect(offered.some((text) => text.includes("Oriental Avenue"))).toBe(false);
+      expect(offered.some((text) => text.includes("Robo"))).toBe(false);
+    });
+
+    it("offers the other human's estate, and says whose it is", async () => {
+      // MON-204 is a real rule: Dan may build while waiting for his turn. Taking that away would make
+      // the UI quietly narrower than the engine.
+      await openTable();
+      await waitFor(() => {
+        expect(buildChits()).toHaveLength(2);
+      });
+      const dans = buildChits().find((chit) => chit.textContent.includes("Dan"));
+      expect(dans).toBeDefined();
+      expect(dans).toHaveTextContent("Dan · Baltic Avenue");
+    });
+
+    it("leaves the current player's own street unlabelled", async () => {
+      await openTable();
+      await waitFor(() => {
+        expect(buildChits()).toHaveLength(2);
+      });
+      const own = buildChits().find((chit) => chit.textContent.includes("Mediterranean"));
+      expect(own).toBeDefined();
+      expect(own?.textContent).not.toContain("Ruti");
     });
   });
 

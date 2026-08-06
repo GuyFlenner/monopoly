@@ -504,3 +504,67 @@ Three things worth knowing about it:
 
 The absent chit is unchanged and remains the mechanism. This adds a second channel that *explains*
 rather than a disabled button that lies.
+
+---
+
+## 7. Amendment (MON-726): the bar stops being verbatim, and says why
+
+§1.3 stated the invariant this document exists to protect:
+
+> `commands` is `GameView.legal_commands`, rendered **verbatim** … There is no `filter`.
+
+That is still true of `ActionBar`. It is **no longer true of the screen**, and this section is the
+argument, because a change to that sentence which is not written down will be reverted by the next
+person who reads it.
+
+### 7.1 What flattening exposed
+
+MON-724 was right and it made an older problem visible. `legal_commands` answers for every seat that
+*may* act, not for the seat being waited on (MON-204, and a real rule — the estate is open in any
+portfolio phase). So a table where two other seats held complete groups produced:
+
+```
+[🏠+ Build a house]  Mediterranean Avenue     ← yours
+[🏠+ Build a house]  Baltic Avenue            ← Dan's
+[🏠+ Build a house]  Oriental Avenue          ← a bot's
+```
+
+Identical rows spending three different people's money. While builds collapsed behind one affordance
+this was one ambiguous row; flattened, it is three, and the one belonging to a bot is a move nobody
+would ever mean to make.
+
+### 7.2 The two answers, because there are two questions
+
+**A bot's estate is not offered.** `bots.py` plays a bot's portfolio for whichever seat the engine is
+waiting on. A chit that builds for it is not a move a human is choosing between.
+
+**A human's estate is offered, and says whose.** "Any mix of six seats, all on one screen" is the
+product. Taking another person's moves off the bar would remove a rule the engine deliberately grants
+— and MON-204's whole point is that you need not wait for your turn to build.
+
+Both live in `game/seatedCommands.ts`, not in `ActionBar`, and the split is the same one §2(d) drew
+for a different reason: the bar's guarantee is about the set it is *given*, so keeping the narrowing
+outside it lets §5's reachability suite go on meaning what it says.
+
+### 7.3 Why this is not the start of a slope
+
+The objection to a filter has always been that a UI which can drop a command can develop opinions
+about legality. Two bounds prevent that here, and each is tested against the **contract's own list of
+kinds** rather than a sample, so a new command kind cannot slip past either:
+
+1. **Turn flow is never filtered**, for any seat. The asymmetry is the argument: hiding an estate move
+   costs a player a convenience, and hiding the move the game is waiting on costs them the game. So
+   the failure this could have is bounded at "mildly annoying" by construction.
+2. **No `portfolio` kind is ever dropped for a human seat.**
+
+The predicate is `is_bot`, **read from the projection** rather than re-derived from
+`kind.bot_level` — the engine owns what makes a seat a bot, and a second copy of that rule in the web
+package is exactly the defect this document keeps arguing against. A test feeds a self-contradicting
+seat to pin which field is authoritative.
+
+### 7.4 What this does not do
+
+Seat *ownership* still does not exist. Two browser windows on the same game can act for either
+player, because nothing anywhere knows which seat a connection speaks for (`DEPLOYMENT.md` §6.6).
+This settles who the moves are offered to on **one shared screen**, which is the mode the product is
+built around; the online question is still open and is MON-901's.
