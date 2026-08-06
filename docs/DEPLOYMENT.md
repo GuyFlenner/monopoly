@@ -344,16 +344,56 @@ OPTIONS /games   Origin: https://guyflenner.github.io
 and an unlisted origin gets a 200 carrying **no** allow-origin header, so a browser refuses to hand
 the body to the page — CORS working, rather than CORS absent.
 
-**What is still open, and it is a product decision rather than a missing wire.** The Pages build sets
-`VITE_ENGINE=local`, which short-circuits to the in-browser engine before any API URL is consulted.
-So one build is either same-screen *or* online, and offering both from one deployment means deciding
-how a player chooses — a setup-screen control, two URLs, or a runtime switch that has to keep the
-Pyodide chunk out of the online path. That belongs in MON-901's design.
+### 6.7 One build, both modes — closed by MON-727
 
-**Seat ownership does not exist either.** The engine offers every legal command to whoever asks, so
-today both windows can act for either player. Fine for one household sharing a link; the thing to
-settle before this is "online play" in any stronger sense.
+This used to read *"one build is either same-screen or online"*, because `VITE_ENGINE=local`
+short-circuited to the in-browser engine before any API URL was consulted. The published site could
+therefore never reach the service §6.1–6.4 deployed, which made all of it unreachable from the URL a
+player actually has.
+
+**The published build now serves both, and the choice needs no setting and no extra screen** — it is
+a fact about the visit rather than a preference:
+
+| Visit | Transport | Cost |
+|---|---|---|
+| No `?game=` — starting a game | the engine in the tab | as before |
+| `?game=` matching this browser's own save slot — a reload | the engine in the tab | as before |
+| `?game=` that is **not** this browser's game — a shared link | the API | **no Pyodide at all** |
+
+The argument is in `packages/web/src/local/mode.ts`, and it is short: a local game lives in one
+`localStorage` slot in the tab that created it (ADR-010), so a `?game=` id that is not in that slot
+is a game this browser has never had and could not rehydrate. The local engine's only honest answer
+would be *"this game no longer exists"* — after a ~12 MB wait to say it. The one place such an id can
+come from is somebody else's address bar.
+
+Three conditions, all required, each a fact:
+
+1. there is a `?game=` id;
+2. the build was told where an API is (`VITE_API_URL`, set by `deploy-pages.yml`);
+3. the id is not this browser's own game.
+
+Condition 2 is why this was safe to ship before the workflow set the variable, and why removing that
+line returns the site to same-screen-only rather than breaking it: **a build that was never told
+about a server is never sent to one.**
+
+The saving is structural rather than incidental. `shell.tsx` returns the online branch *before*
+`import("./local")`, so the transport chunk is never requested — verified on the built artifact:
+`index.html` loads only the entry chunk, with no `modulepreload` of the transport, and the Pyodide
+loader lives in the chunk that is never fetched on that path. `shell.test.tsx` asserts the loader was
+not called, and hoisting the import above the check turns it red.
+
+**Not covered**: creating an online game from the UI. The receiving half works end to end; the
+sending half — a setup-screen control that starts a game on the API and hands back a link to send —
+is the next item.
+
+### 6.8 Still open: seat ownership
+
+The engine offers every legal command to whoever asks, so two windows on one game can both act for
+either player. MON-726 settled the equivalent question on **one shared screen** (a bot's estate is
+not offered, and another human's says whose it is), but nothing yet knows which *seat a connection
+speaks for*. Fine for one household sharing a link; the thing to settle before this is "online play"
+in any stronger sense.
 
 ---
 
-**Owner**: Guy Flenner · **Items**: MON-805 (§1–5), MON-901 (§6)
+**Owner**: Guy Flenner · **Items**: MON-805 (§1–5), MON-901 (§6), MON-727 (§6.7)

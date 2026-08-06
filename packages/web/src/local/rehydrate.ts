@@ -27,9 +27,12 @@
  */
 
 import { parseEnvelope, type PyBridge } from "./bridge";
+// Both live in `mode.ts` since MON-727: the boot decision needs them, and that file may have no
+// imports (it is what `main.tsx` asks *before* pulling in this transport). Re-exported here so
+// every existing caller — and this file's own tests — still find them where they were.
+import { LOCAL_SAVE_KEY, savedGameId } from "./mode";
 
-/** Where the game in play is kept. Namespaced like every other key this app writes. */
-export const LOCAL_SAVE_KEY = "kesef-street:local-save";
+export { LOCAL_SAVE_KEY, savedGameId };
 
 /** The 2xx band, which is the only thing this file asks about a status. */
 function ok(status: number): boolean {
@@ -72,33 +75,6 @@ export function browserSaveSlot(key: string = LOCAL_SAVE_KEY): SaveSlot {
       }
     },
   };
-}
-
-/**
- * The `game_id` inside a stored save, or `null` if the slot holds something that is not one.
- *
- * Read from `state.game_id`, which is where a `SaveFile` keeps it (ADR-011), and from the top level
- * as well — a slot written by the build before ADR-011 is a bare `GameState`, and it is *this*
- * function that decides whether that slot can still rescue a reload. Refusing it would throw away
- * the game of every player who had the tab open across the deploy, which is precisely the failure
- * ADR-010 exists to prevent.
- */
-export function savedGameId(payload: string | null): string | null {
-  if (payload === null) {
-    return null;
-  }
-  try {
-    const parsed: unknown = JSON.parse(payload);
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-    const envelope = parsed as { game_id?: unknown; state?: { game_id?: unknown } };
-    const id = envelope.state?.game_id ?? envelope.game_id;
-    return typeof id === "string" && id !== "" ? id : null;
-  } catch {
-    // A half-written slot from a tab that was closed mid-write. Treated as empty.
-    return null;
-  }
 }
 
 /**

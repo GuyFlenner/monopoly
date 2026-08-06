@@ -1487,6 +1487,61 @@ goes red instead of passing on every realistic fixture.
 
 ---
 
+### MON-727 — One build, both modes ✅ **DONE** (2026-08-06)
+**Tier**: Opus · **Size**: M · *(the first of the two things `DEPLOYMENT.md` §6.5 listed as blocking
+online play from the public URL)*
+
+MON-901 deployed an API, wired `VITE_API_URL`, and proved with two browser contexts that a roll in
+one window reaches the other over a real socket. **None of it was reachable from the published site**,
+because the Pages build sets `VITE_ENGINE=local` and `main.tsx` short-circuited to the in-browser
+engine before any API URL was consulted. One build was either same-screen or online, and the one that
+exists was the first.
+
+**Owner's call, 2026-08-06: a shared link joins online; no extra screen, no remembered preference.**
+
+#### The decision, which needs no setting
+
+A local game lives in one `localStorage` slot in the tab that created it (ADR-010). So a `?game=` id
+that is **not** in that slot is a game this browser has never had and could not rehydrate — the local
+engine's only honest answer is "no such game", after a ~12 MB wait to say it. The one place such an
+id can come from is somebody else's address bar. That is a *fact about the visit*, not a preference,
+which is why it needs no chooser and no first-run flag:
+
+| Visit | Transport |
+|---|---|
+| no `?game=` | the engine in the tab, as before |
+| `?game=` matching this browser's save slot (a reload) | the engine in the tab, as before |
+| `?game=` that is not this browser's game | the API — **and no Pyodide is fetched at all** |
+
+Three conditions, all required, each pinned by a test that fails if it is dropped. The third — *the
+build must have been told where an API is* — is why this was safe to merge before the workflow set
+`VITE_API_URL`, and why deleting that line returns the site to same-screen-only rather than breaking
+it: **a build that was never told about a server is never sent to one.**
+
+#### Why the saving is structural
+
+`shell.tsx` (extracted from `main.tsx` so it can be tested at all) returns the online branch **before**
+`import("./local")`. The branch order *is* the feature: a shell that loaded the transport and then
+discarded it would render identically and cost every joiner ~12 MB. `shell.test.tsx` asserts the
+loader was **not called**, and hoisting the import above the check turns it red.
+
+Verified on the built artifact as well as in tests: `index.html` loads only the entry chunk, carries
+no `modulepreload` of the transport, and the Pyodide loader sits in the chunk that path never fetches.
+
+`LOCAL_SAVE_KEY` and `savedGameId` moved from `rehydrate.ts` into `mode.ts` and are re-exported from
+where they were. `mode.ts` is the module `main.tsx` consults *before* pulling in the transport, so it
+may have no imports — and duplicating a storage key to preserve that would have been two sources of
+truth for where the game is kept.
+
+16 tests, each verified red under a hand-mutation of the line it pins.
+
+**Not covered, and named rather than implied**: creating an online game *from the UI*. The receiving
+half works end to end — a link opens online, with no interpreter download — but the sending half (a
+setup-screen control that starts a game on the API and hands back the link) is a separate change and
+is the next item. Today an online game has to be created by calling the API directly.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |

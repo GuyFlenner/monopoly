@@ -24,9 +24,12 @@
 # 1. Build both wheels into `packages/web/public/wheels/` and write a `manifest.json` beside them.
 #    The manifest is what makes a version bump safe: the loader reads the filenames rather than
 #    hardcoding them, so `0.1.0` -> `0.2.0` is not a silent 404 at load time.
-# 2. `npm ci`, then build with `VITE_ENGINE=local` and `VITE_BASE=/<repo>/`. The base is not
-#    cosmetic — a project site is served under the repository's name, and an asset URL built for `/`
-#    404s there.
+# 2. `npm ci`, then build with `VITE_ENGINE=local`, `VITE_BASE=/<repo>/` and `VITE_API_URL`. The
+#    base is not cosmetic — a project site is served under the repository's name, and an asset URL
+#    built for `/` 404s there. `VITE_API_URL` is what lets one build serve both modes (MON-727):
+#    same-screen by default, and the API for somebody opening a shared link to a game their own
+#    browser cannot hold. Neither mode pays for the other — a joiner never fetches Pyodide, and a
+#    same-screen player never calls the API.
 # 3. Smoke-test the built artifact in a real browser against the real interpreter, at the real base
 #    path, *before* publishing it. Everything else in CI can be green while this is broken.
 # 4. Upload and deploy.
@@ -54,6 +57,17 @@ concurrency:
 env:
   # The sub-path a project site is served under. Change this and `docs/DEPLOYMENT.md` together.
   SITE_BASE: /monopoly/
+  # Where the API answers, for the one case the published site talks to a server: somebody opening a
+  # shared `?game=` link to a game their own browser cannot hold (MON-727, `local/mode.ts`).
+  #
+  # Not a secret and deliberately in the diff — it is a public URL a browser sends anyway, and the
+  # thing that decides whether a shared link works at all. **Setting this is what enables the online
+  # branch**: `bootsOnline` refuses to send a build that was told of no API, so removing this line
+  # returns the site to same-screen-only rather than breaking it.
+  #
+  # Same-screen play does not touch it. A visit with no `?game=`, and a reload of one's own game,
+  # both boot the engine in the tab exactly as before, and never request the API.
+  SITE_API_URL: https://kesef-street-api.onrender.com
 
 jobs:
   build:
@@ -99,6 +113,7 @@ jobs:
         env:
           VITE_ENGINE: local
           VITE_BASE: ${{ env.SITE_BASE }}
+          VITE_API_URL: ${{ env.SITE_API_URL }}
         run: npm run build
 
       # The gate that only a browser can run: real Pyodide, the real wheels, the real base path,
