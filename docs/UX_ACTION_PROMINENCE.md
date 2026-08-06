@@ -466,7 +466,7 @@ make.
 `prominence.test.ts` additionally pins the boundary from the other side: every portfolio kind *except*
 building, all at once, must still leave the zone folded.
 
-### 6.6 Still open: why you cannot build is never said
+### 6.6 Why you cannot build is never said — closed by MON-725
 
 The absent button is the mechanism (§1.3), and it is the right mechanism — but it is silent. A player
 who has a complete group and is ₪40 short of a house sees no build button and no reason, which is the
@@ -476,9 +476,31 @@ group at all. MON-723 already wrote the sentence this wants — `error.insuffici
 currently trigger it for a build, because a command that is not offered is never sent and so is never
 rejected.
 
-The architecturally clean route exists and is not taken here: `POST /validate` returns
-`LegalityView{legal, reason_key, params}`, which is how `TradeBuilder`'s seal explains a refusal
-without owning a rule. An affordance that asks the engine "why can I not build on this street?" and
-renders the key it answers with would put the explanation on screen with no rule leaving the engine.
-Left as a separate decision rather than smuggled in with a fold default, because it is a new
-affordance, new copy in two catalogues, and a new a11y surface.
+The architecturally clean route exists: `POST /validate` returns `LegalityView{legal, reason_key,
+params}`, which is how `TradeBuilder`'s seal explains a refusal without owning a rule.
+
+**That is what MON-725 built**, as `panels/SquareBuild.tsx`, on the square-detail panel the board
+already opens — the surface `SquareRent` (MON-420) established for "tell me about this square", and
+the one a player reaches by the route the owner described: find the city, find the street.
+
+Open a street somebody owns and the panel now says either *"A house can go here"* or the engine's own
+refusal — **"Not enough cash — that costs ₪100 and you have ₪60"**, *"You need the whole Tel Aviv set
+before you can build"*, *"The bank has run out of houses"*. Five of `_build_house`'s checks, none of
+them re-implemented, and the group named through the same `groupLabel` the dossier and the log use.
+
+Three things worth knowing about it:
+
+- **It asks; it does not decide.** There is no `if cash < cost` in the component and there could not
+  be — it does not know what a house costs. The one condition it evaluates is *which square to ask
+  about*: a `property` that somebody owns, both projected fields.
+- **It constructs a command, which `ActionBar` may never do.** That is exactly ADR-005's exception and
+  the whole distinction: a constructed command that is **sent** is the UI deciding legality; one that
+  is only ever **validated** is the UI asking a question. `SquareBuild` has no `onSend` prop, so the
+  difference is structural rather than remembered.
+- **A stale answer cannot be shown.** Two guards, and each is pinned by a test that fails without it:
+  the tile guard catches a fast answer for the square you just left, and the cleanup flag catches a
+  square that is *traded* while you are looking at it — same tile, different owner, so a tile
+  comparison alone would pass an answer about the previous owner.
+
+The absent chit is unchanged and remains the mechanism. This adds a second channel that *explains*
+rather than a disabled button that lies.

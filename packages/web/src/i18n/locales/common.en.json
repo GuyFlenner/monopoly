@@ -112,6 +112,12 @@
     "normal": "Normal",
     "hard": "Hard"
   },
+  "build": {
+    "label": "Building",
+    "checking": "Checking…",
+    "ready": "A house can go here.",
+    "refused": "A house cannot go here."
+  },
   "building": {
     "house": "house",
     "hotel": "hotel"

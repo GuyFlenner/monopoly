@@ -1387,6 +1387,46 @@ in two catalogues, new a11y surface, and an owner decision of its own.
 
 ---
 
+### MON-725 — Why a house cannot go here ✅ **DONE** (2026-08-06)
+**Tier**: Opus · **Size**: S · *(the second half of MON-724's owner report)*
+
+> "…and if I don't have money — to alert."
+
+MON-724 made building **findable**; it did not make its absence **explicable**. The absent chit is
+ADR-005's mechanism and the right one, but it is silent: a player holding a complete set and ₪40 short
+of a house saw exactly what a player whose group was mortgaged saw, and exactly what a player who did
+not hold the group saw — nothing at all. MON-723 had already written the sentence
+(*"Not enough cash — that costs {{required, money}} and you have {{available, money}}"*) and **nothing
+could trigger it for a build**, because a command that is never offered is never sent and so is never
+refused.
+
+**`panels/SquareBuild.tsx`** closes it on the square-detail panel, beneath `SquareRent` — the surface
+MON-420 established for "tell me about this square", reached the way the owner described it: find the
+city, find the street. Open a street somebody owns and it says either *"A house can go here"* or the
+engine's own refusal, group names resolved through the same `groupLabel` as the dossier and the log.
+
+**It asks rather than decides.** `POST /validate` answers `{legal, reason_key, params}` without
+applying anything — the route `TradeBuilder` already uses (G-32). No rule left the engine: the
+component does not know what a house costs, what even-build is, or whether the bank has houses. The
+one thing it evaluates is *which square to ask about* — a `property` that somebody owns, two projected
+fields. It constructs a `BuildHouse` to ask about, which `ActionBar` may never do, and that is
+precisely ADR-005's exception: a constructed command that is **sent** decides legality; one that is
+only ever **validated** asks a question. There is no `onSend` prop, so the difference is structural.
+
+**Asked for the square's owner**, not for whoever is looking — portfolio actions are open to every
+solvent seat in a portfolio phase (MON-204), so the owner is the seat the answer means something for
+even on somebody else's turn.
+
+15 tests (11 unit, 4 integration), **each verified red under a hand-mutation of the line it pins** —
+including the two staleness guards, which cover different failures: the tile guard catches a fast
+answer for the square you just left, and the cleanup flag catches a square *traded* while open, where
+the tile never changes and a tile comparison alone would pass an answer about the previous owner.
+
+**Wants an owner read**: four new Hebrew strings (`build.label`, `build.checking`, `build.ready`,
+`build.refused`). Every refusal sentence itself is existing MON-723 copy.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |
