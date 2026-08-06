@@ -140,6 +140,20 @@ export interface ActionBarProps {
    */
   readonly hinted?: Command | undefined;
   /**
+   * Names the seat a command acts *for*, when that is not the seat being waited on (MON-726).
+   *
+   * `legal_commands` answers for every seat that may act, not only the current one — portfolio moves
+   * are open in any portfolio phase (MON-204) — so on one shared screen the bar can hold two players'
+   * builds at once, and before this they were indistinguishable rows. The resolver is
+   * `game/seatedCommands.ts`'s `actingFor`, which is where the decision and its bounds are written
+   * down.
+   *
+   * A resolved string per command, exactly like the square name: this file learns no more about a
+   * seat than it does about a tile index. Omitted, nothing is labelled — which is right for a caller
+   * with one seat's commands, and is what every existing test renders.
+   */
+  readonly actingFor?: ((command: Command) => string | undefined) | undefined;
+  /**
    * `state.phase`, for one decision only: whether the estate zone begins open.
    *
    * `emphasisFor` reads a static table in `theme/prominence.ts`, and its output reaches exactly one
@@ -268,6 +282,14 @@ interface ChitProps {
   readonly label: string;
   /** The square this command acts on, already translated. Omitted when it acts on none. */
   readonly squareName?: string | undefined;
+  /**
+   * The seat this command acts *for*, when that is not the seat being waited on (MON-726).
+   *
+   * A resolved string, exactly like `squareName`: the bar is told the words, and does not learn what
+   * a seat is or which one is current. Omitted for the current player's own moves, which is what
+   * makes the mark mean "this one is somebody else's" rather than being on every row.
+   */
+  readonly actingFor?: string | undefined;
   readonly onActivate: (command: Command, trigger: HTMLButtonElement) => void;
   /**
    * Whether pressing this chit opens the confirm step — `requiresConfirmation`'s answer, passed in.
@@ -302,12 +324,20 @@ function Chit({
   command,
   label,
   squareName,
+  actingFor,
   onActivate,
   confirms,
   onKeyDown,
   hintBadge,
 }: ChitProps): React.JSX.Element {
   const theme = ACTION_THEME[command.kind];
+  /*
+    One sub-line, not two. "Dan · Baltic Avenue" is a single reading — whose, then which — where two
+    stacked lines would push the chit past the 44 px target's comfortable height and read as two
+    facts a child has to join up. The separator is a middle dot with spaces, which is direction-neutral
+    and needs no logical property; a comma would be wrong in Hebrew and a slash reads as an option.
+  */
+  const subLine = [actingFor, squareName].filter((part) => part !== undefined).join(" · ");
   return (
     <button
       type="button"
@@ -331,8 +361,10 @@ function Chit({
       <ActionGlyph theme={theme} />
       <span className="flex min-w-0 flex-col">
         <span>{label}</span>
-        {squareName !== undefined && (
-          <span className="text-xs font-normal opacity-80">{squareName}</span>
+        {subLine !== "" && (
+          <span data-testid="chit-subline" className="text-xs font-normal opacity-80">
+            {subLine}
+          </span>
         )}
       </span>
       {hintBadge !== undefined && (
@@ -351,6 +383,8 @@ interface GroupProps {
   readonly group: CommandGroup;
   readonly label: (command: Command) => string;
   readonly squareName: (command: Command) => string | undefined;
+  /** See {@link ChitProps.actingFor}. A function, like `squareName` beside it. */
+  readonly actingFor: (command: Command) => string | undefined;
   readonly onActivate: (command: Command, trigger: HTMLButtonElement) => void;
   /** See {@link ChitProps.confirms}. A function, like `label` and `hintBadge` beside it. */
   readonly confirms: (command: Command) => boolean;
@@ -371,6 +405,7 @@ function CommandGroupDisclosure({
   group,
   label,
   squareName,
+  actingFor,
   onActivate,
   confirms,
   t,
@@ -452,6 +487,7 @@ function CommandGroupDisclosure({
                 command={command}
                 label={label(command)}
                 squareName={squareName(command)}
+                actingFor={actingFor(command)}
                 onActivate={onActivate}
                 confirms={confirms(command)}
                 onKeyDown={collapse}
@@ -728,6 +764,7 @@ export function ActionBar({
   kids = false,
   auctions = true,
   hinted,
+  actingFor,
   phase,
 }: ActionBarProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -813,6 +850,18 @@ export function ActionBar({
   );
 
   /**
+   * The seat a command acts for, or `undefined` — the prop, or nothing when there is no prop.
+   *
+   * Named apart from the prop so the two cannot be confused at the call sites below, and defaulted
+   * here rather than in the parameter list because a default of `() => undefined` written there is a
+   * new function identity on every render, which would defeat the memo on every chit under it.
+   */
+  const actingForName = useCallback(
+    (command: Command): string | undefined => actingFor?.(command),
+    [actingFor],
+  );
+
+  /**
    * Whether a command opens the confirm step, for this table's rules (MON-718).
    *
    * One predicate, used by the branch below *and* by the chit's dashed rim, so what a chit looks like
@@ -894,6 +943,7 @@ export function ActionBar({
           group={group}
           label={label}
           squareName={squareName}
+          actingFor={actingForName}
           onActivate={activate}
           confirms={confirms}
           t={copy}
@@ -906,6 +956,7 @@ export function ActionBar({
               command={command}
               label={label(command)}
               squareName={squareName(command)}
+              actingFor={actingForName(command)}
               onActivate={activate}
               confirms={confirms(command)}
               hintBadge={hintBadge(command)}

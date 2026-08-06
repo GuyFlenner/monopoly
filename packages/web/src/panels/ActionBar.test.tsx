@@ -331,6 +331,74 @@ describe("a completed colour group announces itself", () => {
   });
 });
 
+/**
+ * Whose move a chit acts for (MON-726).
+ *
+ * `legal_commands` answers for every seat that may act (MON-204), so on one shared screen two
+ * players' builds arrive in one list — and before this they were rows nothing distinguished. The bar
+ * is told the words by `game/seatedCommands.ts`; what is tested here is that it renders them and
+ * still hands back the same objects.
+ */
+describe("the seat a chit acts for", () => {
+  const twoSeats: readonly Command[] = [
+    { kind: "roll_dice", player: 0 },
+    { kind: "build_house", player: 0, tile: 1 },
+    { kind: "build_house", player: 1, tile: 3 },
+  ];
+
+  /** Stands in for `actingFor(players, current)`: seat 1 is not the one being waited on. */
+  const naming = (command: Command): string | undefined =>
+    command.player === 1 ? "Dan" : undefined;
+
+  function renderNamed(onCommand = vi.fn()) {
+    render(
+      <ActionBar
+        commands={twoSeats}
+        onCommand={onCommand}
+        board={BOARD}
+        jailFine={50}
+        actingFor={naming}
+        phase="awaiting_roll"
+      />,
+    );
+    return onCommand;
+  }
+
+  it("names the other seat beside the square, in one reading", () => {
+    renderNamed();
+    const [own, other] = chits().filter((chit) => chit.dataset.commandKind === "build_house");
+    expect(within(own as HTMLElement).getByTestId("chit-subline")).toHaveTextContent(
+      "Mediterranean Avenue",
+    );
+    expect(within(other as HTMLElement).getByTestId("chit-subline")).toHaveTextContent(
+      "Dan · Baltic Avenue",
+    );
+  });
+
+  it("leaves the seat being waited on unlabelled", () => {
+    // A label on every row is a label nobody reads; `TurnBanner` already says whose turn it is.
+    renderNamed();
+    const own = chits().find((chit) => chit.dataset.commandKind === "roll_dice");
+    expect(own?.textContent).toBe("Roll the dice");
+  });
+
+  it("still delivers the engine's own object when the labelled chit is pressed", async () => {
+    // The label is a word on a span. It must not become a wrapper that reconstructs the command.
+    const onCommand = renderNamed();
+    const other = chits().find((chit) => chit.textContent.includes("Dan")) as HTMLElement;
+    await userEvent.click(other);
+    expect(onCommand).toHaveBeenCalledWith(twoSeats[2]);
+  });
+
+  it("labels nothing at all when the caller names no seats", () => {
+    // Every other test in this file renders without the prop, so this is the default they rely on.
+    renderBar(twoSeats);
+    for (const chit of chits()) {
+      expect(chit.textContent).not.toContain("Dan");
+    }
+  });
+});
+
 describe("groupCommands", () => {
   it("buckets by kind at first appearance without reordering across kinds", () => {
     const groups = groupCommands([
