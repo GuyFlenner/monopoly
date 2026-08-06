@@ -72,6 +72,7 @@ import { noteLines } from "@/panels/EventLogLines";
 import { HintPanel, RentExplanation } from "@/panels/HintPanel";
 import { suggest } from "@/panels/hints";
 import { PlayerDossier } from "@/panels/PlayerDossier";
+import { SquareBuild } from "@/panels/SquareBuild";
 import { ErrorState, LoadingState } from "@/panels/States";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
@@ -535,6 +536,25 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
    */
   const squareQuote = selectedTile === null ? null : state?.rent_quotes[selectedTile];
 
+  /**
+   * The selected square and its owner, when there is a building question worth asking (MON-725).
+   *
+   * Two projected facts, both read and neither derived: `tile.kind` is board data, and `owner` is
+   * `PropertyView`'s own field. No rule is evaluated here — see the comment at the render site, and
+   * `SquareBuild`'s docstring for why the *answer* is the engine's alone.
+   */
+  const squareBuild = useMemo(() => {
+    if (selectedTile === null || board === undefined || state === undefined) {
+      return null;
+    }
+    const tile = board.tiles[selectedTile];
+    const owner = state.properties[selectedTile]?.owner ?? null;
+    if (tile?.kind !== "property" || owner === null) {
+      return null;
+    }
+    return { tile: selectedTile, owner };
+  }, [selectedTile, board, state]);
+
   const connectionKey =
     status.connection.state === "reconnecting"
       ? "status.reconnecting"
@@ -723,6 +743,26 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
               */}
               {squareQuote !== null && squareQuote !== undefined && (
                 <SquareRent quote={squareQuote} scope={groupScope} kids={presentation.kids} />
+              )}
+              {/*
+                Whether a house can go here, and the engine's own reason when it cannot (MON-725).
+
+                The condition is two projected facts and no rule: the square is a `property`, and
+                somebody owns it. Everything that decides *buildability* — the colour group, the
+                mortgage flag, the bank's stock, even-build, the cash — is asked of `validate` inside
+                the component, because those are `_build_house`'s five checks and not this file's.
+
+                An unowned square is not asked about: "you cannot build on a square nobody owns" is
+                the one answer a player already has, and it would appear on every square they open
+                while looking for somewhere to land.
+              */}
+              {squareBuild !== null && (
+                <SquareBuild
+                  tile={squareBuild.tile}
+                  owner={squareBuild.owner}
+                  validate={validate}
+                  scope={groupScope}
+                />
               )}
             </div>
           )}

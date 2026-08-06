@@ -30,7 +30,7 @@ import type { Command, GameView, RentQuote } from "./api";
 // Straight from the fixtures rather than through the harness: the Israeli-board rent test builds a
 // board of its own — forty remapped `name_key`s — which is a fixture concern and not one the shared
 // app harness should learn.
-import { makeRingBoard, makeRingState } from "./board/fixtures";
+import { makeProperties, makeRingBoard, makeRingState } from "./board/fixtures";
 import { useUiStore } from "./game";
 // The file rather than the barrel: the preference is not part of `@/game`'s public surface, and a
 // test reaching for its storage key is exactly the caller that should have to say where it lives.
@@ -337,6 +337,91 @@ describe("App — the game screen", () => {
       // The square's own panel is open — so the absence below is the rent line, not the whole note.
       expect(await screen.findByText("Selected square")).toBeInTheDocument();
       expect(screen.queryByTestId("square-rent")).not.toBeInTheDocument();
+    });
+  });
+
+  /**
+   * Why a house cannot go on a square (MON-725).
+   *
+   * The owner's report behind MON-724 had a second half: *"and if I don't have money — to alert"*.
+   * The absent chit is `ActionBar`'s mechanism and stays so; this is the surface that says why, and
+   * the sentence is the engine's — asked through `POST /validate`, never worked out here.
+   */
+  describe("whether a house can go here (MON-725)", () => {
+    /** A ring with square 1 owned by Dan, and a `validate` route answering `verdict`. */
+    function ownedSquareEdge(
+      verdict: unknown,
+      properties: Readonly<Record<number, { readonly owner: number }>> = { 1: { owner: 1 } },
+    ) {
+      const view = makeView({
+        board: makeRingBoard(),
+        state: makeRingState({ properties: makeProperties(properties) }),
+      });
+      return makeEdge({
+        "GET /api/boards": ok(BOARDS),
+        "GET /api/rulesets": ok(RULESETS),
+        "GET /api/games/g1": ok(view),
+        "POST /api/games/g1/commands": ok(view),
+        "POST /api/games/g1/validate": ok(verdict),
+      });
+    }
+
+    async function openSquareOn(edge: ReturnType<typeof makeEdge>, tile: number): Promise<void> {
+      openGameUrl("g1");
+      renderApp(edge);
+      await screen.findByTestId("board-grid");
+      act(() => {
+        useUiStore.setState({ selectedTile: tile });
+      });
+    }
+
+    it("tells a player who cannot afford it exactly how short they are", async () => {
+      // The sentence MON-723 wrote, on screen for the first time: before this, a player holding a
+      // complete set and short of cash saw no button and no reason — the same screen as a player
+      // who held nothing.
+      const edge = ownedSquareEdge({
+        legal: false,
+        reason_key: "error.insufficient_funds",
+        params: { required: 100, available: 60 },
+      });
+      await openSquareOn(edge, 1);
+
+      const panel = await screen.findByTestId("square-build");
+      expect(panel).toHaveTextContent(/costs .*100.* and you have .*60/);
+      // Asked about the *owner* of the square, not about whoever's turn it is.
+      const asked = edge.calls.find((call) => call.path.endsWith("/validate"));
+      expect(asked?.body).toEqual({ command: { kind: "build_house", player: 1, tile: 1 } });
+    });
+
+    it("says a house can go here when the engine says it can", async () => {
+      await openSquareOn(ownedSquareEdge({ legal: true, reason_key: null, params: {} }), 1);
+      expect(await screen.findByTestId("square-build")).toHaveTextContent("A house can go here.");
+    });
+
+    it("does not ask about a square nobody owns", async () => {
+      // "You cannot build on a square nobody owns" is the one answer a player already has, and it
+      // would appear on every square they open while looking for somewhere to land.
+      const edge = ownedSquareEdge({ legal: true, reason_key: null, params: {} }, {});
+      await openSquareOn(edge, 1);
+      expect(await screen.findByText("Selected square")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(edge.calls.some((call) => call.path.endsWith("/validate"))).toBe(false);
+      });
+      expect(screen.queryByTestId("square-build")).not.toBeInTheDocument();
+    });
+
+    it("does not ask about a railroad, which no house can ever go on", async () => {
+      // Square 5 is a railroad in the ring fixture. `kind` is board data, so this costs no rule.
+      const edge = ownedSquareEdge(
+        { legal: true, reason_key: null, params: {} },
+        { 5: { owner: 1 } },
+      );
+      await openSquareOn(edge, 5);
+      expect(await screen.findByText("Selected square")).toBeInTheDocument();
+      await waitFor(() => {
+        expect(edge.calls.some((call) => call.path.endsWith("/validate"))).toBe(false);
+      });
+      expect(screen.queryByTestId("square-build")).not.toBeInTheDocument();
     });
   });
 
