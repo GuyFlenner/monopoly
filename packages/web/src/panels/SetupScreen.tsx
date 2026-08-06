@@ -50,6 +50,7 @@ import {
   useCardDwellPreference,
 } from "@/animation";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
+import type { Transport } from "@/local/mode";
 import { Icon } from "@/theme";
 
 import { LoadSavedGame } from "./LoadSavedGame";
@@ -176,6 +177,23 @@ export interface SetupScreenProps {
    * client. Rejects with an `ApiError` whose key `<LoadSavedGame>` renders.
    */
   readonly onLoad?: (save: unknown) => Promise<unknown>;
+  /**
+   * Where the game will live — the engine in this tab, or the server (MON-728).
+   *
+   * Rendered as a first question rather than buried with the house rules, because it is not a rule:
+   * it decides who can reach the game at all, and it has to be answered before names are typed since
+   * changing it re-asks the *other* engine for the boards and rule sets.
+   */
+  readonly transport?: Transport;
+  /**
+   * Take the answer, and by its presence say whether to ask at all.
+   *
+   * Omitted where there is no choice to offer — a dev build is already online, and a published build
+   * with no API URL has no server to reach. Absent rather than disabled, the same reasoning
+   * {@link SetupScreenProps.onLoad} uses: a control that cannot work should not be on the screen
+   * explaining why.
+   */
+  readonly onTransportChange?: ((transport: Transport) => void) | undefined;
 }
 
 const UNIVERSAL: RulesetView["name"] = "universal";
@@ -204,6 +222,8 @@ export function SetupScreen({
   onLocaleChange,
   onStart,
   onLoad,
+  transport = "same-screen",
+  onTransportChange,
 }: SetupScreenProps): React.JSX.Element {
   const { t } = useTranslation();
   const formId = useId();
@@ -332,6 +352,43 @@ export function SetupScreen({
           </h1>
           <p className="text-sm opacity-70">{t("app.tagline")}</p>
         </header>
+
+        {/*
+          --- Where the game lives (MON-728) ---
+
+          First, and above the seats, because it is the question the others depend on: it decides
+          which engine answers, so changing it re-asks for the boards and the rule sets. A player who
+          answered it after typing six names would watch the form's lists reload underneath them.
+
+          Absent entirely where there is no choice — see `onTransportChange`.
+        */}
+        {onTransportChange !== undefined && (
+          <div className="flex flex-col gap-2">
+            <Choice
+              name={`${formId}-where`}
+              label={t("setup.where")}
+              options={[
+                { value: "same-screen", label: t("setup.where_here") },
+                { value: "online", label: t("setup.where_elsewhere") },
+              ]}
+              value={transport}
+              onChange={(value) => {
+                onTransportChange(value as Transport);
+              }}
+            />
+            {/*
+              The consequence, stated only for the answer that has one. "Same screen" is what the
+              game has always done and needs no note; "elsewhere" costs a wait on a sleeping free-tier
+              service and produces a link the player then has to send, and both are surprises worth
+              having in advance rather than discovering.
+            */}
+            <p data-testid="setup-where-note" className="text-xs opacity-70">
+              {transport === "online"
+                ? t("setup.where_elsewhere_note")
+                : t("setup.where_here_note")}
+            </p>
+          </div>
+        )}
 
         {/* --- Seats --- */}
         <fieldset className="flex flex-col gap-3">

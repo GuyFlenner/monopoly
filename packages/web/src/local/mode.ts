@@ -81,6 +81,36 @@ function localSaveId(): string | null {
   }
 }
 
+/**
+ * Where a game lives. Two values, and the vocabulary the whole app uses for the distinction.
+ *
+ * `same-screen` is the engine in this tab (MON-805); `online` is the HTTP API. Named for what a
+ * *player* sees rather than for the transport — "local" is a word about where code runs, and the
+ * setup screen has to ask a parent a question they can answer.
+ */
+export type Transport = "same-screen" | "online";
+
+/**
+ * Whether this build can offer the player a choice at all (MON-728).
+ *
+ * Both halves are required and they are different questions. `isLocalEngineBuild` says there *is* an
+ * in-tab engine to choose between; an API URL says there is a server to choose instead. A build with
+ * only one of them has nothing to ask about:
+ *
+ * - the dev/server build is already online, so a control offering "online" would be a no-op;
+ * - a Pages build with no `VITE_API_URL` cannot reach a server, and {@link bootsOnline} would refuse
+ *   to send it to one anyway — so an affordance here would create a game nobody could then join.
+ *
+ * Absent rather than disabled, on the same reasoning `SetupScreen.onLoad` uses: a control that
+ * cannot work should not be on the screen explaining why.
+ */
+export function canPlayOnline({
+  apiUrl = import.meta.env.VITE_API_URL,
+  localBuild = isLocalEngineBuild(),
+}: { readonly apiUrl?: string | undefined; readonly localBuild?: boolean } = {}): boolean {
+  return localBuild && apiUrl !== undefined && apiUrl.trim() !== "";
+}
+
 /** What {@link bootsOnline} reads. Parameters so the decision is testable without a browser. */
 export interface BootContext {
   /** `location.search`, for the `?game=` id. */

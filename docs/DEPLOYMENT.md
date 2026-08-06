@@ -382,9 +382,22 @@ The saving is structural rather than incidental. `shell.tsx` returns the online 
 loader lives in the chunk that is never fetched on that path. `shell.test.tsx` asserts the loader was
 not called, and hoisting the import above the check turns it red.
 
-**Not covered**: creating an online game from the UI. The receiving half works end to end; the
-sending half — a setup-screen control that starts a game on the API and hands back a link to send —
-is the next item.
+**The sending half is MON-728**, and it closes the loop: the setup screen asks *"Where is everyone?"*
+before the seats, with two answers — **all on this screen** (the default, unchanged) and **people
+elsewhere**. Choosing the second re-asks the *server* for the boards and rule sets, posts the game
+there, and the resulting `?game=` URL is the link to send. Opening that link in any browser lands on
+§6.7's rule and boots online.
+
+The control is drawn only where both engines exist (`canPlayOnline`), and it reads the same
+`VITE_API_URL` as `bootsOnline` — asserted as a property, so a build that will *offer* to create an
+online game is always one that will *follow* the resulting link. Two things worth knowing:
+
+- **The wait is stated in advance.** The free tier sleeps, so the note under "people elsewhere" says
+  the first connection can take up to a minute. A player who reads that when they choose is not a
+  player who thinks the game is broken after filling in six seats.
+- **The two lists are cache-scoped by transport.** Both engines answer `/boards`; without the scope
+  the screen would keep showing the in-tab engine's list while creating the game on a server that may
+  be a version ahead of the wheels.
 
 ### 6.8 Still open: seat ownership
 

@@ -538,7 +538,12 @@
     "universal": "Full rules",
     "house_rules": "This table's rules",
     "house_rules_note": "The printed rules send a square nobody buys to auction. Off here by default.",
-    "auctions_here": "Auctions in this game"
+    "auctions_here": "Auctions in this game",
+    "where": "Where is everyone?",
+    "where_here": "All on this screen",
+    "where_elsewhere": "People elsewhere",
+    "where_here_note": "Everyone plays on this device, passing it around. Nothing is sent anywhere.",
+    "where_elsewhere_note": "The game runs on a server, and starting it gives you a link to send. The first connection can take up to a minute while the server wakes up."
   },
   "sound": {
     "mute": "Mute sound"

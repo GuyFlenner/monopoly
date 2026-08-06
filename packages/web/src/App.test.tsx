@@ -22,10 +22,12 @@
  * mounted app and two fake edges would drift.
  */
 
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { App } from "./App";
 import type { Command, GameView, RentQuote } from "./api";
 // Straight from the fixtures rather than through the harness: the Israeli-board rent test builds a
 // board of its own — forty remapped `name_key`s — which is a fixture concern and not one the shared
@@ -209,6 +211,111 @@ describe("App — the setup screen", () => {
 
     await screen.findByTestId("setup-empty");
     expect(screen.getByLabelText("Choose a saved game file")).toBeInTheDocument();
+  });
+});
+
+/**
+ * Starting a game for people elsewhere (MON-728).
+ *
+ * The whole composition, because the defect this guards against is a *seam*: the setup screen keeps
+ * rendering, the lists keep resolving, and the game is quietly created on the wrong engine. So the
+ * assertions are about **which transport was asked**, and the two are told apart by which `fetch`
+ * they go through — the injected edge is the engine in the tab, and the global `fetch` is the API,
+ * exactly as they are in the published build.
+ */
+describe("App — starting a game for people elsewhere", () => {
+  /** The server's answers, through the global `fetch` an `ApiClient` of App's own making uses. */
+  function stubTheApi(view: GameView) {
+    const calls: string[] = [];
+    const online = vi.fn((input: unknown, init?: { method?: string }) => {
+      const path = String(input).split("?")[0] ?? "";
+      calls.push(`${init?.method ?? "GET"} ${path}`);
+      const body = path.endsWith("/boards") ? BOARDS : path.endsWith("/rulesets") ? RULESETS : view;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", online);
+    return calls;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function openSetup(edge: Edge) {
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <App client={edge.client} offerOnline />
+      </QueryClientProvider>,
+    );
+    await screen.findAllByLabelText("Name");
+  }
+
+  it("does not offer the choice where there is nothing to choose between", async () => {
+    // The default, and what every other test in this file renders. `canPlayOnline` is false without
+    // both an in-tab engine and an API url, and an absent control is how that is said.
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findAllByLabelText("Name");
+    expect(screen.queryByText("Where is everyone?")).not.toBeInTheDocument();
+  });
+
+  it("asks where everyone is, above the seats", async () => {
+    const edge = gameEdge(gameView({}, [ROLL]));
+    await openSetup(edge);
+    expect(screen.getByText("Where is everyone?")).toBeInTheDocument();
+    expect(screen.getByTestId("setup-where-note")).toHaveTextContent("Nothing is sent anywhere.");
+  });
+
+  it("warns about the wait before a player has typed anything", async () => {
+    // The free tier sleeps. Saying so when the choice is made beats discovering it after six names.
+    const edge = gameEdge(gameView({}, [ROLL]));
+    stubTheApi(gameView({}, [ROLL]));
+    await openSetup(edge);
+    await userEvent.click(screen.getByRole("radio", { name: "People elsewhere" }));
+    expect(screen.getByTestId("setup-where-note")).toHaveTextContent("up to a minute");
+  });
+
+  it("re-asks the server for the boards rather than reusing the engine's answer", async () => {
+    /*
+      The cache-scope assertion. Both engines answer `/boards`, so without a transport in the query
+      key the screen would keep showing the in-tab engine's list while creating the game on a server
+      that may be a version ahead of the wheels — invisible until the two disagree.
+    */
+    const edge = gameEdge(gameView({}, [ROLL]));
+    const online = stubTheApi(gameView({}, [ROLL]));
+    await openSetup(edge);
+    expect(online).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole("radio", { name: "People elsewhere" }));
+    await waitFor(() => {
+      expect(online).toContain("GET /api/boards");
+    });
+    expect(online).toContain("GET /api/rulesets");
+  });
+
+  it("creates the game on the server, and puts its id in the address bar", async () => {
+    const edge = gameEdge(gameView({}, [ROLL]));
+    const online = stubTheApi(gameView({}, [ROLL]));
+    await openSetup(edge);
+    await userEvent.click(screen.getByRole("radio", { name: "People elsewhere" }));
+
+    const names = await screen.findAllByLabelText("Name");
+    await userEvent.type(names[0] as HTMLElement, "Ruti");
+    await userEvent.type(names[1] as HTMLElement, "Dan");
+    await userEvent.click(screen.getByRole("button", { name: "Start the game" }));
+
+    expect(await screen.findByTestId("board-grid")).toBeInTheDocument();
+    // Posted to the API...
+    expect(online).toContain("POST /api/games");
+    // ...and never to the engine in the tab, which is the half a passing screen would hide.
+    expect(edge.calls.some((call) => call.method === "POST")).toBe(false);
+    // The address bar is now the link to send.
+    expect(new URLSearchParams(globalThis.location.search).get("game")).toBe("g1");
   });
 });
 

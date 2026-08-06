@@ -31,6 +31,8 @@ import {
   KIDS_VIEW_UNCHANGED,
   UNIVERSAL_VIEW,
 } from "./SetupScreenFixtures";
+import type { Transport } from "@/local/mode";
+
 import { SetupScreen } from "./SetupScreen";
 
 const BOARDS: readonly BoardSummary[] = [
@@ -49,8 +51,13 @@ function setup(
     readonly rulesets?: readonly RulesetView[];
     readonly boards?: readonly BoardSummary[];
     readonly locale?: Locale;
+    readonly transport?: Transport;
+    /** Present ⇒ the where-do-people-play control is offered (MON-728). */
+    readonly onTransportChange?: (transport: Transport) => void;
   } = {},
-): { readonly onStart: ReturnType<typeof vi.fn> } {
+): {
+  readonly onStart: ReturnType<typeof vi.fn>;
+} {
   const onStart = vi.fn(overrides.onStart ?? (() => Promise.resolve()));
   render(
     <SetupScreen
@@ -59,6 +66,10 @@ function setup(
       locale={overrides.locale ?? "en"}
       onLocaleChange={vi.fn()}
       onStart={onStart}
+      transport={overrides.transport ?? "same-screen"}
+      {...(overrides.onTransportChange === undefined
+        ? {}
+        : { onTransportChange: overrides.onTransportChange })}
     />,
   );
   return { onStart };
@@ -589,4 +600,51 @@ describe("the accessibility floor", () => {
   // including template literals. Every className below is a plain literal, so a second
   // rendered-markup assertion would add no coverage; and a regex naming the physical utilities
   // is itself a string full of them, which trips the very lint it was written to reinforce.
+});
+
+/**
+ * Where the game will live (MON-728).
+ *
+ * The screen's whole part in this is to *ask* — which engine answers, and what a link costs, are
+ * `App`'s and `local/mode.ts`'s. So what is tested here is that the question is absent when there is
+ * nothing to ask, present when there is, and that it changes nothing else about the form.
+ */
+describe("where everyone is playing", () => {
+  it("asks nothing when the caller offers no choice", () => {
+    // A dev build is already online and a published build with no API url has no server to reach.
+    // Absent rather than disabled: a control that cannot work should not be explaining why.
+    setup();
+    expect(screen.queryByRole("radio", { name: "People elsewhere" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("setup-where-note")).not.toBeInTheDocument();
+  });
+
+  it("asks, and hands the answer straight back", async () => {
+    const onTransportChange = vi.fn();
+    setup({ onTransportChange });
+    await userEvent.click(screen.getByRole("radio", { name: "People elsewhere" }));
+    expect(onTransportChange).toHaveBeenCalledWith("online");
+  });
+
+  it("says what the same-screen answer means, in the words a parent would use", () => {
+    setup({ onTransportChange: vi.fn(), transport: "same-screen" });
+    expect(screen.getByTestId("setup-where-note")).toHaveTextContent("Nothing is sent anywhere.");
+  });
+
+  it("warns about a sleeping server before any names are typed", () => {
+    // The free tier sleeps for ~a minute. A player who reads this when they choose is not a player
+    // who thinks the game is broken after filling in six seats.
+    setup({ onTransportChange: vi.fn(), transport: "online" });
+    expect(screen.getByTestId("setup-where-note")).toHaveTextContent("up to a minute");
+  });
+
+  it("changes nothing about what the form posts", async () => {
+    // The transport is not a game rule and must not reach the request: the *server it is posted to*
+    // is what differs, and that is `App`'s business.
+    const { onStart } = setup({ onTransportChange: vi.fn(), transport: "online" });
+    await nameBothSeats(["Ruti", "Dan"]);
+    await userEvent.click(screen.getByRole("button", { name: i18next.t("setup.start") }));
+    const request = onStart.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(Object.keys(request)).not.toContain("transport");
+    expect(JSON.stringify(request)).not.toContain("online");
+  });
 });
