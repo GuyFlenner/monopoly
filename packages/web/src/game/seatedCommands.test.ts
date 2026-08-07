@@ -53,63 +53,85 @@ describe("isBot", () => {
 });
 
 describe("movesAtThisScreen", () => {
-  it("drops a bot's estate moves and keeps every human's", () => {
-    expect(movesAtThisScreen(LEGAL, TABLE)).toEqual([
+  it("keeps only the seat-in-play's estate, and every other seat's is gone", () => {
+    // The owner's report, 2026-08-07: with two players each holding a complete group, both sets of
+    // streets were on the bar. A name against a row turned out to be a weaker signal than the row not
+    // being there.
+    expect(movesAtThisScreen(LEGAL, TABLE, RUTI.id)).toEqual([
       { kind: "roll_dice", player: 0 },
       { kind: "build_house", player: 0, tile: 1 },
+    ]);
+  });
+
+  it("follows the turn rather than a seat number", () => {
+    // The same legal set, one turn later. Nothing is keyed on "seat 0"; it is keyed on who is in play.
+    expect(movesAtThisScreen(LEGAL, TABLE, DAN.id)).toEqual([
+      { kind: "roll_dice", player: 0 },
       { kind: "build_house", player: 1, tile: 3 },
     ]);
   });
 
+  it("offers no estate at all while a bot is the seat in play", () => {
+    /*
+      Reachable: a bot that proposes a trade to a human leaves the game in `TRADE_REVIEW` with the bot
+      still current (`bots.py` on the one-proposal-per-turn rule). It is nobody's turn to build, so the
+      answer is nothing rather than the bot's own streets.
+    */
+    expect(movesAtThisScreen(LEGAL, TABLE, BOT.id)).toEqual([{ kind: "roll_dice", player: 0 }]);
+  });
+
   it("never drops turn flow, whoever it belongs to", () => {
     /*
-      The bound that keeps this a convenience rather than a rule. A bot's `roll_dice` should not reach
-      a resting view — `bots.py` advances every seat the engine is waiting on before the response is
-      built — but hiding the move a game is waiting on would be unrecoverable, and hiding an estate
-      move only costs a convenience. So every `flow` kind survives for a bot seat, asserted over the
-      contract's own list rather than a sample.
+      The bound that keeps this a convenience rather than a rule, and it matters more since MON-753
+      than it did before: the interrupt phases exist *for* a seat whose turn it is not — a bidder, a
+      debtor, the two sides of a trade — so "not the current player" is a perfectly ordinary thing for
+      a flow command to be. Hiding the move a game is waiting on would be unrecoverable; hiding an
+      estate move only costs a convenience. Asserted over the contract's own list, not a sample.
     */
     const flowKinds = COMMAND_KINDS.filter((kind) => zoneOf(kind) === "flow");
     expect(flowKinds.length, "the flow zone should not be empty").toBeGreaterThan(0);
     for (const kind of flowKinds) {
-      const command = { kind, player: BOT.id } as unknown as Command;
-      expect(movesAtThisScreen([command], TABLE), `${kind} was dropped for a bot`).toEqual([
-        command,
-      ]);
+      const command = { kind, player: DAN.id } as unknown as Command;
+      // Asked while it is *not* Dan's turn, which is the case that would strand a game.
+      expect(
+        movesAtThisScreen([command], TABLE, RUTI.id),
+        `${kind} was dropped for a seat that is not in play`,
+      ).toEqual([command]);
     }
   });
 
-  it("keeps every estate kind for a human seat", () => {
-    // The other half: the filter is about *who*, never about *what*. A portfolio kind that started
-    // being dropped for humans would be MON-204 quietly repealed in the UI.
+  it("keeps every estate kind for the seat in play", () => {
+    // The other half: the filter is about *whose turn it is*, never about *what the move is*. A
+    // portfolio kind that started being dropped for the current player would be a different defect.
     const estateKinds = COMMAND_KINDS.filter((kind) => zoneOf(kind) === "portfolio");
+    expect(estateKinds.length, "the portfolio zone should not be empty").toBeGreaterThan(0);
     for (const kind of estateKinds) {
       const command = { kind, player: DAN.id } as unknown as Command;
-      expect(movesAtThisScreen([command], TABLE), `${kind} was dropped for a human`).toEqual([
-        command,
-      ]);
+      expect(
+        movesAtThisScreen([command], TABLE, DAN.id),
+        `${kind} was dropped for the seat in play`,
+      ).toEqual([command]);
     }
   });
 
-  it("hands an all-human table back untouched, by identity", () => {
-    // Identity, not equality: the common case must not rebuild the array, or every chit under it
-    // re-renders on every frame.
-    const humans = [RUTI, DAN];
-    expect(movesAtThisScreen(LEGAL, humans)).toBe(LEGAL);
-  });
-
-  it("preserves the engine's order among what is left", () => {
-    const kept = movesAtThisScreen(LEGAL, TABLE);
+  it("preserves the engine's order, and the objects themselves", () => {
+    const kept = movesAtThisScreen(LEGAL, TABLE, RUTI.id);
     const positions = kept.map((command) => LEGAL.indexOf(command));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
-    // And by identity, so the bar can still mark a hinted command with `===`.
+    // By identity, so the bar can still mark a hinted command with `===`.
     for (const command of kept) {
       expect(LEGAL).toContain(command);
     }
   });
 
   it("says nothing at a table with no seats yet", () => {
-    expect(movesAtThisScreen([], [])).toEqual([]);
+    expect(movesAtThisScreen([], [], -1)).toEqual([]);
+  });
+
+  it("offers no estate for a seat the projection does not carry", () => {
+    // Unreachable while the view is well-formed. Answering "nothing" is the safe way to be wrong:
+    // the alternative offers somebody's streets on nobody's turn.
+    expect(movesAtThisScreen(LEGAL, TABLE, 99)).toEqual([{ kind: "roll_dice", player: 0 }]);
   });
 });
 

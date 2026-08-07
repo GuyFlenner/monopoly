@@ -555,7 +555,7 @@ describe("App — the game screen", () => {
    * whole composition — real client, real query cache — because the filter lives in `GameScreen` and
    * the label lives in `ActionBar`, and the defect is only visible where the two meet.
    */
-  describe("whose moves reach the bar (MON-726)", () => {
+  describe("whose moves reach the bar (MON-726, narrowed by MON-753)", () => {
     /** Seat 0 human (current), seat 1 human, seat 2 a bot — each with a buildable street. */
     const TABLE = [
       makePlayer(0, { name: "Ruti" }),
@@ -594,7 +594,7 @@ describe("App — the game screen", () => {
     it("does not offer a bot's estate, which the bot plays itself", async () => {
       await openTable();
       await waitFor(() => {
-        expect(buildChits()).toHaveLength(2);
+        expect(buildChits()).toHaveLength(1);
       });
       /*
         Asserted over the chits rather than the page. "Oriental Avenue" is legitimately on the *board*
@@ -606,25 +606,32 @@ describe("App — the game screen", () => {
       expect(offered.some((text) => text.includes("Robo"))).toBe(false);
     });
 
-    it("offers the other human's estate, and says whose it is", async () => {
-      // MON-204 is a real rule: Dan may build while waiting for his turn. Taking that away would make
-      // the UI quietly narrower than the engine.
+    it("does not offer another human's estate either (MON-753)", async () => {
+      /*
+        MON-726 offered Dan's streets with his name against them, on the reasoning that MON-204 makes
+        building legal off-turn and the UI should not be narrower than the engine. Played, that was
+        still confusing — two players each holding a complete group saw both sets of streets — so the
+        owner asked for the rule every other board game already has: you manage your estate on your
+        turn. What the UI gives up is written down in `seatedCommands.ts`.
+      */
       await openTable();
       await waitFor(() => {
-        expect(buildChits()).toHaveLength(2);
+        expect(buildChits()).toHaveLength(1);
       });
-      const dans = buildChits().find((chit) => chit.textContent.includes("Dan"));
-      expect(dans).toBeDefined();
-      expect(dans).toHaveTextContent("Dan · Baltic Avenue");
+      const offered = buildChits().map((chit) => chit.textContent);
+      expect(offered.some((text) => text.includes("Baltic Avenue"))).toBe(false);
+      expect(offered.some((text) => text.includes("Dan"))).toBe(false);
     });
 
-    it("leaves the current player's own street unlabelled", async () => {
+    it("offers the seat in play its own street, unlabelled", async () => {
+      // The one that survives, and it is the point of the whole filter: your streets, on your turn,
+      // with no name against them because there is no other seat to tell them apart from.
       await openTable();
       await waitFor(() => {
-        expect(buildChits()).toHaveLength(2);
+        expect(buildChits()).toHaveLength(1);
       });
-      const own = buildChits().find((chit) => chit.textContent.includes("Mediterranean"));
-      expect(own).toBeDefined();
+      const own = buildChits()[0];
+      expect(own).toHaveTextContent("Mediterranean Avenue");
       expect(own?.textContent).not.toContain("Ruti");
     });
   });

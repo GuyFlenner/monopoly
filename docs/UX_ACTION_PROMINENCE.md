@@ -568,3 +568,65 @@ Seat *ownership* still does not exist. Two browser windows on the same game can 
 player, because nothing anywhere knows which seat a connection speaks for (`DEPLOYMENT.md` §6.6).
 This settles who the moves are offered to on **one shared screen**, which is the mode the product is
 built around; the online question is still open and is MON-901's.
+
+---
+
+## 8. Amendment (MON-753): the estate belongs to the seat in play
+
+§7 answered "whose moves reach the bar" by **labelling**: a bot's estate was dropped, another
+human's was offered with their name against it. Played, that was still confusing.
+
+> "When first player has city1 and player2 has city2, the ability to purchase houses is presented for
+> both — it causes confusion. Only present buy-house on the owner's turn, and only his series."
+> — owner, 2026-08-07
+
+### 8.1 What changed
+
+One condition. `movesAtThisScreen` used to drop a portfolio command when its seat was a **bot**; it
+now keeps one only when its seat is the **one in play**:
+
+```
+portfolio command survives  ⟺  seat in play is a human  ∧  command.player is that seat
+```
+
+That subsumes the bot rule — a bot is never a human seat in play — and adds the case the label was
+trying to cover with words. Nothing else moved: `actingFor`, the zoning, the flattening and the fold
+are untouched.
+
+### 8.2 Why a label was not enough
+
+A name on a row is a weaker signal than the row not being there. Under §7 a player holding a complete
+group saw their three streets *and* another player's three, distinguished only by a name in 12px on
+the second line — six rows where two players' money was one mis-tap apart. The failure mode of a
+label is silent; the failure mode of an absent row is a player asking "where is it?", which is a
+question with an answer.
+
+### 8.3 What this gives up, and why it is written down rather than discovered
+
+**The engine allows building off-turn and the screen no longer offers it.** `PORTFOLIO_PHASES` opens
+the estate to every solvent player in any quiet phase — that is MON-204 and GAP G-5, a deliberate
+reading of the printed rules — and this is the UI being narrower than the rules on purpose.
+
+The trade: on one shared screen the turn comes round in seconds, so waiting costs a player almost
+nothing, while the confusion cost them a mis-tap that spends somebody else's money. A player who
+knows the printed rules is *not wrong* to expect otherwise, which is exactly why it belongs in this
+document and in `seatedCommands.ts`'s docstring rather than in a diff nobody re-reads.
+
+Reversing it is one condition wide, and the tests say which one.
+
+### 8.4 Why the seat label survives the change
+
+Because turn flow still reaches seats whose turn it is not, and those are the moments a player most
+needs telling. `legality.py` puts `place_bid` / `withdraw_from_auction` on the **bidder**,
+`declare_bankruptcy` on the **debtor**, and `respond_to_trade` / `cancel_trade` on the two sides of an
+offer — none of which need be the current seat, because the interrupt phases exist *for* another
+actor. `actingFor` names those, and only those. It is no longer reachable for an estate move, which is
+the point.
+
+### 8.5 The bound is unchanged and now matters more
+
+**Turn flow is never filtered.** Under §7 that was belt-and-braces about bots; under §8 it is
+load-bearing, because "not the current player" is now an ordinary thing for a *legal, waited-on* flow
+command to be. The test asserts it over the contract's own list of kinds, for a seat that is
+deliberately not in play — so no value of `players` or `currentPlayerId` can hide the move a game is
+waiting on.

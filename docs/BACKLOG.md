@@ -1589,6 +1589,47 @@ shared screen, but nothing knows which seat a *connection* speaks for (`DEPLOYME
 
 ---
 
+### MON-753 — Build on your own turn, on your own streets ✅ **DONE** (2026-08-07)
+**Tier**: Opus · **Size**: XS · *(owner report from play; tightens MON-726 the same week)*
+
+> "When first player has city1 and player2 has city2, the ability to purchase houses is presented for
+> both — it causes confusion. Only present buy-house on the owner's turn, and only his series."
+
+MON-726 answered "whose moves reach the bar" by **labelling**: a bot's estate was dropped, another
+human's offered with their name against it. Played, that was still confusing — a name on a row is a
+weaker signal than the row not being there, and two players with complete groups saw six build rows
+where one mis-tap spent the wrong person's money.
+
+**One condition changed.** A portfolio command used to be dropped when its seat was a *bot*; it is now
+kept only when its seat is the *one in play*:
+
+```
+portfolio command survives  ⟺  the seat in play is a human  ∧  command.player is that seat
+```
+
+That subsumes the bot rule — a bot is never a human seat in play — and covers the case the label was
+trying to handle with words. `actingFor`, the zoning, the flattening and the fold are untouched.
+
+**What it gives up, stated rather than discovered.** The engine allows building, selling and
+mortgaging off-turn (MON-204, `PORTFOLIO_PHASES`, GAP G-5) and **the screen no longer offers it**.
+This is the UI deliberately narrower than the rules: on one shared screen the turn comes round in
+seconds, so waiting costs almost nothing, while the confusion cost a mis-tap. Written into
+`UX_ACTION_PROMINENCE.md` §8 and the module docstring because a player who knows the printed rules is
+not wrong to expect otherwise.
+
+**The seat label survives**, and is now reachable only where it was always most needed: turn flow
+still reaches seats whose turn it is not — a bidder, a debtor, the two sides of a trade — because the
+interrupt phases exist *for* another actor.
+
+**The bound matters more than it did.** Turn flow is never filtered, and "not the current player" is
+now an ordinary thing for a legal, waited-on flow command to be. Asserted over the contract's own list
+of kinds for a seat deliberately not in play, so no value of `players` or `currentPlayerId` can hide
+the move a game is waiting on.
+
+14 tests, each verified red under a hand-mutation — including the reversal to MON-726's behaviour.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |
