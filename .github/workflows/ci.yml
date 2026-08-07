@@ -134,8 +134,10 @@ jobs:
       - name: Format check
         run: npm run format:check
 
+      # MON-731: the coverage floor lives in vite.config.ts's `test.coverage.thresholds` — this flag
+      # is what makes the run actually check it, the same way `--cov-fail-under` does for pytest.
       - name: Unit tests
-        run: npm run test -- --run
+        run: npm run test -- --run --coverage
 
       - name: Build
         run: npm run build
