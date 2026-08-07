@@ -1589,6 +1589,40 @@ shared screen, but nothing knows which seat a *connection* speaks for (`DEPLOYME
 
 ---
 
+### MON-729 — A card scrolled the page away from itself ✅ **DONE** (2026-08-07)
+**Tier**: Opus · **Size**: XS · *(owner report, 2026-08-07, from play)*
+
+> "Every time we see a card the game/UI is scrolled down, and we have to scroll back up. Annoying."
+
+**Root cause, reproduced before anything was changed.** `ActionBar` has a deliberate focus repair: a
+press changes the legal set, the pressed chit unmounts, and a removed element takes the focus to
+`<body>` with it — the "focus in the void" failure this repo has shipped twice. The effect catches it
+by focusing the bar's own `<section tabIndex={-1}>`.
+
+It called `.focus()` with **no options**, and a browser scrolls a newly focused element into view.
+The bar lives in the aside column, which on a narrow screen sits *below* the board.
+
+Traced rather than guessed: a spy on `HTMLElement.prototype.focus` through a press showed
+`focus(null) -> section#kesef-actions tabIndex=-1`, with `document.activeElement` moving from the
+roll chit to the region. There is no `scrollIntoView` anywhere in the package — the scroll was
+entirely `focus()`'s default.
+
+**It happened on every press, not only on cards.** What made a card the thing people noticed is that
+a card is the one thing that appears *on the board* and stays there for seconds (`cardMs`, MON-719):
+the player looks up to read it and the browser has already taken them elsewhere. Every other press
+moves the eye to the bar anyway, where the scroll is invisible.
+
+**Fix**: `focus({ preventScroll: true })`. The focus move stays — dropping it would put the keyboard
+back in the void — and only the scrolling is suppressed. It degrades safely where unimplemented: an
+engine that does not know the option focuses as before, which is today's behaviour rather than a
+broken one, so there is nothing to feature-detect.
+
+The regression test asserts the **option**, not a scroll position: jsdom has no layout and never
+scrolls, so a test written against `scrollTop` would pass with the defect fully present. Verified red
+under the one-word revert.
+
+---
+
 ## E9 — Deferred (not v1)
 
 | ID | Item | Why deferred |

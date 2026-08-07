@@ -15,7 +15,7 @@ import type { Command, Phase } from "@/api";
 import { makeBoard, makeTile } from "@/test/fixtures";
 import { COMMAND_KINDS, NEVER_COLLAPSED, TERMINAL_COMMANDS } from "@/theme";
 
-import { ActionBar, groupCommands, zoneCommands } from "./ActionBar";
+import { ACTIONS_REGION_ID, ActionBar, groupCommands, zoneCommands } from "./ActionBar";
 import { baseLabelKey, labelKeyFor } from "./actionCommand";
 
 const BOARD = makeBoard({
@@ -1207,6 +1207,44 @@ describe("focus after a press that removes the chit", () => {
 
     expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement?.id, "focus did not land on the bar").toBe("kesef-actions");
+  });
+
+  it("catches the focus without scrolling the page to itself (MON-729)", async () => {
+    /*
+      The owner's report: *"every time we see a card the game scrolls down, and we have to scroll back
+      up."* `focus()` scrolls the focused element into view, and this bar sits in the aside column —
+      below the board on a narrow screen — so the repair above was dragging the page down on **every**
+      press. A card is only what made it noticeable: it is the one thing that appears on the board and
+      stays there for seconds, so it is the one time the player is looking somewhere the scroll takes
+      them away from.
+
+      Asserted on the *option* rather than on a scroll position, because jsdom has no layout and never
+      scrolls — a test written against `scrollTop` here would pass with the defect fully present.
+    */
+    // No `mockImplementation`: `spyOn` calls through, so the focus really moves and the assertion
+    // about `activeElement` below is about the product rather than about the spy.
+    const spy = vi.spyOn(HTMLElement.prototype, "focus");
+
+    try {
+      const { rerender } = render(bar([roll, endTurn]));
+      const chit = screen.getByRole("button", { name: /Roll the dice/ });
+      chit.focus();
+      await userEvent.click(chit);
+      rerender(bar([endTurn]));
+
+      // The repair still happened...
+      expect(document.activeElement?.id).toBe(ACTIONS_REGION_ID);
+      // ...and it did not take the page with it. `instances` pairs with `calls` by index, which is
+      // how the call that focused the *region* is told apart from the ones that focused chits.
+      const onTheRegion = spy.mock.calls.filter(
+        (_call, index) =>
+          (spy.mock.instances[index] as HTMLElement | undefined)?.id === ACTIONS_REGION_ID,
+      );
+      expect(onTheRegion, "the bar never caught the focus at all").toHaveLength(1);
+      expect(onTheRegion[0]?.[0]?.preventScroll).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("leaves focus alone when the press did not remove anything", async () => {
