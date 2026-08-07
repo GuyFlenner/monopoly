@@ -545,8 +545,5 @@ def _without_claims_of(frame: InterruptFrame, player: PlayerId, events: list[Eve
 def _return_jail_cards(state: GameState, cards: tuple[Deck, ...]) -> GameState:
     """Jail cards go to the bottoms of their own decks (GAP G-11)."""
     for card in cards:
-        if card is Deck.CHANCE:
-            state = state._replace(chance_deck=(*state.chance_deck, GET_OUT_OF_JAIL_IDS[card]))
-        else:
-            state = state._replace(community_chest_deck=(*state.community_chest_deck, GET_OUT_OF_JAIL_IDS[card]))
+        state = state.deck_bottom(card, GET_OUT_OF_JAIL_IDS[card])
     return state

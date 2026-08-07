@@ -667,6 +667,34 @@ class GameState(BaseModel, frozen=True):
     def deck(self, deck: Deck) -> tuple[str, ...]:
         return self.chance_deck if deck is Deck.CHANCE else self.community_chest_deck
 
+    def with_deck(self, deck: Deck, pile: tuple[str, ...]) -> GameState:
+        """``deck`` restocked with ``pile``, as a validated copy (MON-738).
+
+        The write twin of :meth:`deck`, and the reason it exists: the ``Deck`` -> field mapping was
+        spelled out at three separate call sites, twice as an ``if card is Deck.CHANCE`` and once as
+        a ``"chance_deck" if ... else "community_chest_deck"`` string handed to ``_replace`` as a
+        keyword. Three spellings of one fact is three places a third deck would have to be found,
+        and the string form is the worst of them — a typo in it is a ``_replace`` keyword no type
+        checker can object to, because ``_replace`` takes ``**changes: Any``.
+
+        Through ``_replace``, so the copy is validated: a pile is not free-form, and a caller that
+        restocked a deck with something no save file could restore should fail here rather than at
+        the next load.
+        """
+        field = "chance_deck" if deck is Deck.CHANCE else "community_chest_deck"
+        return self._replace(**{field: pile})
+
+    def deck_bottom(self, deck: Deck, card_id: str) -> GameState:
+        """``card_id`` placed under the rest of its own deck (GAP G-11).
+
+        The one idiom both jail-card returns needed. Spelling it here rather than at each call site
+        is what makes "its *own* deck" a property of the state model instead of a convention two
+        rule modules happen to share: a card returned to the wrong pile is invisible until somebody
+        draws Chance and gets a Community Chest card, and neither of the ``if card is Deck.CHANCE``
+        branches it replaced could be read without checking that both arms used the same ``card``.
+        """
+        return self.with_deck(deck, (*self.deck(deck), card_id))
+
     @property
     def houses_on_board(self) -> int:
         """Houses the bank has handed out. A hotel is not four houses — the houses go back."""
