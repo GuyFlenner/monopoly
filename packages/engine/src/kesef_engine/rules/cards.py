@@ -30,7 +30,7 @@ to carry *remaining* work, and by the last step there is none.
 
 from __future__ import annotations
 
-from typing import assert_never
+from typing import Final, assert_never
 
 from kesef_engine.board.models import BOARD_SIZE, TileKind
 from kesef_engine.decks import (
@@ -58,7 +58,7 @@ from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import post_move_phase, send_to_jail, update_player
 from kesef_engine.state import HOTEL_LEVEL, CardFrame, DebtFrame, GameState, Obligation
 
-DECK_OF_TILE: dict[TileKind, Deck] = {
+DECK_OF_TILE: Final[dict[TileKind, Deck]] = {
     TileKind.CHANCE: Deck.CHANCE,
     TileKind.COMMUNITY_CHEST: Deck.COMMUNITY_CHEST,
 }
