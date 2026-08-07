@@ -163,7 +163,7 @@ def test_a_game_still_being_played_is_never_evicted() -> None:
 
 
 def test_listing_games_sweeps_but_does_not_defer_the_eviction() -> None:
-    """A lobby screen polling ``GET /games`` must not keep an abandoned game alive forever."""
+    """Enumerating the store must not keep an abandoned game alive forever."""
     clock = FakeClock()
     store = _store(ttl_seconds=100.0, clock=clock)
     store.create(minimal_state())
@@ -171,7 +171,7 @@ def test_listing_games_sweeps_but_does_not_defer_the_eviction() -> None:
     clock.advance(60.0)
     assert len(store.all()) == 1
     clock.advance(60.0)
-    assert store.all() == (), "polling the list refreshed touched_at"
+    assert store.all() == (), "enumerating the store refreshed touched_at"
 
 
 def test_an_idle_game_is_swept_before_the_cap_refuses_a_new_one() -> None:

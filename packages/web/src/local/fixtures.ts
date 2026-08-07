@@ -74,7 +74,6 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
       record("createGame", [requestJson], () =>
         envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),
       ),
-    listGames: () => record("listGames", [], () => envelope(200, [])),
     loadGame: (saveJson, ifExists) =>
       record("loadGame", [saveJson, ifExists], () =>
         envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),

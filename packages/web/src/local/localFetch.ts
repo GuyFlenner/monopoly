@@ -149,9 +149,8 @@ function match(
     return method === "GET" ? { answer: () => bridge.listRulesets() } : null;
   }
   if (path === "/games") {
-    if (method === "GET") {
-      return { answer: () => bridge.listGames() };
-    }
+    // POST only: MON-909 deleted `GET /games` from both transports, so a GET here is the same
+    // keyed 405 the HTTP app answers rather than a route this build kept to itself.
     return method === "POST"
       ? { answer: () => bridge.createGame(body), mutates: "in-response" }
       : null;

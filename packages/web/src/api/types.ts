@@ -56,7 +56,6 @@ export type HouseRules = Schemas["HouseRules"];
 export type AuctionMinimum = Schemas["AuctionMinimum"];
 export type SeatConfig = Schemas["SeatConfig"];
 export type BoardSummary = Schemas["BoardSummary"];
-export type GameSummary = Schemas["GameSummary"];
 export type Ruleset = Schemas["Ruleset"];
 
 /**

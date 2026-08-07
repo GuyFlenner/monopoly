@@ -41,7 +41,6 @@ from kesef_server.schemas import (
     BoardSummary,
     BoardView,
     GameStateView,
-    GameSummary,
     GameView,
     IfExists,
     LoggedEvent,
@@ -148,19 +147,6 @@ def rulesets() -> list[RulesetView]:
     """
     universal = Ruleset.universal()
     return [RulesetView.from_ruleset(Ruleset.by_name(name), universal) for name in RulesetName]
-
-
-def game_summaries(store: SessionStore) -> list[GameSummary]:
-    return [
-        GameSummary(
-            game_id=held.state.game_id,
-            board_id=held.state.board_id,
-            ruleset=held.state.ruleset.name,
-            turn_number=held.state.turn_number,
-            player_names=tuple(player.name for player in held.state.players),
-        )
-        for held in store.all()
-    ]
 
 
 def view(held: Session, events: tuple[LoggedEvent, ...] = ()) -> GameView:
