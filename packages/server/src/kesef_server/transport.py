@@ -49,6 +49,7 @@ from kesef_server.schemas import (
     is_addressable_game_id,
 )
 from kesef_server.sessions import (
+    ClientSessionLimitReachedError,
     DuplicateGameError,
     Session,
     SessionLimitReachedError,
@@ -67,12 +68,21 @@ def session(store: SessionStore, game_id: str) -> Session:
         raise errors.game_not_found(game_id) from None
 
 
-def create(store: SessionStore, state: GameState, events: tuple[Event, ...] = ()) -> Session:
-    """Seat a new game, translating the store's two refusals into keyed failures."""
+def create(
+    store: SessionStore, state: GameState, events: tuple[Event, ...] = (), *, client_id: str | None = None
+) -> Session:
+    """Seat a new game, translating the store's three refusals into keyed failures.
+
+    ``client_id`` is who to charge the game to, for ``max_sessions_per_client`` (MON-905). It is
+    ``None`` from the browser transport, which has one caller and nothing to divide the store
+    between — see :attr:`~kesef_server.sessions.Session.client_id`.
+    """
     try:
-        return store.create(state, events)
+        return store.create(state, events, client_id)
     except DuplicateGameError:
         raise errors.game_already_exists(state.game_id) from None
+    except ClientSessionLimitReachedError as refused:
+        raise errors.too_many_games(refused.limit) from None
     except SessionLimitReachedError:
         raise errors.server_at_capacity(len(store)) from None
 
@@ -86,7 +96,7 @@ def minted_game_id() -> str:
     return f"game-{secrets.token_hex(8)}"
 
 
-def load(store: SessionStore, save: SaveFile, if_exists: IfExists) -> Session:
+def load(store: SessionStore, save: SaveFile, if_exists: IfExists, *, client_id: str | None = None) -> Session:
     """Seat a restored game, answering the conflict the player was asked about (ADR-011).
 
     The three policies are :class:`~kesef_server.schemas.IfExists`, and the conflict is only ever
@@ -100,18 +110,26 @@ def load(store: SessionStore, save: SaveFile, if_exists: IfExists) -> Session:
     if not is_addressable_game_id(save.state.game_id):
         raise errors.invalid_game_id()
     try:
-        return store.create(save.state, save.events)
+        return store.create(save.state, save.events, client_id)
     except DuplicateGameError:
         pass
+    except ClientSessionLimitReachedError as refused:
+        raise errors.too_many_games(refused.limit) from None
     except SessionLimitReachedError:
         raise errors.server_at_capacity(len(store)) from None
     if if_exists is IfExists.REFUSE:
         raise errors.game_already_exists(save.state.game_id)
     if if_exists is IfExists.REPLACE:
-        return store.replace(save.state, save.events)
+        # Charged like any other seating (MON-905): `replace` detaches the old session before it
+        # counts, so taking over a game this client already holds is free, and taking over somebody
+        # else's is refused once this client is at its cap.
+        try:
+            return store.replace(save.state, save.events, client_id)
+        except ClientSessionLimitReachedError as refused:
+            raise errors.too_many_games(refused.limit) from None
     if if_exists is IfExists.COPY:
         copied = save.state.model_copy(update={"game_id": minted_game_id()})
-        return create(store, copied, save.events)
+        return create(store, copied, save.events, client_id=client_id)
     assert_never(if_exists)
 
 

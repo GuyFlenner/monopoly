@@ -133,6 +133,16 @@
               }
             }
           },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "Session cap reached.",
             "content": {
@@ -217,6 +227,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "503": {
             "content": {
@@ -362,6 +382,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "500": {
             "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",

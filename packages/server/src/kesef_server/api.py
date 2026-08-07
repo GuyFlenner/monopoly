@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
 from fastapi import (
@@ -37,6 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.routing import Match
 
 from kesef_engine.errors import BoardDataError, EngineError, IllegalCommandError, InvalidSeatingError
 from kesef_engine.factory import new_game
@@ -45,7 +47,8 @@ from kesef_engine.reducer import apply
 from kesef_engine.ruleset import Ruleset
 from kesef_server import errors, transport
 from kesef_server.config import Settings, settings
-from kesef_server.errors import CONTENT_TOO_LARGE, UNPROCESSABLE, ApiError
+from kesef_server.errors import CONTENT_TOO_LARGE, TOO_MANY_REQUESTS, UNPROCESSABLE, ApiError
+from kesef_server.limits import ClientLimiter
 from kesef_server.log import configure_logging, get_logger
 from kesef_server.schemas import (
     BoardSummary,
@@ -111,6 +114,76 @@ today would have to be widened again by the very next item
 (``_drafts/design-mon-906-seat-ownership.md``, "CORS coordination"). Nothing is exposed by
 naming a header the server does not yet read."""
 
+METERED_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {("POST", "/games"), ("POST", "/games/load"), ("DELETE", "/games/{game_id}")}
+)
+"""The routes ``requests_per_minute`` applies to: the ones that seat or end a game (MON-905).
+
+Route **templates**, matched through starlette's own router rather than compared against the
+request's path, because ``/games/load`` and ``/games/{game_id}`` are the same shape to a string
+comparison and the one place a limiter must not disagree with is the router. This is also what makes
+a future ``POST /games/{game_id}/seats/...`` (MON-906) a one-line addition rather than a second
+pattern language.
+
+**Playing is not metered, deliberately.** ``POST /games/{id}/commands`` is a dice roll and
+``/validate`` is called on every keystroke of the trade builder; a bound that could refuse either
+would be a rule about how fast a child may play. Reads and the WebSocket are not metered for the
+same reason plus one more — a reconnect polls ``GET /games/{id}``, so metering it would punish
+exactly the client whose connection is already struggling."""
+
+
+def _metered(request: Request) -> bool:
+    """Whether this request is one :data:`METERED_ROUTES` names.
+
+    Resolved by asking each route whether it matches, which is what the router itself will do a
+    moment later — middleware runs before routing, so ``request.scope["route"]`` is not set yet and
+    ``_route_of`` cannot answer. A full match on any other route ends the search: a request that
+    reached a real handler is metered or not by *that* handler's template, and nothing further down
+    the table can change it.
+    """
+    for route in app.routes:
+        if route.matches(request.scope)[0] is Match.FULL:
+            return (request.method, getattr(route, "path", "")) in METERED_ROUTES
+    return False
+
+
+@app.middleware("http")
+async def _meter_mutating_requests(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    """Refuse a client asking to seat or end games faster than ``requests_per_minute`` (MON-905).
+
+    Middleware rather than a per-route dependency because this is a property of the *transport* — a
+    client's budget spans routes, so the bucket has to be charged in one place that every metered
+    route passes through, and the alternative is three dependencies sharing a global.
+
+    **The Pyodide transport gets none of this, and gets it for free.** ``kesef_server.browser`` runs
+    the same handlers with no server in front of them (MON-805), and it cannot reach this code
+    because a middleware only exists inside an ASGI app that the browser build never imports —
+    ``test_the_browser_transport_imports_no_web_framework`` is the standing proof of that import
+    boundary. That is the right answer rather than a happy accident: the local transport has exactly
+    one caller, the tab it is running in, so a rate limit there would be a page refusing its own
+    player.
+
+    ``call_next`` is not reached on a refusal, so a metered request that is turned away costs a dict
+    lookup and never touches the store — which is the entire point of doing this here rather than
+    inside a handler that has already parsed a body.
+
+    Registered **before** ``CORSMiddleware`` on purpose. Starlette wraps in reverse order of
+    registration, so the last-added middleware is the outermost one; a 429 produced outside the CORS
+    layer would carry no ``Access-Control-Allow-Origin``, and the browser would report a CORS
+    failure instead of the keyed refusal this server went to some trouble to send.
+    """
+    if _metered(request):
+        limiter: ClientLimiter = request.app.state.limiter
+        retry_after = limiter.charge(client_of(request))
+        if retry_after is not None:
+            # `_api_error_handler` rather than a `JSONResponse` built here: one error shape, one log
+            # line. It cannot be reached as an *exception* from middleware — starlette's exception
+            # middleware sits further in, so an `ApiError` raised here would escape as a 500 — so it
+            # is called directly, which is the same function doing the same thing.
+            return _api_error_handler(request, errors.too_many_requests(retry_after))
+    return await call_next(request)
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
@@ -122,7 +195,21 @@ app.add_middleware(
 _store = SessionStore(
     max_sessions=settings.max_sessions,
     ttl_seconds=settings.session_ttl_minutes * 60,
+    max_sessions_per_client=settings.max_sessions_per_client,
 )
+
+app.state.limiter = ClientLimiter(
+    requests_per_minute=settings.requests_per_minute,
+    trust_forwarded_for=settings.trust_forwarded_for,
+)
+"""The rate limiter for the mutating routes (MON-905).
+
+On ``app.state`` rather than in a module global, because the middleware below is not a dependency
+and cannot be reached by ``dependency_overrides`` — this is the seam a test swaps to get a clean
+limiter, the way it swaps ``get_store`` to get a clean store. One object rather than two, so the
+middleware's bucket and :func:`client_of`'s identity can never be computed from two different
+readings of ``trust_forwarded_for``.
+"""
 
 
 def get_store() -> SessionStore:
@@ -134,8 +221,27 @@ def get_settings() -> Settings:
     return settings
 
 
+def client_of(request: Request) -> str:
+    """Which client this request is, for ``max_sessions_per_client`` (MON-905).
+
+    A dependency rather than a ``Request`` parameter on each route, so the two routes that stamp
+    ownership read the identity the *same* way the middleware meters it — through the one
+    :class:`~kesef_server.limits.ClientLimiter` on ``app.state``. A second spelling here would be a
+    second answer to "who is this", and the two bounds would then be counting different people.
+
+    ``request.client`` is ``None`` on an ASGI transport that omits ``scope["client"]``; the limiter
+    decides what that means (one shared bucket), because it is the same decision in both callers.
+    """
+    limiter: ClientLimiter = request.app.state.limiter
+    return limiter.identify(
+        peer=request.client.host if request.client is not None else None,
+        forwarded_for=request.headers.get("x-forwarded-for"),
+    )
+
+
 StoreDep = Annotated[SessionStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+ClientDep = Annotated[str, Depends(client_of)]
 
 SERVER_ERROR_RESPONSE: dict[int | str, dict[str, Any]] = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
@@ -153,6 +259,20 @@ ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 """Declared on the routes so the shape reaches ``generated.ts`` — a 422 the client cannot
 type is a 422 the client will render as prose (G-33)."""
+
+METERED_RESPONSE: dict[int | str, dict[str, Any]] = {
+    TOO_MANY_REQUESTS: {
+        "model": ErrorResponse,
+        "description": (
+            "Refused by a per-client bound (MON-905). `error.too_many_requests` carries "
+            "`retry_after` in seconds; `error.too_many_games` means this client already holds "
+            "`max_sessions_per_client` live games and waiting will not help."
+        ),
+    },
+}
+"""Declared on every route :data:`METERED_ROUTES` names, for the reason the 422 is declared: a
+status the document does not mention is a status the generated client cannot branch on, so it would
+reach the UI as an unhandled failure rather than as its own sentence (G-33)."""
 
 
 # --- Error handling ---------------------------------------------------------
@@ -323,6 +443,7 @@ def list_rulesets() -> list[RulesetView]:
     responses={
         status.HTTP_409_CONFLICT: {"model": ErrorResponse, "description": "That game_id is already live."},
         UNPROCESSABLE: {"model": ErrorResponse},
+        **METERED_RESPONSE,
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse, "description": "Session cap reached."},
         **SERVER_ERROR_RESPONSE,
     },
@@ -331,6 +452,7 @@ async def create_game(
     request: NewGameRequest,
     store: StoreDep,
     config: SettingsDep,
+    client: ClientDep,
     background: BackgroundTasks,
 ) -> GameView:
     """Start a game and return the opening view. Any bot moves stream in behind it."""
@@ -361,7 +483,10 @@ async def create_game(
         raise errors.invalid_seating(refused.reason_key, transport.wire_params(refused.context)) from None
     except ValueError:
         raise errors.invalid_new_game() from None
-    session = _create(store, state)
+    # Charged to the caller, so `max_sessions_per_client` can refuse this client's sixth game before
+    # the store's fiftieth slot is anybody's problem (MON-905). See `Session.client_id`: it counts,
+    # it does not authorise.
+    session = _create(store, state, client_id=client)
     # Seat one can be a computer, and a game that opened waiting on it would look broken before
     # anybody had touched anything. Queued, not awaited — otherwise creating such a game is a request
     # that sits for as long as the bot's opening turn takes.
@@ -377,6 +502,7 @@ async def create_game(
         status.HTTP_409_CONFLICT: {"model": ErrorResponse},
         CONTENT_TOO_LARGE: {"model": ErrorResponse},
         UNPROCESSABLE: {"model": ErrorResponse},
+        **METERED_RESPONSE,
         status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse},
         **SERVER_ERROR_RESPONSE,
     },
@@ -391,6 +517,7 @@ async def load_game(
     request: Request,
     store: StoreDep,
     config: SettingsDep,
+    client: ClientDep,
     if_exists: Annotated[
         IfExists,
         Query(description="What to do when this save's game_id is already live (ADR-011)."),
@@ -433,7 +560,7 @@ async def load_game(
     # the constraint ``NewGameRequest.game_id`` does. Unchecked, a save named ``kitchen/table``
     # took a session slot that no route could then reach or free (schemas.GAME_ID_PATTERN).
     # Checked inside `transport.load`, which both transports share.
-    return _view(transport.load(store, save, if_exists))
+    return _view(transport.load(store, save, if_exists, client_id=client))
 
 
 @app.get("/games/{game_id}", tags=["game"], responses=ERROR_RESPONSES)
@@ -549,7 +676,11 @@ def validate_command(game_id: str, request: CommandRequest, store: StoreDep) -> 
     "/games/{game_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["game"],
-    responses={status.HTTP_404_NOT_FOUND: {"model": ErrorResponse}, **SERVER_ERROR_RESPONSE},
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        **METERED_RESPONSE,
+        **SERVER_ERROR_RESPONSE,
+    },
 )
 def delete_game(game_id: str, store: StoreDep) -> None:
     _session(store, game_id)

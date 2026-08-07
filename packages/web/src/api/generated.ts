@@ -2202,6 +2202,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
             500: {
                 headers: {
@@ -2267,6 +2276,15 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2375,6 +2393,15 @@ export interface operations {
             };
             /** @description Validation Error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

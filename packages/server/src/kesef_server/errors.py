@@ -26,8 +26,9 @@ CONTENT_TOO_LARGE = 413
 
 NOT_FOUND = 404
 CONFLICT = 409
+TOO_MANY_REQUESTS = 429
 SERVICE_UNAVAILABLE = 503
-"""The other three statuses this module answers with.
+"""The other four statuses this module answers with.
 
 Spelled as numbers, and ``fastapi.status`` deliberately *not* imported, because this module is
 on the import path of :mod:`kesef_server.browser` — the same handlers running inside a browser
@@ -82,6 +83,35 @@ def game_already_exists(game_id: str) -> ApiError:
 
 def server_at_capacity(limit: int) -> ApiError:
     return ApiError(SERVICE_UNAVAILABLE, "error.server_at_capacity", limit=limit)
+
+
+def too_many_requests(retry_after: int) -> ApiError:
+    """This client is asking to change things faster than ``requests_per_minute`` (MON-905).
+
+    ``retry_after`` is seconds, and it is the whole reason this is not a bare status: a client that
+    knows the number can say "try again in twelve seconds", which is an instruction, instead of
+    "too many requests", which is a complaint about the player. The number is a *param* rather than
+    a ``Retry-After`` header because the browser reads the body — every other refusal in this API
+    arrives as ``{reason_key, params}`` and a header would be a second spelling for one client to
+    forget to read.
+    """
+    return ApiError(TOO_MANY_REQUESTS, "error.too_many_requests", retry_after=retry_after)
+
+
+def too_many_games(limit: int) -> ApiError:
+    """This client already holds ``max_sessions_per_client`` live games (MON-905).
+
+    A second key rather than a param on the one above, because the two refusals ask the player for
+    different things and one sentence cannot honestly carry both: waiting fixes a rate, and nothing
+    but *finishing or closing a game* fixes this one — a caller could sit for an hour and still be
+    at its cap. ``retry_after`` would be a fabricated number attached to a condition that time does
+    not resolve.
+
+    429 rather than the 503 the global cap answers, and the distinction is the point of the item:
+    503 says "the table is full", which was somebody else's news; 429 says "you have five games
+    open", which is this caller's own and actionable.
+    """
+    return ApiError(TOO_MANY_REQUESTS, "error.too_many_games", limit=limit)
 
 
 def malformed_request(fields: str) -> ApiError:
