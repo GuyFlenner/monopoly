@@ -30,12 +30,15 @@
  * Nothing here decides how fast a bot plays; `Settings.bot_think_seconds` does.
  */
 
+import { WS_GAME_NOT_FOUND } from "@/api";
 import type { SocketFactory, SocketLike } from "@/api";
 
 import { asBotStep, asEventBatch, parseEnvelope, type PyBridge } from "./bridge";
 
-/** Close codes mirroring `api.py`'s `WS_*` constants. `eventSocket.ts` treats 4404 as terminal. */
-export const LOCAL_WS_GAME_NOT_FOUND = 4404;
+/** The one close code this transport can produce, taken from `eventSocket.ts` rather than respelled:
+ * the local build's socket has to close the way the real one does or `EventSocket` above it —
+ * which is the *same* class in both builds — would branch differently on the same situation. */
+export const LOCAL_WS_GAME_NOT_FOUND = WS_GAME_NOT_FOUND;
 const NORMAL_CLOSURE = 1000;
 
 /** One live listener. The cursor is read at delivery time, so it is always the latest. */

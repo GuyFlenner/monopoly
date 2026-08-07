@@ -246,6 +246,7 @@
     "save_too_large": "That saved game is too big to load.",
     "save_unreadable": "That file isn't a Kesef Street saved game.",
     "server_at_capacity": "The table is full — {{limit}} games are already running.",
+    "session_replaced": "A saved game was loaded over this one. Catching up from the start.",
     "tile_already_owned": "Somebody already owns this square.",
     "tile_not_ownable": "This square can't be owned by anyone.",
     "title": "Something went wrong",

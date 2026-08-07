@@ -82,6 +82,21 @@ export function GameProvider({
           refreshIfBehind(queryClient, gameId, accepted);
         }
       },
+      /*
+        A save took this game's id over (MON-907). Two things are stale, not one, and dropping only
+        the first is what makes this look fixed while still being broken:
+
+        * the **queue's cursor**, which is why the socket asks for a reset at all — `EventQueue.reset`
+          is the method that existed for this and had no caller until now; and
+        * the **cached view**, whose `event_cursor` is the *old* game's and is therefore above every
+          `seq` the restored game is about to push. `refreshIfBehind` compares against it and would
+          decide, correctly by its own rule and wrongly in fact, that no refetch is needed — so the
+          board would sit on the replaced game's position while the log filled with the new one's.
+      */
+      onCursorReset: () => {
+        queueRef.current.reset();
+        void queryClient.invalidateQueries({ queryKey: queryKeys.game(gameId) });
+      },
       onStatus: setConnection,
       ...(tuning?.random === undefined ? {} : { random: tuning.random }),
       backoff: {

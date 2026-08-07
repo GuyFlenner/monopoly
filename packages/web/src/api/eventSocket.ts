@@ -9,8 +9,9 @@
  * file writes to state.
  *
  * The server's application-range close codes are treated as data, not as prose: 4404 and 4429
- * mean "do not come back", 4413 means "you fell behind, come back and replay". The keyed
- * reason string is carried out on the status untranslated — this module owns no catalogue.
+ * mean "do not come back", 4413 means "you fell behind, come back and replay", and 4409 means
+ * "come back, but forget where you were". The keyed reason string is carried out on the status
+ * untranslated — this module owns no catalogue.
  */
 
 import type { SocketLike } from "./client";
@@ -27,17 +28,35 @@ export interface ConnectionStatus {
   /**
    * The server's close reason, which is an i18n key (`error.too_many_watchers`).
    *
-   * Not translated here, and not translated by the socket's owner either: the catalogue does
-   * not yet carry the WebSocket close keys. See the note in `useGame.ts`.
+   * Carried out untranslated because this module owns no catalogue. What renders it is
+   * {@link closeReasonKey}, which reads the *code* — see the note there on why the code and not
+   * this string is what a screen should translate.
    */
   readonly reasonKey: string | undefined;
 }
 
-/** Close codes after which reconnecting cannot help. Mirrors `api.py`'s WS_* constants. */
+// --- The close codes, and what each one means to a player --------------------
+//
+// Mirrors `api.py`'s WS_* constants. Named rather than spelled inline because three separate
+// decisions read them — terminal or not, reset the cursor or not, which sentence — and three
+// lists of bare numbers is how two of them drift.
+
+/** No game with that id. `api.py` WS_GAME_NOT_FOUND. */
+export const WS_GAME_NOT_FOUND = 4404;
+/** A save took this game's id over; the log restarts at 1. `api.py` WS_CURSOR_RESET (MON-907). */
+export const WS_CURSOR_RESET = 4409;
+/** This socket fell behind and its mailbox overflowed. `api.py` WS_WATCHER_TOO_SLOW. */
+export const WS_WATCHER_TOO_SLOW = 4413;
+/** The handshake itself was refused. `api.py` WS_MALFORMED_REQUEST. */
+export const WS_MALFORMED_REQUEST = 4422;
+/** This game is already carrying all the watchers it will. `api.py` WS_TOO_MANY_WATCHERS. */
+export const WS_TOO_MANY_WATCHERS = 4429;
+
+/** Close codes after which reconnecting cannot help. */
 export const TERMINAL_CLOSE_CODES: readonly number[] = [
-  4404, // WS_GAME_NOT_FOUND — the game is gone; a retry loop would hammer a 404 forever.
-  4429, // WS_TOO_MANY_WATCHERS — the cap is not going to move because we asked again.
-  4422, // WS_MALFORMED_REQUEST — the handshake itself was wrong; the same one will be too.
+  WS_GAME_NOT_FOUND, // the game is gone; a retry loop would hammer a 404 forever.
+  WS_TOO_MANY_WATCHERS, // the cap is not going to move because we asked again.
+  WS_MALFORMED_REQUEST, // the handshake itself was wrong; the same one will be too.
 ];
 
 export interface BackoffPolicy {
@@ -54,6 +73,14 @@ export interface EventSocketOptions {
   /** Where to replay from — read at connect time, so it is always the queue's latest. */
   readonly cursor: () => number;
   readonly onFrames: (frames: readonly LoggedEvent[]) => void;
+  /**
+   * Forget everything seen so far, because the game under this id is a different one (MON-907).
+   *
+   * Called on {@link WS_CURSOR_RESET}, synchronously, *before* the reconnect is scheduled — so the
+   * `cursor()` read on the next connect is the reset one. The owner's job is to empty the event
+   * queue (`EventQueue.reset`); this module holds no log of its own to clear.
+   */
+  readonly onCursorReset?: () => void;
   readonly onStatus?: (status: ConnectionStatus) => void;
   readonly backoff?: Partial<BackoffPolicy>;
   /** Jitter source, in `[0, 1)`. Injected so a test can pin the delay. */
@@ -169,6 +196,20 @@ export class EventSocket {
       if (this.stopped || TERMINAL_CLOSE_CODES.includes(event.code)) {
         this.publish("closed");
         return;
+      }
+      if (event.code === WS_CURSOR_RESET) {
+        /*
+          A save took this game's id over, so the log we were reading is not the one behind this id
+          any more and the replacement's numbering restarts at 1. Reconnecting on our own cursor
+          would ask for "everything after 12" of a game that has not reached 12 yet, and be sent
+          nothing at all — the quiet socket ADR-011 accepted, with a reconnect in front of it.
+
+          So the cursor is dropped first and the retry then reads the reset value, which is `since=0`
+          — replay the restored game from the beginning. Deliberately routed through the ordinary
+          backoff rather than reconnecting at once: a server replacing an id in a loop must not be
+          answered with a connect in a loop.
+        */
+        this.options.onCursorReset?.();
       }
       this.scheduleRetry();
     };

@@ -69,10 +69,24 @@ class Subscriber:
     An overflow is not a reason to drop an event quietly — the socket would then be silently
     telling a lie, and the animation queue on the other end would replay a game that never
     happened. So the writer records the overflow and the *reader* closes its own socket.
+
+    Both flags on this object are "why this stream ended", set by whoever caused it and acted on by
+    the one coroutine that owns the socket. Neither ever closes anything itself.
     """
 
     queue: asyncio.Queue[LoggedEvent]
     overflowed: asyncio.Event = field(default_factory=asyncio.Event)
+    detached: asyncio.Event = field(default_factory=asyncio.Event)
+    """Set when the session feeding this mailbox stopped being the one under its ``game_id``
+    (MON-907), so its reader can close the socket instead of waiting on a log nothing will append
+    to again.
+
+    **One event per mailbox, not one shared with the session**, and that is not a style choice: an
+    ``asyncio.Event`` binds itself to the loop that first waits on it, so a single event shared by
+    two watchers is an event the second watcher cannot wait on. The session therefore keeps the
+    *fact* (:attr:`Session.detached`, a plain bool) and :meth:`Session.detach` hands it to each
+    mailbox — which is the same shape as :attr:`queue`, created per subscription for the same
+    reason."""
 
     def offer(self, entry: LoggedEvent) -> None:
         """Hand an event to this listener without ever waiting for it.
@@ -101,6 +115,14 @@ class Session:
     _subscribers: list[Subscriber] = field(default_factory=list)
     """Live WebSocket listeners (MON-303). Capped, and a dropped client removes its own
     mailbox. See :meth:`subscribe`."""
+    detached: bool = False
+    """True once this session is no longer the one reachable under its ``game_id`` (MON-907).
+
+    A fact rather than a signal — the signalling is per mailbox, see :attr:`Subscriber.detached` —
+    and it is kept because a mailbox can be created *after* the detachment: ``game_event_stream``
+    resolves the game and then subscribes, and a load can land between the two. Nothing in this
+    module reacts to it; the reader that owns a socket decides what it costs. See :meth:`detach`
+    and ``api.stream_events``."""
     advance_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     """Serializes bot drivers for this game (MON-806).
 
@@ -125,6 +147,20 @@ class Session:
         """Mark this game as in use, so the idle sweep leaves it alone."""
         self.touched_at = now
 
+    def detach(self) -> None:
+        """Say, once, that this session is no longer the one under its ``game_id`` (MON-907).
+
+        Idempotent, and it changes nothing about the game: the log, the state and the subscriber
+        list are all left exactly as they are, because a detached session may still be mid-write
+        from a bot driver that read it before the replacement (see :meth:`SessionStore.update`) and
+        an object that mutates under that write would be a race rather than a fix. Each mailbox is
+        *told*; none is removed, because a subscription is owned by the socket that opened it and
+        removing one here would leave that socket's ``with`` block unwinding a list it is not in.
+        """
+        self.detached = True
+        for subscriber in self._subscribers:
+            subscriber.detached.set()
+
     def events_since(self, cursor: int) -> tuple[LoggedEvent, ...]:
         """Everything after ``cursor``. ``events_since(0)`` is the whole game."""
         return tuple(entry for entry in self.log if entry.seq > cursor)
@@ -145,6 +181,10 @@ class Session:
         if len(self._subscribers) >= max_subscribers:
             raise SubscriberLimitReachedError(f"game is carrying {max_subscribers} listeners")
         subscriber = Subscriber(queue=asyncio.Queue(maxsize=queue_size))
+        if self.detached:
+            # `replace` popped this session before this mailbox existed, so `detach` never saw it
+            # (MON-907). Without this the socket waits forever on a log that is closed for writing.
+            subscriber.detached.set()
         self._subscribers.append(subscriber)
         try:
             yield subscriber
@@ -207,16 +247,24 @@ class SessionStore:
         The live session is **detached, not edited**. Editing one in place would keep its
         subscribers pointed at a log whose numbering had just restarted — every event of the
         restored game would arrive at or below their high-water mark and be dropped as a duplicate,
-        so a watching tab would go quiet forever and look like a working socket. Detaching leaves
-        that socket receiving nothing, which is what ``delete`` has always done to a watcher and is
-        at least the same failure the product already documents (ADR-011, "what this does not do").
+        so a watching tab would go quiet forever and look like a working socket.
 
         Detaching is also what makes the bot driver safe: a driver that read the old session before
         this call writes to the old session after it, and that write lands on an object nothing can
         reach. See :meth:`update`.
+
+        Since MON-907 the detachment is **said out loud**: :meth:`Session.detach` sets a flag every
+        one of that session's mailboxes already holds, and the coroutine owning each socket closes
+        it with ``WS_CURSOR_RESET`` so the client forgets its cursor and replays the restored game
+        from the beginning. Before that, "the socket receives nothing from now on" was the whole
+        behaviour, accepted in ADR-011 §"what this does not do" on the ground that a reconnect at a
+        stale cursor is just as quiet — which is true, and is why the close code had to arrive
+        together with the client-side reset rather than on its own.
         """
         self._evict_idle()
-        self._sessions.pop(state.game_id, None)
+        replaced = self._sessions.pop(state.game_id, None)
+        if replaced is not None:
+            replaced.detach()
         return self.create(state, events)
 
     def get(self, game_id: str) -> Session:
