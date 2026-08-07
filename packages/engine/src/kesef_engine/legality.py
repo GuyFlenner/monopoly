@@ -43,10 +43,10 @@ whose turn, then the command-specific rules in reading order — so a rejection'
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Self, assert_never
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from kesef_engine.board.models import ColorGroup, Tile, TileKind
 from kesef_engine.commands import (
@@ -87,7 +87,12 @@ class LegalityResult(BaseModel):
 
     legal: bool
     reason_key: str | None = None
-    params: dict[str, int | str] = {}
+    params: Mapping[str, int | str] = Field(default_factory=dict)
+    """Interpolation values for ``reason_key``. Keys and numbers only — never a sentence.
+
+    MON-741: ``frozen=True`` blocks rebinding this field and the ``Mapping`` annotation blocks
+    typed mutation under ``mypy``, but the underlying dict's ``__setitem__`` remains physically
+    callable at runtime — that residual hole is closed by review, not by the type system."""
 
     def __bool__(self) -> bool:
         return self.legal
