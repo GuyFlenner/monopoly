@@ -410,6 +410,35 @@ not offered, and another human's says whose it is), but nothing yet knows which 
 speaks for*. Fine for one household sharing a link; the thing to settle before this is "online play"
 in any stronger sense.
 
+### 6.9 What one caller may do — and the setting that decides who a caller is (MON-905)
+
+The API is public and unauthenticated, so two bounds apply per client to the routes that **seat or
+end a game** — `POST /games`, `POST /games/load`, `DELETE /games/{id}`:
+
+| Setting | Default | What it stops |
+|---|---|---|
+| `KESEF_REQUESTS_PER_MINUTE` | 30 | One caller opening games faster than a person could want them |
+| `KESEF_MAX_SESSIONS_PER_CLIENT` | 5 | One caller holding the store's 50 slots — the four-hour outage fifty cheap POSTs used to buy |
+| `KESEF_TRUST_FORWARDED_FOR` | `false` (`true` in `render.yaml`) | Deciding who a caller *is* |
+
+Reading, playing and watching are **not** metered. `GET /games/{id}` is what a reconnect polls and
+`POST /games/{id}/commands` is a dice roll; a limit that could refuse either would be a rule about
+how fast a child may play. The refusals are keyed like every other: `429 error.too_many_requests`
+with `retry_after` in seconds, and `429 error.too_many_games` — which is a different sentence on
+purpose, because waiting fixes the first and only closing a game fixes the second.
+
+**The third setting is the one that bites.** Behind Render's edge every request arrives from the
+edge's address, so with `KESEF_TRUST_FORWARDED_FOR` unset the whole world shares one bucket and the
+symptom is "everybody is rate-limited at once". In front of nothing the opposite is true: the header
+is written by the caller, so turning it on locally hands any script a fresh identity per request and
+the symptom is "the limits do nothing". A process cannot tell which world it is in, so the blueprint
+declares it and a local `uvicorn` leaves it off. The header's *nearest* hop is read, not the leftmost
+one — see `ClientLimiter.identify` for why, and change it only alongside a second trusted proxy.
+
+Neither bound is authority. `Session.client_id` is a counting key that never reaches a `GameView` or
+a save file, and an address is a household rather than a person. **`DELETE` still asks nobody who
+they are** — that is §6.8's question, and answering it with an address would answer it wrongly.
+
 ---
 
-**Owner**: Guy Flenner · **Items**: MON-805 (§1–5), MON-901 (§6), MON-727 (§6.7)
+**Owner**: Guy Flenner · **Items**: MON-805 (§1–5), MON-901 (§6), MON-727 (§6.7), MON-905 (§6.9)

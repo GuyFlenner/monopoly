@@ -102,7 +102,17 @@ export default defineConfig({
        * than a `VAR=value` prefix on the command, because that prefix is POSIX shell syntax and this
        * config also runs on Windows.
        */
-      env: { KESEF_MAX_SESSIONS: "400" },
+      /*
+       * MON-905 added per-client limits, and to this suite a "client" is one address: every spec
+       * arrives from 127.0.0.1, so the defaults (30 mutating requests a minute, 5 games per client)
+       * refuse the forty-plus games this directory starts for the same reason the 50-session store
+       * did above. Raised here and not in `config.py`, for the same reason as the line above it.
+       */
+      env: {
+        KESEF_MAX_SESSIONS: "400",
+        KESEF_MAX_SESSIONS_PER_CLIENT: "400",
+        KESEF_REQUESTS_PER_MINUTE: "10000",
+      },
       url: `http://${HOST}:${String(API_PORT)}/boards`,
       reuseExistingServer: !isCI,
       stdout: "pipe",
