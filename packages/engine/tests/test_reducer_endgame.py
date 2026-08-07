@@ -3,7 +3,7 @@
 One test per bullet of the backlog item:
 
 * the last solvent player wins, and the question is only asked once the interrupt stack
-  has drained (G-8) — the evaluation point is ``insolvency.resolve_after_command``, so the
+  has drained (G-8) — the evaluation point is ``insolvency.close_command``, so the
   tests here drive it through ``apply`` rather than calling ``maybe_end`` directly;
 * Kids Mode's ``target_duration_minutes`` ends the game on **net worth**, off the
   caller-stamped clock that arrives as ``EndTurn.elapsed_seconds`` (G-6) — the path that

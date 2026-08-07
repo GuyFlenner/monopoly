@@ -275,11 +275,13 @@ describe("validation is the server's", () => {
     ["error.too_few_players", { minimum: 2, seats: 1 }],
     ["error.too_many_players", { maximum: 6, seats: 7 }],
     ["error.duplicate_names", { name: "Ruti" }],
+    ["error.duplicate_tokens", { token: "token.kite" }],
   ])("shows the specific refusal %s rather than one coarse key", async (key, params) => {
-    // MON-418. All three of these used to arrive as something the screen could not act on:
-    // "at least two players" as `error.malformed_request` with a field path, because the constraint
-    // was a pydantic `min_length`; duplicate names as `error.invalid_new_game`, which recites every
-    // seating rule and leaves the parent to spot theirs.
+    // MON-418, and MON-735 for the fourth. All of these used to arrive as something the screen
+    // could not act on: "at least two players" as `error.malformed_request` with a field path,
+    // because the constraint was a pydantic `min_length`; duplicate names and two seats on one
+    // pawn as `error.invalid_new_game`, which recites every seating rule and leaves the parent to
+    // spot theirs.
     setup({ onStart: () => Promise.reject(new ApiError(422, key, params)) });
     await nameBothSeats(["Ruti", "Dan"]);
     await userEvent.setup().click(screen.getByRole("button", { name: i18next.t("setup.start") }));

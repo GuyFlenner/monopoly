@@ -57,10 +57,25 @@ import { COMFORT_ATTRIBUTE, KIDS_COMFORT } from "./theme";
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 const END_TURN: Command = { kind: "end_turn", player: 0 };
 
+// MON-730: `GameScreen` calls `useSoundCues()` with no argument, so the port it plays through is
+// whatever `defaultAudioPort()` returns — there is no prop to inject a recorder without touching
+// `src/game`. Replacing that one function for the whole file is the seam that is left: real
+// composition (GameScreen -> useSoundCues -> the feed -> cueFor) runs unchanged, and only the
+// speaker at the very end is a spy. `vi.hoisted` gives the mock factory a name it can close over —
+// the factory runs while `./App`'s import graph is first evaluated, before any later `const` in this
+// file would be initialised.
+const { cuePlays } = vi.hoisted(() => ({ cuePlays: vi.fn() }));
+
+vi.mock("./sound/audioPort", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./sound/audioPort")>();
+  return { ...actual, defaultAudioPort: () => ({ play: cuePlays }) };
+});
+
 beforeEach(() => {
   sockets.length = 0;
   globalThis.history.pushState({}, "", "/");
   useUiStore.setState({ selectedTile: null, selectedPlayer: null, panel: null });
+  cuePlays.mockClear();
 });
 
 afterEach(() => {
@@ -671,32 +686,36 @@ describe("App — the game screen", () => {
   });
 
   it("plays a cue for an event that arrives over the socket (MON-706)", async () => {
-    // The one thing `useSoundCues.test.tsx` cannot show: that `GameScreen` actually calls it. The
-    // hook is exercised through the real composition here, with the browser's audio API absent — so
-    // what is asserted is that a cue reaching a jsdom with no `AudioContext` is silent rather than a
-    // crash, which is the environment the whole test suite runs in and half of CI too.
+    // The one thing `useSoundCues.test.tsx` cannot show: that `GameScreen` actually calls the hook.
+    // `defaultAudioPort` is replaced with a spy for the whole file (above) — real composition runs
+    // (GameScreen -> useSoundCues -> the feed -> cueFor), and what is asserted is the one thing that
+    // composition exists for: a dice roll reaching the port as the "dice" cue. Delete the
+    // `useSoundCues()` call from `GameScreen` and this goes red; leave it and it was already green
+    // for the wrong reason, which is exactly what MON-730 replaces.
     openGameUrl("g1");
     renderApp(gameEdge(gameView({}, [ROLL])));
     await screen.findByTestId("board-grid");
 
-    expect(() => {
-      act(() => {
-        sockets[0]?.onmessage?.({
-          data: JSON.stringify({
-            seq: 1,
-            event: {
-              type: "dice_rolled",
-              player: 0,
-              first: 2,
-              second: 1,
-              total: 3,
-              doubles_streak: 0,
-              purpose: "move",
-            },
-          }),
-        });
+    act(() => {
+      sockets[0]?.onmessage?.({
+        data: JSON.stringify({
+          seq: 1,
+          event: {
+            type: "dice_rolled",
+            player: 0,
+            first: 2,
+            second: 1,
+            total: 3,
+            doubles_streak: 0,
+            purpose: "move",
+          },
+        }),
       });
-    }).not.toThrow();
+    });
+
+    await waitFor(() => {
+      expect(cuePlays).toHaveBeenCalledWith("dice");
+    });
   });
 
   it("shows the auction panel when the live interrupt frame is an auction", async () => {

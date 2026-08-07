@@ -30,7 +30,7 @@ to carry *remaining* work, and by the last step there is none.
 
 from __future__ import annotations
 
-from typing import assert_never
+from typing import Final, assert_never
 
 from kesef_engine.board.models import BOARD_SIZE, TileKind
 from kesef_engine.decks import (
@@ -58,7 +58,7 @@ from kesef_engine.rules.cash import move_cash
 from kesef_engine.rules.common import post_move_phase, send_to_jail, update_player
 from kesef_engine.state import HOTEL_LEVEL, CardFrame, DebtFrame, GameState, Obligation
 
-DECK_OF_TILE: dict[TileKind, Deck] = {
+DECK_OF_TILE: Final[dict[TileKind, Deck]] = {
     TileKind.CHANCE: Deck.CHANCE,
     TileKind.COMMUNITY_CHEST: Deck.COMMUNITY_CHEST,
 }
@@ -83,7 +83,10 @@ def draw_and_resolve(state: GameState, player_id: PlayerId, deck: Deck) -> tuple
         # hand-built state, and a deck that cannot deal deals nothing rather than raising.
         return state._replace(phase=post_move_phase(state, player_id)), ()
 
-    state = _restock(state, deck, pile[1:] if _is_keepable(card_id) else (*pile[1:], card_id))
+    # A kept jail card leaves the pile; anything else goes to the bottom of the deck it came from
+    # (GAP G-11). One `with_deck` rather than a drop followed by a `deck_bottom`, because the deck
+    # is restocked once and the two shapes are one decision (MON-738).
+    state = state.with_deck(deck, pile[1:] if _is_keepable(card_id) else (*pile[1:], card_id))
     frame = CardFrame(resume=post_move_phase(state, player_id), card_id=card_id, deck=deck)
     # The resume is recorded by ``push_interrupt`` from the phase it suspends, so the
     # phase is set to where the turn will rest *before* the card goes on the stack.
@@ -151,11 +154,6 @@ def _at_step(state: GameState, step: int) -> GameState:
 
 def _is_keepable(card_id: str) -> bool:
     return card_id in GET_OUT_OF_JAIL_IDS.values()
-
-
-def _restock(state: GameState, deck: Deck, pile: tuple[str, ...]) -> GameState:
-    field = "chance_deck" if deck is Deck.CHANCE else "community_chest_deck"
-    return state._replace(**{field: pile})
 
 
 # --- Enacting one step ------------------------------------------------------

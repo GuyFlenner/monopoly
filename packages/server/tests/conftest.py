@@ -17,6 +17,7 @@ from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import GameState, PlayerKind, PlayerState, PropertyState
 from kesef_server.api import app, get_settings, get_store
 from kesef_server.config import Settings
+from kesef_server.limits import ClientLimiter
 from kesef_server.sessions import SessionStore
 
 BOARD_TILES = 40
@@ -56,6 +57,34 @@ def settings() -> Settings:
     # would pay 0.6 s per bot move to check a number it already knows from the settings object. Any
     # test that wants to observe the pause should build its own `Settings` and say so.
     return Settings(bot_think_seconds=0)
+
+
+UNMETERED_REQUESTS_PER_MINUTE = 10_000
+"""The rate every test gets unless it says otherwise. See :func:`limiter`."""
+
+
+@pytest.fixture(autouse=True)
+def limiter() -> Iterator[ClientLimiter]:
+    """A fresh, deliberately generous rate limiter for every test in this package (MON-905).
+
+    Autouse, and per test, for the same reason ``store`` is per test: the limiter is process state
+    on ``app.state`` rather than a dependency, so without this one test would spend another's budget
+    and the order of the files would decide which one failed.
+
+    Generous for the same reason ``settings`` sets ``bot_think_seconds=0``: almost no test here is
+    *about* the rate, and a suite that had to stay under thirty requests a minute would be a suite
+    whose failures were about itself. ``test_limits.py`` builds its own limiter with a real number
+    and a wound clock, which is where the bound is actually asserted.
+    """
+    original = app.state.limiter
+    app.state.limiter = ClientLimiter(
+        requests_per_minute=UNMETERED_REQUESTS_PER_MINUTE,
+        trust_forwarded_for=False,
+    )
+    try:
+        yield app.state.limiter
+    finally:
+        app.state.limiter = original
 
 
 @pytest.fixture

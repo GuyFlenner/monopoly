@@ -40,6 +40,22 @@ class SessionLimitReachedError(RuntimeError):
     """The server is holding as many games as it will."""
 
 
+class ClientSessionLimitReachedError(RuntimeError):
+    """*This client* is holding as many games as one client may (MON-905).
+
+    Distinct from :class:`SessionLimitReachedError` because the two are different news for the
+    caller: the server being full is somebody else's doing, and having five games open is your own.
+    The transport answers them with different statuses and different keys for exactly that reason.
+
+    Carries the limit it enforced, so the refusal can name the number without the transport reaching
+    back into the store for it.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        super().__init__(f"this client is holding {limit} games")
+
+
 class SubscriberLimitReachedError(RuntimeError):
     """This game is carrying as many WebSocket listeners as it will."""
 
@@ -110,6 +126,19 @@ class Session:
     touched_at: float
     """The store's clock reading when this game was last reached. What the idle sweep reads —
     ``started_at`` would evict a long game that is being played."""
+    client_id: str | None = None
+    """Who asked for this game, for ``max_sessions_per_client`` only (MON-905).
+
+    **Transport, not state.** It lives on the ``Session`` and never on the ``GameState``, so it is
+    absent from every ``GameView``, from ``GET /games/{id}/save``, and from anything a player can
+    read or a save file can carry — a save that remembered an address would hand it to whoever the
+    file was next mailed to. It is a counting key, nothing more: it confers no authority, and
+    ``DELETE`` still asks nobody who they are. Seat ownership is MON-906's question, and answering
+    it with an address would answer it wrongly, because a household shares one.
+
+    ``None`` for a session created by a transport that has no callers to tell apart — the browser
+    build (MON-805), where the one caller is the tab itself.
+    """
     log: list[LoggedEvent] = field(default_factory=list)
     """Append-only. Replaying it against the initial state reproduces the game exactly."""
     _subscribers: list[Subscriber] = field(default_factory=list)
@@ -195,13 +224,34 @@ class Session:
 class SessionStore:
     """Process-local game storage."""
 
-    def __init__(self, max_sessions: int, ttl_seconds: float, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(
+        self,
+        max_sessions: int,
+        ttl_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+        max_sessions_per_client: int | None = None,
+    ) -> None:
         self._max_sessions = max_sessions
         self._ttl_seconds = ttl_seconds
         # An instance attribute, not a class-level default: a plain function stored on a
         # class would bind as a method and swallow the call.
         self._clock = clock
+        # `None` is "no per-client cap", not a number in disguise (MON-905). The browser transport
+        # has one caller and nothing to divide the store between, and a store built without the
+        # setting should not silently inherit a limit nobody chose — a default here would be a
+        # second copy of `Settings.max_sessions_per_client` that could drift from it.
+        self._max_sessions_per_client = max_sessions_per_client
         self._sessions: dict[str, Session] = {}
+
+    def held_by(self, client_id: str) -> int:
+        """How many live games this client is holding.
+
+        Counted rather than tallied in a second dict, because a count that is *derived* cannot
+        disagree with the sessions it counts: every eviction, delete and replace would otherwise
+        have to remember to decrement, and the one that forgot would lock a player out of a game
+        they had already closed. O(sessions) against a store bounded at ``max_sessions``.
+        """
+        return sum(1 for session in self._sessions.values() if session.client_id == client_id)
 
     def _evict_idle(self) -> None:
         """Forget every game untouched for longer than the TTL.
@@ -222,26 +272,41 @@ class SessionStore:
         for game_id in idle:
             del self._sessions[game_id]
 
-    def create(self, state: GameState, events: tuple[Event, ...] = ()) -> Session:
+    def create(self, state: GameState, events: tuple[Event, ...] = (), client_id: str | None = None) -> Session:
         """Seat a game. ``events`` is a restored log, stamped ``1..N`` (ADR-011).
 
         A restored log is stamped here rather than carried in from the file for the reason the module
         docstring gives: ``seq`` is this session's own numbering, and a file that brought its own
         would be asking this session to honour a previous one's. Nothing is offered to a subscriber —
         a session nobody has yet been handed cannot have one.
+
+        **The per-client cap is checked before the global one, and the order is the whole point**
+        (MON-905). Reversed, a client would be told "the table is full" only once it *had* filled the
+        table — which is the failure the cap exists to prevent, reported after the fact and blamed on
+        the wrong party. Checked in this order, one client's fifth game is its last, and the fiftieth
+        slot stays available to somebody else.
+
+        ``client_id`` of ``None`` skips the check entirely: a transport with one caller has nothing
+        to divide the store between (see :attr:`Session.client_id`).
         """
         self._evict_idle()
         if state.game_id in self._sessions:
             raise DuplicateGameError(state.game_id)
+        if (
+            client_id is not None
+            and self._max_sessions_per_client is not None
+            and self.held_by(client_id) >= self._max_sessions_per_client
+        ):
+            raise ClientSessionLimitReachedError(self._max_sessions_per_client)
         if len(self._sessions) >= self._max_sessions:
             raise SessionLimitReachedError(f"server is holding {self._max_sessions} games")
         now = self._clock()
-        session = Session(state=state, started_at=now, touched_at=now)
+        session = Session(state=state, started_at=now, touched_at=now, client_id=client_id)
         session.log.extend(LoggedEvent(seq=seq, event=event) for seq, event in enumerate(events, start=1))
         self._sessions[state.game_id] = session
         return session
 
-    def replace(self, state: GameState, events: tuple[Event, ...] = ()) -> Session:
+    def replace(self, state: GameState, events: tuple[Event, ...] = (), client_id: str | None = None) -> Session:
         """Let ``state`` take over its ``game_id`` from whatever is holding it (ADR-011).
 
         The live session is **detached, not edited**. Editing one in place would keep its
@@ -262,10 +327,14 @@ class SessionStore:
         together with the client-side reset rather than on its own.
         """
         self._evict_idle()
+        # Detached *before* `create` counts, so a client replacing its own game is not charged twice
+        # for one game_id — the slot it is about to reuse is already gone from the count. The pop
+        # and the detach are one act: the popped session's watchers get the 4409 the moment their
+        # session stops being the one this id names (MON-907).
         replaced = self._sessions.pop(state.game_id, None)
         if replaced is not None:
             replaced.detach()
-        return self.create(state, events)
+        return self.create(state, events, client_id)
 
     def get(self, game_id: str) -> Session:
         self._evict_idle()

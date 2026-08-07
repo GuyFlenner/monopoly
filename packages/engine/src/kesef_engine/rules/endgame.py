@@ -19,7 +19,7 @@ integers that are already part of the saved game. Replaying the same commands th
 ends the same game at the same moment, which is what keeps the goldens meaningful.
 
 **When the question is asked.** Once, per command, from
-:func:`kesef_engine.rules.insolvency.resolve_after_command`, and only when the interrupt
+:func:`kesef_engine.rules.insolvency.close_command`, and only when the interrupt
 stack is empty (G-8) — a bankruptcy inside a nested interrupt has to drain first, or a
 two-player bankruptcy to the bank freezes on an estate auction nobody may bid in.
 :func:`kesef_engine.rules.turns.handle_end_turn` consults :func:`time_is_up` before it

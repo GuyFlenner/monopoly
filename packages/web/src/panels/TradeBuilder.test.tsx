@@ -218,10 +218,14 @@ describe("legality is the validator's answer, never the panel's opinion", () => 
   });
 
   it("keeps the send shut while there is no answer yet", async () => {
-    const user = userEvent.setup();
     renderBuilder({ answer: LEGAL });
 
-    await user.click(within(tray("Ruti")).getByRole("checkbox", { name: /Mediterranean/ }));
+    // `fireEvent` rather than `userEvent` (MON-731): the same reason the burst test below gives —
+    // `userEvent`'s click awaits, and under coverage instrumentation that await was occasionally
+    // slow enough on its own to cross the 150 ms debounce, so this assertion raced the panel's own
+    // timer instead of testing it. `fireEvent` commits synchronously, so the "before" snapshot below
+    // is taken before any timer could possibly have fired, at any instrumentation speed.
+    fireEvent.click(within(tray("Ruti")).getByRole("checkbox", { name: /Mediterranean/ }));
 
     // Before the debounce and the promise resolve, the panel has no verdict and says so.
     expect(screen.getByText("Checking this offer…")).toBeInTheDocument();

@@ -411,6 +411,51 @@ def test_deck_lookup_is_by_deck_identity() -> None:
     assert state.deck(Deck.COMMUNITY_CHEST) == ()
 
 
+def test_with_deck_restocks_the_named_pile_and_leaves_the_other_alone() -> None:
+    """MON-738's write twin of ``deck``. The second assertion is the one that matters.
+
+    The mapping this replaced was a field *name* handed to ``_replace(**{field: pile})``, and
+    ``_replace`` takes ``**changes: Any`` — so restocking Chance into the Community Chest field was
+    a defect no type checker could see and only a cross-deck assertion can.
+    """
+    state = make_state().model_copy(update={"chance_deck": ("card.chance.a",), "community_chest_deck": ("card.cc.a",)})
+
+    chance = state.with_deck(Deck.CHANCE, ("card.chance.b",))
+    assert (chance.deck(Deck.CHANCE), chance.deck(Deck.COMMUNITY_CHEST)) == (("card.chance.b",), ("card.cc.a",))
+
+    chest = state.with_deck(Deck.COMMUNITY_CHEST, ("card.cc.b",))
+    assert (chest.deck(Deck.CHANCE), chest.deck(Deck.COMMUNITY_CHEST)) == (("card.chance.a",), ("card.cc.b",))
+
+
+@pytest.mark.parametrize("deck", tuple(Deck))
+def test_deck_bottom_appends_to_that_deck_only(deck: Deck) -> None:
+    """Under the rest of its *own* deck (GAP G-11), asserted per deck rather than for one.
+
+    A returned card landing on the wrong pile is invisible until somebody draws Chance and gets a
+    Community Chest card, and the branch this replaced could only be read by checking that both
+    arms used the same ``card`` — which is exactly the kind of check a test should be doing.
+    """
+    start = make_state().model_copy(update={"chance_deck": ("card.chance.a",), "community_chest_deck": ("card.cc.a",)})
+    other = Deck.COMMUNITY_CHEST if deck is Deck.CHANCE else Deck.CHANCE
+
+    returned = start.deck_bottom(deck, "card.returned")
+    assert returned.deck(deck) == (*start.deck(deck), "card.returned"), "the bottom, not the top"
+    assert returned.deck(other) == start.deck(other)
+
+
+def test_a_deck_write_is_validated_rather_than_copied() -> None:
+    """``with_deck`` goes through ``_replace``, so what comes back is a state a save file restores.
+
+    Asserted by starting from a state that is already unsatisfiable — ``model_copy`` is how you
+    build one, since it skips validators — and watching the deck write refuse to carry it forward.
+    A ``with_deck`` written on ``model_copy`` would hand this back without a word, and the failure
+    would surface on the next load with nothing pointing at the rule module that caused it.
+    """
+    unsatisfiable = make_state().model_copy(update={"players": ()})
+    with pytest.raises(ValidationError):
+        unsatisfiable.with_deck(Deck.CHANCE, ("card.chance.a",))
+
+
 # --- Ruleset ----------------------------------------------------------------
 
 
