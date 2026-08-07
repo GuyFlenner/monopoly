@@ -45,6 +45,7 @@ from kesef_engine.legality import is_legal
 from kesef_engine.phases import PORTFOLIO_PHASES, Phase
 from kesef_engine.primitives import AuctionReason, BotLevel, CashReason, PlayerId, TileLot
 from kesef_engine.reducer import apply
+from kesef_engine.ruleset import Ruleset
 from kesef_engine.state import AuctionFrame, DebtFrame, GameState, Obligation, PropertyState, TradeFrame
 
 END = EndTurn(player=0, elapsed_seconds=None)
@@ -361,6 +362,30 @@ class TestAuctionsAndJail:
         state = _state(cash=CASH_BUFFER)
         legal: tuple[Command, ...] = (PayJailFine(player=0), RollForJail(player=0))
         assert NormalBot().choose(state, 0, legal).kind == "roll_for_jail"
+
+    def test_the_bail_it_weighs_is_the_rule_sets_fine_not_the_printed_one(self) -> None:
+        """MON-736. One seat, one pile of cash, two rule sets — and two different answers.
+
+        `jail_fine` is a setting (MON-712), so "can I afford to leave" is only a real question if the
+        bot reads it. The fixture straddles the buffer deliberately: after the classic fine this seat
+        still clears `CASH_BUFFER`, after the expensive one it does not, and a bot that had memorised
+        50 would pay 400 while believing its reserve was intact. Both tiers inherit this scorer, so
+        this one assertion covers the hard bot too.
+        """
+        cash = CASH_BUFFER + 150
+        cheap, dear = 50, 400
+        assert cash - cheap >= CASH_BUFFER > cash - dear, "the fixture stopped straddling the buffer"
+        legal: tuple[Command, ...] = (PayJailFine(player=0), RollForJail(player=0))
+
+        def choice(fine: int) -> str:
+            state = make_state(
+                seats=(make_player(0, cash=cash), make_player(1)),
+                ruleset=Ruleset.universal().model_copy(update={"jail_fine": fine}),
+            )
+            return NormalBot().choose(state, 0, legal).kind
+
+        assert choice(cheap) == "pay_jail_fine"
+        assert choice(dear) == "roll_for_jail"
 
 
 def _owned(state: GameState, owners: dict[int, int]) -> GameState:

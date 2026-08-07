@@ -96,7 +96,7 @@ _BOTS: dict[BotLevel, Bot] = {
 
 Safe because a bot holds no state — that is a promise of the `Bot` protocol, and `test_bot_easy.py`
 pins it. The hard bot spends a bounded rollout budget per move and keeps its counters inside the call
-(`kesef_engine.bots.hard.search`), so sharing one instance across concurrent games is safe for the same
+(`kesef_engine.bots.search.search`), so sharing one instance across concurrent games is safe for the same
 reason as the other two.
 
 **Every level in `BotLevel` now has an entry**, as of MON-603, and `test_bot_driving.py` asserts that
