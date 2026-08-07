@@ -179,8 +179,12 @@ def test_unpayable_rent_opens_a_debt_to_the_owner() -> None:
 def test_paying_rent_on_doubles_still_grants_the_extra_roll() -> None:
     target = (0 + _total(_DOUBLES_SEED)) % 40
     board = make_state().board
-    if not board.tile(target).is_ownable:  # keep the test honest for any doubles seed
-        pytest.skip("this doubles seed does not land on an ownable tile from GO")
+    # MON-734: this was a conditional ``pytest.skip``. ``_DOUBLES_SEED`` is derived by a fixed
+    # deterministic search over ``Rng``, so the branch is always taken or never taken and
+    # nothing said which — it is never taken; the seed lands on tile 6, an ownable light-blue
+    # square. A skip that cannot fire is not a safety net, it is a place for a board-data
+    # change to hide behind a silent pass. The premise is now asserted, so it fails by name.
+    assert board.tile(target).is_ownable, f"tile {target} must be ownable for this test to charge any rent"
     new_state, _ = _land_on(target, {target: PropertyState(owner=1)}, seed=_DOUBLES_SEED)
     assert new_state.phase is Phase.AWAITING_ROLL
 

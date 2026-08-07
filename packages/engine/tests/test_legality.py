@@ -207,6 +207,14 @@ def test_purchase_decision_without_funds_offers_only_decline() -> None:
     assert verdict.reason_key == "error.insufficient_funds"
     assert verdict.params == {"required": 60, "available": 59}
 
+    # MON-729, the approving twin: the tile is affordable *at* the list price, not one over
+    # it. Only the rejection was pinned, so ``actor.cash < price`` could become ``<=`` and
+    # refuse the sale to the player who had saved exactly enough for it — the tile would then
+    # go to auction with its buyer standing on it, and no test in the suite would object.
+    exact = purchase_state(cash=60)
+    approved(exact, BuyProperty(player=0))
+    assert set(legal_commands(exact)) == {BuyProperty(player=0), DeclinePurchase(player=0)}
+
 
 def test_auction_offers_the_minimum_bid_and_withdrawal_to_the_bidding_turn() -> None:
     state = auction_state()
@@ -375,6 +383,28 @@ def test_build_is_not_offered_when_the_houses_run_out() -> None:
     assert rejected(state, BuildHouse(player=0, tile=LIGHT_BLUE[0])) == "error.no_houses_left"
 
 
+def test_the_banks_last_house_is_still_a_legal_build() -> None:
+    """MON-729 — the house-stock mirror of ``test_the_banks_last_hotel_is_still_a_legal_build``.
+
+    The stock tests either side of this one pin the *empty* bank; the boundary between them —
+    exactly one house left — was asserted nowhere, so ``houses_remaining < 1`` could become
+    ``< 2`` and quietly retire the thirty-second house of the game. Neither the goldens nor
+    the agreement property can see it: the boundary moves identically for ``is_legal`` and
+    ``apply``, so the two stay in perfect agreement about the wrong answer.
+    """
+    one_left = Ruleset(name=RulesetName.UNIVERSAL, houses_available=7)
+    properties = {tile: owned(0, houses=2) for tile in LIGHT_BLUE}
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=properties, ruleset=one_left)
+    assert state.houses_remaining == 1, "this fixture was supposed to leave the bank exactly one house"
+    approved(state, BuildHouse(player=0, tile=LIGHT_BLUE[0]))
+
+    # And once that house is standing, the group's next build is the one the bank cannot supply.
+    spent = {LIGHT_BLUE[0]: owned(0, houses=3)} | {tile: owned(0, houses=2) for tile in LIGHT_BLUE[1:]}
+    state = make_state(phase=Phase.AWAITING_END_TURN, properties=spent, ruleset=one_left)
+    assert state.houses_remaining == 0
+    assert rejected(state, BuildHouse(player=0, tile=LIGHT_BLUE[1])) == "error.no_houses_left"
+
+
 def test_the_hotel_build_needs_a_hotel_not_a_house() -> None:
     """Four houses -> hotel consumes hotel stock only; the four houses go back to the bank."""
     exhausted_houses = Ruleset(name=RulesetName.UNIVERSAL, houses_available=8)
@@ -540,12 +570,22 @@ def test_a_bid_above_the_ceiling_is_rejected() -> None:
     assert verdict.reason_key == "error.bid_above_ceiling"
     assert verdict.params == {"maximum": 60}
 
+    # MON-729, the approving twin: a ceiling is a bid you may *make*, not one you may only
+    # approach. ``amount > frame.max_bid`` becoming ``>=`` lowers every ceiling in the game
+    # by one shekel, which no rejection test can see.
+    approved(state, PlaceBid(player=1, amount=60))
+
 
 def test_a_bid_above_the_bidders_cash_is_rejected() -> None:
     state = auction_state(bidder_cash=55)
     verdict = is_legal(state, PlaceBid(player=1, amount=56))
     assert verdict.reason_key == "error.insufficient_funds"
     assert verdict.params == {"required": 56, "available": 55}
+
+    # MON-729, the approving twin: going all in is the move an auction exists for, so a bid
+    # of the bidder's whole balance is legal. ``amount > actor.cash`` becoming ``>=`` takes
+    # it away and leaves the last shekel unbiddable.
+    approved(state, PlaceBid(player=1, amount=55))
 
 
 def test_a_mid_range_bid_is_legal_but_not_enumerated() -> None:
@@ -570,6 +610,14 @@ def test_the_jail_fine_requires_cash() -> None:
     verdict = is_legal(state, PayJailFine(player=0))
     assert verdict.reason_key == "error.insufficient_funds"
     assert verdict.params == {"required": JAIL_FINE, "available": JAIL_FINE - 1}
+
+    # MON-729, the approving twin: exactly the fine buys the way out. ``actor.cash < fine``
+    # becoming ``<=`` would lock in the player holding precisely the fine — and it is the
+    # cruellest place for that mutant to live, because the cash they need is the cash they
+    # already have, so no amount of selling or mortgaging would ever open the door.
+    exact = jail_state(cash=JAIL_FINE)
+    approved(exact, PayJailFine(player=0))
+    assert PayJailFine(player=0) in legal_commands(exact)
 
 
 def test_the_jail_card_requires_holding_one() -> None:
@@ -670,6 +718,13 @@ def test_cash_offered_must_exist() -> None:
     seats = (make_player(0, cash=50), make_player(1))
     state = make_state(seats=seats)
     assert rejected(state, ProposeTrade(player=0, offer=simple_offer())) == "error.insufficient_funds"
+
+    # MON-729, the approving twin: a party may put their entire balance on the table — the
+    # engine has no minimum reserve, and both trade halves run through the same
+    # ``_trade_side``, so ``side.cash > party.cash`` becoming ``>=`` would make every
+    # everything-I-have offer, on either side of the deal, unproposable.
+    seats = (make_player(0, cash=100), make_player(1))
+    approved(make_state(seats=seats), ProposeTrade(player=0, offer=simple_offer()))
 
 
 def test_cash_requested_must_exist() -> None:
