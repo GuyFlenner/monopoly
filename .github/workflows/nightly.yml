@@ -144,3 +144,54 @@ jobs:
       # quietly tripled is exactly the thing worth seeing.
       - name: Pytest -m slow
         run: uv run pytest -m slow -s
+
+  bundle-size:
+    name: Bundle-size floor (packages/web dist/ JS)
+    runs-on: ubuntu-latest
+    # MON-911: the JS payload is the number `docs/DEPLOYMENT.md` §"What that costs" promises a
+    # player before the loading screen even starts. Nightly, not the PR gate — same reasoning as
+    # the mutation job above: a size regression is a trend worth catching quickly, not a reason
+    # to block every unrelated diff on a full build. `workflow_dispatch` (already on this
+    # workflow) lets this be proven on demand right after it merges, without waiting for 03:17 UTC.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/web/package-lock.json
+
+      - run: npm ci
+        working-directory: packages/web
+
+      # Same build `deploy-pages.yml` runs (local engine, Pages base path, the live API URL),
+      # so the bytes measured below are the bytes a real player's browser downloads — not some
+      # other Vite mode nobody ships.
+      - name: Build (matches deploy-pages.yml)
+        working-directory: packages/web
+        env:
+          VITE_ENGINE: local
+          VITE_BASE: /monopoly/
+          VITE_API_URL: https://kesef-street-api.onrender.com
+        run: npm run build
+
+      # Measured 2026-08-07: dist/assets/*.js totalled 506,139 bytes (~506 kB) — already above
+      # DEPLOYMENT.md's ~450 kB figure, because MON-727/MON-728 (one build serving both modes,
+      # the shared-link join flow) added real code since that number was written (MON-749 tracks
+      # the doc update). The floor below is that measurement plus ~10% headroom, not the stale
+      # doc figure, so this gate reflects the bundle as it actually is today, not as documented.
+      - name: Enforce the JS bundle-size floor
+        working-directory: packages/web
+        run: |
+          THRESHOLD_BYTES=556753
+          TOTAL_BYTES=$(find dist -name '*.js' -type f -exec stat -c%s {} \; | awk '{sum += $1} END {print sum}')
+          echo "dist/ JS total: ${TOTAL_BYTES} bytes (floor: ${THRESHOLD_BYTES} bytes)"
+          if [ -z "${TOTAL_BYTES}" ] || [ "${TOTAL_BYTES}" -eq 0 ]; then
+            echo "::error::found no JS under dist/ — treating this as a failure, not a silent pass"
+            exit 1
+          fi
+          if [ "${TOTAL_BYTES}" -gt "${THRESHOLD_BYTES}" ]; then
+            echo "::error::dist/ JS grew to ${TOTAL_BYTES} bytes, over the ${THRESHOLD_BYTES}-byte floor (MON-911)"
+            exit 1
+          fi

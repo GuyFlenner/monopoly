@@ -105,6 +105,27 @@ jobs:
 
       - run: npm ci
 
+      # MON-911: `npm audit` alone always exits 0 for a human to read later; `--audit-level=high`
+      # is what turns it into a gate that fails the job on a new high/critical advisory in this
+      # package's own dependency tree.
+      #
+      # Two advisories are open today (checked 2026-08-07) and NOT fixable by `npm audit fix`
+      # without a breaking or upstream-blocked change, so this step is left failing on them
+      # rather than silenced with `|| true` — a lying gate is worse than a red one:
+      #   - `js-yaml` (GHSA-5p4m-2wfm-xmqj, high) is nested inside
+      #     `@redocly/openapi-core@1.34.18`, which `openapi-typescript@7.13.0` pins exactly and
+      #     which itself hard-pins `js-yaml@4.3.0` in its own package.json. `openapi-typescript`
+      #     is deliberately version-pinned (see the `contract` job below) and 7.13.0 is its
+      #     latest release, so there is no newer version to move to and no fix without an
+      #     `overrides` entry — an owner decision, not a mechanical one.
+      #   - `vitest` (GHSA-5xrq-8626-4rwp, critical): the fix is `vitest@4.1.10`, a major bump
+      #     from the `^2.1.8` this repo runs today. Left alone rather than forced through as a
+      #     side effect of a CI-hygiene change.
+      # `brace-expansion` and `fast-uri` (both high) WERE fixed in this same commit via a
+      # lockfile-only `npm audit fix` — no `package.json` range changed.
+      - name: npm audit (packages/web dependency tree)
+        run: npm audit --audit-level=high
+
       - name: Typecheck
         run: npm run typecheck
 
