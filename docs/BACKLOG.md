@@ -34,7 +34,7 @@ not done, however complete it looks.
 
 **Goal: the game is winnable in the terminal.** No UI work starts here.
 
-### MON-100 — State-model rework: interrupt frames, lots, projection fields
+### MON-100 — State-model rework: interrupt frames, lots, projection fields ✅ **DONE** (PR #2)
 **Tier**: Fable · **Size**: L · **Depends on**: — · `state.py`, `phases.py`, `commands.py`, `events.py`
 
 Implements ADR-007 and the engine half of ADR-008. Everything in E1/E2 builds on these
@@ -57,7 +57,7 @@ shapes; this lands first or gets retrofitted eleven times (GAP G-1..G-19).
   `SCHEMA_VERSION` (bump to 2), tie building stock to the ruleset, bounds everywhere (G-19).
 - Round-trip tests over a *maximal* state and over every event/command union member.
 
-### MON-101 — `legal_commands` and `is_legal`
+### MON-101 — `legal_commands` and `is_legal` ✅ **DONE** (PR #4)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-100 · `legality.py`
 
 The most consequential function in the project (ADR-005).
@@ -72,7 +72,7 @@ The most consequential function in the project (ADR-005).
   over an **unconstrained structural state generator** plus the replay generator, with a
   coverage floor: every `Phase` and `CashReason` observed or the run fails.
 
-### MON-102 — Reducer dispatch, dice and movement
+### MON-102 — Reducer dispatch, dice and movement ✅ **DONE** (PR #5)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-101 · `reducer.py`, `rules/movement.py`
 
 - **The cash ledger rule comes first** (G-60): every change to any player's cash is exactly
@@ -88,14 +88,14 @@ The most consequential function in the project (ADR-005).
 - Bankrupt seats are skipped and the turn auto-advances — a state whose current player is
   bankrupt must be unreachable (G-14).
 
-### MON-103 — Purchase and decline
+### MON-103 — Purchase and decline ✅ **DONE** (PR #5)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-102 · `rules/purchase.py`
 
 - Buy at list price when funds allow; ownership and cash change atomically.
 - Decline → auction when `auctions_enabled`, otherwise the tile stays with the bank.
 - Insufficient funds is not a legal purchase, so it is never offered.
 
-### MON-104 — Rent
+### MON-104 — Rent ✅ **DONE** (PR #5)
 **Tier**: Fable · **Size**: M · **Depends on**: MON-103 · `rules/rent.py`
 
 The single most-often-wrong area. Each bullet is a named test.
@@ -109,7 +109,7 @@ The single most-often-wrong area. Each bullet is a named test.
 - Owner is never charged their own rent. A bankrupt owner's tiles charge nothing.
 - Every charge emits `RentCharged` with a `multiplier_note` key so the UI can explain it.
 
-### MON-105 — `kesef play` text driver
+### MON-105 — `kesef play` text driver ✅ **DONE** (PR #5)
 **Tier**: Sonnet · **Size**: M · **Depends on**: MON-102, MON-104 · `cli.py`
 
 - Prompts the current player with numbered legal commands; bots play themselves.
@@ -121,14 +121,14 @@ The single most-often-wrong area. Each bullet is a named test.
   id and final cash (the MON-503 tripwire convention — every not-implemented assertion names
   the item that must delete it).
 
-### MON-106 — `new_game` factory
+### MON-106 — `new_game` factory ✅ **DONE** (PR #5)
 **Tier**: Opus · **Size**: S · **Depends on**: MON-006
 
 - Builds a valid opening state from seats + board + ruleset + seed.
 - Shuffles both decks from separate RNG streams.
 - Rejects fewer than 2 or more than 6 seats, and duplicate names.
 
-### MON-107 — Golden-game test harness
+### MON-107 — Golden-game test harness ✅ **DONE** (PR #5)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-102, MON-106 *(re-pointed from MON-105 —
 the harness needs `apply_all` and `new_game`, not the CLI; the regression net must be live
 while MON-103/104 churn, G-F26)*
@@ -145,7 +145,7 @@ while MON-103/104 churn, G-F26)*
 - A committed `traps.json` maps each §3.6 trap to the golden and event index where it
   occurs, asserted by a test; collectively the goldens visit every `Phase` and `CashReason`.
 
-### MON-108 — Inert and cashflow tiles
+### MON-108 — Inert and cashflow tiles ✅ **DONE** (PR #5)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-102 · `rules/tiles.py`
 
 Tax tiles, GO salary, Free Parking, Go-To-Jail and just-visiting had no owning module —
@@ -163,7 +163,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 
 ## E2 — Full universal rules · M2
 
-### MON-201 — Development: houses, hotels, even-build, shortage
+### MON-201 — Development: houses, hotels, even-build, shortage ✅ **DONE** (PR #6)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-104 · `rules/development.py`
 
 - Build only on a fully owned, unmortgaged group, during a portfolio phase.
@@ -182,7 +182,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
   `Ruleset.building_shortage_auction = False` documents it. The `BuildingLot` auction type
   exists in the model so the full rule stays buildable.
 
-### MON-202 — Mortgages
+### MON-202 — Mortgages ✅ **DONE** (PR #6)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-201 · `rules/mortgage.py`
 
 - Mortgage for half the printed price; **buildings must be sold off the group first**.
@@ -190,7 +190,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - No rent while mortgaged; group completion still counts.
 - Disabled entirely when `mortgages_enabled` is false (Kids Mode).
 
-### MON-203 — Auctions
+### MON-203 — Auctions ✅ **DONE** (PR #6)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-103 · `rules/auction.py`
 
 - **No reserve** — a property can sell for 1. The player who declined may bid.
@@ -207,7 +207,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
   an auction lot with fewer than two eligible bidders is **voided**, and endgame evaluates
   only after all interrupts drain — the two-player bankruptcy deadlock (G-8).
 
-### MON-204 — Trading
+### MON-204 — Trading ✅ **DONE** (PR #6)
 **Tier**: Opus · **Size**: L · **Depends on**: MON-202 · `rules/trade.py`
 
 - **Who may trade, and when (design decision, Phase 0 exploration; encoded by MON-101):**
@@ -225,7 +225,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - `simplified_trades` (Kids Mode) limits each side to one item.
 - Recipient accepts or rejects; the proposer may cancel while pending.
 
-### MON-205 — Jail
+### MON-205 — Jail ✅ **DONE** (PR #6)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-102 · `rules/jail.py`
 
 - Enter via the tile, a card, or three doubles.
@@ -239,7 +239,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - **Jail is not a pause**: rent is still collected, and building and trading still allowed —
   `JAIL_DECISION` is a portfolio phase (G-5).
 
-### MON-206 — Chance and Community Chest
+### MON-206 — Chance and Community Chest ✅ **DONE** (PR #6)
 **Tier**: Opus · **Size**: L · **Depends on**: MON-102 · `rules/cards.py`
 
 - Full standard decks as **data** with i18n key ids (the `cards.*` catalogue namespace lands
@@ -254,7 +254,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - A movement card that passes GO pays salary; being *sent to jail* by a card does not.
 - Every card's effect is a named test.
 
-### MON-207 — Insolvency and bankruptcy chains
+### MON-207 — Insolvency and bankruptcy chains ✅ **DONE** (PR #6)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-202, MON-203 · `rules/insolvency.py`
 
 - A debt beyond cash enters `DEBT_SETTLEMENT`: sell buildings, mortgage, or trade to raise
@@ -280,7 +280,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - The four money invariants (ledger, paired transfers, reconciliation, supply) hold
   throughout — the invariant test covers this specifically.
 
-### MON-208 — Endgame
+### MON-208 — Endgame ✅ **DONE** (PR #6)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-207 · `rules/endgame.py`
 
 - Last solvent player wins; endgame evaluates only after all interrupts drain (G-8).
@@ -291,7 +291,7 @@ they would have been squeezed into whichever module the implementer was in (G-17
 - `GameEnded` carries `final_standings` with explicit player ids (elimination order breaks
   bankrupt ties — all bankrupts have net worth 0) so a results screen needs no maths (G-B5).
 
-### MON-209 — Hypothesis invariants
+### MON-209 — Hypothesis invariants ✅ **DONE** (PR #6)
 **Tier**: Fable · **Size**: L · **Depends on**: MON-207
 
 The invariant list is restated in full in spec §6 (Phase 0 — the original bullets were
@@ -317,7 +317,7 @@ to "would this test fail if the implementation were wrong". Coverage floor
 
 ## E3 — Server · M3
 
-### MON-301 — Game endpoints
+### MON-301 — Game endpoints ✅ **DONE** (PR #7)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-106, MON-101
 
 - `POST /games`, `GET /games/{id}` (with `?since=` cursor), `POST /games/{id}/commands`,
@@ -329,14 +329,14 @@ to "would this test fail if the implementation were wrong". Coverage floor
   survives to the catalogue sentence, never prose (G-33).
 - Session cap and unknown-game paths return key-based errors; duplicate `game_id` raises.
 
-### MON-302 — OpenAPI export and TypeScript generation
+### MON-302 — OpenAPI export and TypeScript generation ✅ **DONE** (PR #7)
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-301
 
 - `python -m kesef_server.openapi` writes the document to stdout.
 - `packages/web/src/api/generated.ts` committed; the CI `contract` job diffs a fresh
   generation and fails on drift.
 
-### MON-303 — WebSocket event stream
+### MON-303 — WebSocket event stream ✅ **DONE** (PR #7)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-301
 
 - `WS /games/{id}/ws` pushes each command's events.
@@ -382,7 +382,7 @@ than a comment.
 > routed through the MON-411 `<Announcer>`, never a component-local live region. MON-703
 > remains the human/AT pass, not the first detection point.
 
-### MON-401 — Frontend bootstrap
+### MON-401 — Frontend bootstrap ✅ **DONE** (PR #3)
 **Tier**: Sonnet · **Size**: M · **Depends on**: —
 
 - `npm install`, commit `package-lock.json` — **this is what activates the CI web gate**.
@@ -390,7 +390,7 @@ than a comment.
 - `npm run dev` serves, `npm run build` builds, `npm run typecheck` clean.
 - Tailwind v4 configured with the design tokens from `src/theme/`.
 
-### MON-402 — API client and `useGame`
+### MON-402 — API client and `useGame` ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-302, MON-401
 
 - Typed client over `generated.ts`; TanStack Query for the view, mutation for commands.
@@ -398,7 +398,7 @@ than a comment.
 - `useGame()` exposes `{ state, legalCommands, send, events }` — **and nothing that computes
   a rule**.
 
-### MON-403 — Board
+### MON-403 — Board ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: L · **Depends on**: MON-401
 
 - 11×11 CSS grid, tiles placed by index, side labels rotated correctly.
@@ -406,34 +406,34 @@ than a comment.
 - Ownership markers, house/hotel pips, mortgage indicator.
 - Responsive from a 320 px phone to a desktop; the board never causes horizontal page scroll.
 
-### MON-404 — Tokens and dice
+### MON-404 — Tokens and dice ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-403
 
 - Up to six distinguishable tokens; multiple tokens on one tile do not overlap illegibly.
 - Dice roll animation with a real result, skippable, honouring `prefers-reduced-motion`.
 - `aria-live` announcement of every roll.
 
-### MON-405 — ActionBar
+### MON-405 — ActionBar ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-402
 
 - Renders **one button per legal command**, labelled from the i18n catalogue.
 - Zero rule logic. A command the engine did not offer cannot be represented.
 - Keyboard reachable, 44 px minimum targets, disabled state never lies.
 
-### MON-406 — PlayerDossier
+### MON-406 — PlayerDossier ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-403
 
 - Holdings grouped by colour set with completion (`2 of 3`), houses, hotel, mortgage flag.
 - Cash, net worth, jail cards, in-jail and bankrupt states.
 - Reachable for **any** player at any time, including on someone else's turn.
 
-### MON-407 — EventLog
+### MON-407 — EventLog ✅ **DONE** (PR #8)
 **Tier**: Sonnet · **Size**: S · **Depends on**: MON-402
 
 - Human-readable history from the event stream, translated from keys.
 - Scrollable, newest first, with an `aria-live` region for the latest entry only.
 
-### MON-408 — SetupScreen
+### MON-408 — SetupScreen ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-402
 
 - 2–6 seats, each named, human or bot with a difficulty.
@@ -441,13 +441,13 @@ than a comment.
   `/rulesets` rather than hardcoded prose.
 - Optional seed field for a reproducible game.
 
-### MON-409 — AuctionPanel
+### MON-409 — AuctionPanel ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-203, MON-405
 
 - Bidding order, current high bid and bidder, who has withdrawn.
 - Bid entry constrained to legal amounts; a child can see whose turn it is to bid.
 
-### MON-410 — TradeBuilder
+### MON-410 — TradeBuilder ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: L · **Depends on**: MON-204, MON-406
 
 - Two-sided draft: cash, properties, jail cards; validated live via `is_legal`.
@@ -457,7 +457,7 @@ than a comment.
 - Honours `simplified_trades` in Kids Mode.
 - Shows both sides' dossiers while building — the compare case, in situ.
 
-### MON-411 — `<Announcer>` and the narration queue
+### MON-411 — `<Announcer>` and the narration queue ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-402 · *(new at Phase 0, G-54)*
 
 - One component at the root owning exactly one `aria-live="polite"` region (dice, movement,
@@ -468,7 +468,7 @@ than a comment.
 - Movement/cash narration keys (`a11y.moved`, `a11y.passed_go`, …) exist in both locales —
   `TokenMoved` already carries all the data; nothing consumed it.
 
-### MON-412 — Theme foundations: patterns, tokens, action icons
+### MON-412 — Theme foundations: patterns, tokens, action icons ✅ **DONE** (PR #8)
 **Tier**: Opus · **Size**: M · **Depends on**: MON-401 · *(new at Phase 0, G-50/51/52, B2/B3/B4)*
 
 - `theme/patterns.tsx`: eight SVG pattern defs, each legible at 12 px and 200 px — the file
@@ -1385,6 +1385,8 @@ un-offered command is never sent and so never rejected. The clean route is `POST
 how `TradeBuilder` explains a refusal without owning a rule. Not taken here: new affordance, new copy
 in two catalogues, new a11y surface, and an owner decision of its own.
 
+**Closed by MON-725** (PR #52), which built exactly that route via `SquareBuild.tsx`.
+
 ---
 
 ### MON-725 — Why a house cannot go here ✅ **DONE** (2026-08-06)
@@ -1591,9 +1593,9 @@ shared screen, but nothing knows which seat a *connection* speaks for (`DEPLOYME
 
 | ID | Item | Why deferred |
 |---|---|---|
-| MON-901 | Networked play, one device per player | ADR-006 — the seams exist; the scope does not fit v1 |
+| MON-901 | Networked play, one device per player | **in flight, not deferred.** Shipped: the Render blueprint, the start-command resync fix, and a two-client e2e (PRs #49/#50/#51); one build serving both modes, and starting a game for people elsewhere (PRs #54/#55). Still open under this id: seat ownership (a connection speaking for a seat — carried forward as **MON-906** in `_drafts/judge-backlog-2026-08-07.md`), the ADR-011 socket cursor-reset gap (**MON-907**), and whether an online game should survive an API restart (`DEPLOYMENT.md` §6.2) |
 | MON-902 | Further boards (city or family-custom) | boards are data, so this is cheap once M5 proves the pattern |
-| MON-903 | Engine in the browser via Pyodide, no server | possible because the engine is pure; not needed |
+| MON-903 | Engine in the browser via Pyodide, no server | superseded by MON-805 — the owner made online play a requirement, and the in-browser-Pyodide form shipped there (PRs #25, #29, #31) instead of as a separate item |
 | MON-904 | Tournament / statistics mode across many bot games | the golden-game harness is most of the machinery |
 
 ---

@@ -1,6 +1,6 @@
 # ADR-007 — Interrupts are a stack of frames, not a scalar phase
 
-- **Status**: Proposed (Phase 0 gap analysis; awaiting owner review)
+- **Status**: Accepted. Proposed 2026-07-26 · Accepted in implementation by MON-100 (PR #2, 2026-07-26)
 - **Date**: 2026-07-26
 - **Deciders**: Guy Flenner
 - **Informs**: `GAP_ANALYSIS.md` G-1..G-9; supersedes the "at most one interrupt is live at a

@@ -423,7 +423,7 @@ name. `/test-reviewer` exists to catch those.
 |---|---|
 | Universal-rule edge cases silently wrong | §3.6 is a named test checklist; hypothesis invariants; Fable reviews rule correctness specifically |
 | Hebrew RTL degrades late | logical properties enforced as a review gate; Playwright asserts RTL layout from M5 |
-| Israeli board names fabricated | **blocked on a verified source** (MON-503); a test asserts the catalogue's absence so it cannot be half-finished |
+| Israeli board names fabricated | **closed 2026-07-28** — MON-503 shipped from the owner's own photographs of the licensed physical edition, not from memory or inference (see the BACKLOG MON-503 entry) |
 | Two languages / two toolchains drift | one generated, committed, CI-diffed contract |
 | Scope creep into networked play | ADR-006 defers it explicitly; the seams that keep it cheap are already in place |
 | A game too long for a child | Kids Mode target duration; net-worth tie-break |
