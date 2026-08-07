@@ -6,7 +6,7 @@ Three kinds of test, and the split matters:
   it — the same shape `test_bot_normal.py` uses, for the same reason: a ranking is testable directly and
   cheaply, and "it won more games" is not a diagnosis.
 * **The budget.** The acceptance criterion is that the per-move budget is *deterministic*, so it is
-  asserted on the counters :func:`kesef_engine.bots.hard.search` reports. Wall-clock appears nowhere in
+  asserted on the counters :func:`kesef_engine.bots.search.search` reports. Wall-clock appears nowhere in
   an assertion (G-F30) — a time-based gate would fail on a busy runner and pass on a quiet one, and the
   bot's own choices would depend on the machine.
 * **The contests**, under the `slow` marker: ≥ 60 of 100 against the normal bot *and* ≥ 60 against the
@@ -48,26 +48,23 @@ import tournament
 from pydantic import TypeAdapter
 
 from helpers import make_player, make_state
-from kesef_engine.bots import EasyBot, HardBot, NormalBot, hard
+from kesef_engine.bots import EasyBot, HardBot, NormalBot, valuation
+from kesef_engine.bots import search as search_module
 from kesef_engine.bots.base import Bot
-from kesef_engine.bots.hard import (
-    BUILD_RESERVE,
+from kesef_engine.bots.hard import BUILD_RESERVE, _swap_gain
+from kesef_engine.bots.normal import CASH_BUFFER
+from kesef_engine.bots.search import (
     CLOSE_ENOUGH,
     MAX_APPLY_CALLS_PER_MOVE,
-    MAX_RESERVE,
-    MIN_RESERVE,
     ROLLOUT_CANDIDATES,
     ROLLOUTS_PER_CANDIDATE,
     ROLLOUTS_PER_MOVE,
     WIN_VALUE,
     Budget,
-    _estimated_rent,
     _evaluate,
-    _reserve,
-    _swap_gain,
     search,
 )
-from kesef_engine.bots.normal import CASH_BUFFER
+from kesef_engine.bots.valuation import MAX_RESERVE, MIN_RESERVE, estimated_rent, reserve
 from kesef_engine.commands import (
     BuildHouse,
     BuyProperty,
@@ -262,19 +259,19 @@ class TestTheProtocol:
 class TestAmendmentOneTheReserveKnowsWhatItFears:
     def test_an_empty_board_is_not_frightening(self) -> None:
         # Nobody owns anything, so the worst landing is nothing and the reserve is its floor.
-        assert _reserve(_state(), 0) == MIN_RESERVE
+        assert reserve(_state(), 0) == MIN_RESERVE
 
     def test_a_hotel_on_the_dearest_group_is(self) -> None:
         group = _group_of(make_state(), BOARDWALK)
         state = _state(properties={index: PropertyState(owner=1, houses=HOTEL_LEVEL) for index in group})
-        assert _reserve(state, 0) == MAX_RESERVE
+        assert reserve(state, 0) == MAX_RESERVE
 
     def test_the_reserve_tracks_the_worst_square_somebody_else_owns(self) -> None:
         # A middling developed square: above the floor, below the ceiling, and equal to the rent.
         state = _state(properties={16: PropertyState(owner=1, houses=3)})
-        rent = _estimated_rent(state, 16)
+        rent = estimated_rent(state, 16)
         assert MIN_RESERVE < rent < MAX_RESERVE, "the fixture stopped exercising the middle of the clamp"
-        assert _reserve(state, 0) == rent
+        assert reserve(state, 0) == rent
 
     def test_a_mortgaged_square_frightens_nobody(self) -> None:
         """A rule the estimate has to know about: a mortgaged deed charges nothing.
@@ -286,14 +283,14 @@ class TestAmendmentOneTheReserveKnowsWhatItFears:
         """
         group = _group_of(make_state(), BOARDWALK)
         whole = _state(properties={index: PropertyState(owner=1) for index in group})
-        assert _reserve(whole, 0) > MIN_RESERVE, "the fixture stopped frightening anybody"
+        assert reserve(whole, 0) > MIN_RESERVE, "the fixture stopped frightening anybody"
 
         # Pledging the dearest member is what has to move the reserve. Its *sibling* still doubles —
         # `owns_whole_group` reads ownership and not mortgage flags, which is the engine's rule and not
         # this estimate's business — so the exposure falls to the sibling's figure rather than to zero.
         pledged = _patched(whole, {BOARDWALK: PropertyState(owner=1, mortgaged=True)})
-        assert _estimated_rent(pledged, BOARDWALK) == 0
-        assert MIN_RESERVE < _reserve(pledged, 0) < _reserve(whole, 0)
+        assert estimated_rent(pledged, BOARDWALK) == 0
+        assert MIN_RESERVE < reserve(pledged, 0) < reserve(whole, 0)
 
     def test_it_buys_the_square_the_normal_bot_is_too_thrifty_for(self) -> None:
         """The clearest single difference between the two bots, in the position that shows it.
@@ -313,7 +310,7 @@ class TestAmendmentOneTheReserveKnowsWhatItFears:
         group = _group_of(make_state(), BOARDWALK)
         state, legal = _deciding_a_purchase(cash=410, position=1)
         state = _patched(state, {index: PropertyState(owner=1, houses=HOTEL_LEVEL) for index in group})
-        assert _reserve(state, 0) == MAX_RESERVE, "the fixture stopped putting a hotel on the board"
+        assert reserve(state, 0) == MAX_RESERVE, "the fixture stopped putting a hotel on the board"
         assert HardBot().choose(state, 0, legal).kind == "decline_purchase"
 
 
@@ -344,16 +341,16 @@ class TestTheRentEstimateAgreesWithTheEngine:
 
     def test_a_built_square_charges_what_the_estimate_says(self) -> None:
         state = _state(properties={16: PropertyState(owner=1, houses=3)})
-        assert _estimated_rent(state, 16) == self._rent_charged(state, 0, 16)
+        assert estimated_rent(state, 16) == self._rent_charged(state, 0, 16)
 
     def test_a_whole_unimproved_group_charges_double_and_the_estimate_knows(self) -> None:
         group = _group_of(make_state(), 1)
         state = _state(properties={index: PropertyState(owner=1) for index in group})
-        assert _estimated_rent(state, group[0]) == self._rent_charged(state, 0, group[0])
-        assert _estimated_rent(state, group[0]) == state.board.tile(group[0]).rent[0] * 2
+        assert estimated_rent(state, group[0]) == self._rent_charged(state, 0, group[0])
+        assert estimated_rent(state, group[0]) == state.board.tile(group[0]).rent[0] * 2
 
     def test_an_unowned_square_charges_nothing(self) -> None:
-        assert _estimated_rent(_state(), 16) == 0
+        assert estimated_rent(_state(), 16) == 0
 
     def test_it_is_the_engines_own_quote_on_every_square_of_a_real_board(self) -> None:
         """MON-737. The property that says the estimate has no rent ladder of its own.
@@ -361,7 +358,7 @@ class TestTheRentEstimateAgreesWithTheEngine:
         Two claims, and the second is what makes the first worth writing:
 
         1. **The estimate is the quote.** For every ownable square of every sampled board it equals
-           ``rent_due``'s figure, with :data:`~kesef_engine.bots.hard._AVERAGE_DICE_TOTAL` applied
+           ``rent_due``'s figure, with :data:`~kesef_engine.bots.valuation._AVERAGE_DICE_TOTAL` applied
            where the quote declines to name an amount — the one piece of arithmetic left on the bot's
            side of the boundary, and the only thing this file has to review.
         2. **The quote is what gets charged.** An equality against ``rent_due`` alone would say only
@@ -383,7 +380,7 @@ class TestTheRentEstimateAgreesWithTheEngine:
             for tile in state.board.tiles:
                 if not tile.is_ownable:
                     continue
-                estimate = _estimated_rent(state, tile.index)
+                estimate = estimated_rent(state, tile.index)
                 owner = state.properties[tile.index].owner
                 if owner is None:
                     reached["unowned"] += 1
@@ -401,7 +398,7 @@ class TestTheRentEstimateAgreesWithTheEngine:
 
                 reached[quoted.note_keys[0]] += 1
                 if quoted.amount is None:
-                    assert estimate == quoted.multiplier * hard._AVERAGE_DICE_TOTAL
+                    assert estimate == quoted.multiplier * valuation._AVERAGE_DICE_TOTAL
                     continue
                 assert estimate == quoted.amount
                 assert estimate == self._rent_charged(state, payer, tile.index), (
@@ -538,7 +535,7 @@ class TestAmendmentFiveHousesAreTheWeapon:
         properties = {index: PropertyState(owner=1, houses=HOTEL_LEVEL) for index in group}
         properties |= {index: PropertyState(owner=0) for index in mine}
         state = _state(cash=BUILD_RESERVE + 200, properties=properties)
-        assert _reserve(state, 0) == MAX_RESERVE, "the fixture stopped putting a hotel on the board"
+        assert reserve(state, 0) == MAX_RESERVE, "the fixture stopped putting a hotel on the board"
         legal: tuple[Command, ...] = (END, BuildHouse(player=0, tile=mine[0]))
         assert HardBot().choose(state, 0, legal).kind == "build_house"
 
@@ -678,7 +675,7 @@ class TestTheRolloutsDecideSomething:
         the position above, and the test above would fail. Measured at scale, the same switch takes the
         bot from 24 wins in 30 against the normal bot down to 15.
         """
-        monkeypatch.setattr(hard, "ROLLOUT_CANDIDATES", 1)
+        monkeypatch.setattr(search_module, "ROLLOUT_CANDIDATES", 1)
         state = self._offered_a_group_completing_gift()
         answers: tuple[Command, ...] = (
             RespondToTrade(player=0, accept=True),
