@@ -49,5 +49,40 @@ export default defineConfig({
     // existed — they import `@playwright/test`, so they fail to collect under a jsdom runner and the
     // suite went red for a reason that had nothing to do with the code.
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
+    // MON-731: v8 coverage instruments every module the test imports, and the heaviest tests here
+    // (the axe scans, the debounced trade-review panel) were already close enough to the 5 s default
+    // that the instrumentation overhead alone pushed thirteen of them over it — none of them became
+    // slower in wall-clock terms than a person would notice, they became slower than the default. A
+    // single global bump rather than per-file overrides, because the cause is global (every test pays
+    // the same instrumentation tax) and a per-file timeout is the kind of thing that goes stale the
+    // next time a fast test picks up one more `await`.
+    testTimeout: 15_000,
+    // MON-731: the Python side has had a coverage floor since MON-209 (`pyproject.toml`'s
+    // `fail_under = 90`); the web package had none — `npm run test -- --run --coverage` could not
+    // even report a number. `v8` rather than `istanbul`: no extra instrumentation dependency, and
+    // it is what Node already collects.
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/**/*.{test,spec}.{ts,tsx}",
+        "src/test/**",
+        "src/**/*.d.ts",
+        "src/api/generated.ts", // openapi-typescript output — nothing here is hand-written or tested
+      ],
+      // Measured TOTAL at the time this floor landed (`npm run test -- --run --coverage`):
+      // statements 95.4, branches 89.63, functions 90.96, lines 95.4. Each floor below is that
+      // figure rounded down and then given one further point of slack, for the same reason
+      // `pyproject.toml`'s `fail_under = 90` comment gives for its own floor: room for ordinary
+      // branch-coverage noise rather than a gate pinned to today's exact number. Four figures
+      // because v8 reports branches separately from statements, and a coverage regression can hide
+      // in either.
+      thresholds: {
+        statements: 94,
+        branches: 88,
+        functions: 89,
+        lines: 94,
+      },
+    },
   },
 });

@@ -1,0 +1,110 @@
+# Build-only PR gate for the Pyodide/Pages path (MON-910).
+#
+# `deploy-pages.yml` runs the only job that boots a real Pyodide interpreter against the real
+# wheels at the real base path — and it only runs on `push: main`, after the merge. Its own header
+# says "everything else in CI can be green while this is broken", and that has happened twice on
+# record: the MON-713 reload-loss regression and the Pyodide `JsNull` fix both escaped every other
+# gate and were only caught (or would only have been caught) by the post-merge smoke.
+#
+# This job mirrors `deploy-pages.yml`'s build job through the smoke test — wheels, manifest, the
+# local-engine build, the same base path — and stops there. No `configure-pages`, no
+# `upload-pages-artifact`, no deploy step: this workflow proves the artifact boots, it does not
+# publish it, so it needs none of `deploy-pages.yml`'s Pages permissions or its `concurrency`
+# discipline.
+#
+# Path-filtered rather than unconditional, because most PRs touch none of this surface and paying
+# a CPython-from-a-CDN download on every doc or engine-rule change would make this the gate people
+# route around. The filter covers: the local (Pyodide) engine adapter, the browser transport it
+# calls into, the Playwright specs that exercise it, and everything the two wheels this job builds
+# are built *from* — a change to `kesef-engine` or `kesef-server` is exactly the kind of change
+# that could break the browser build without breaking the HTTP one.
+name: Pages smoke (PR)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/web/src/local/**"
+      - "packages/web/e2e-pages/**"
+      - "packages/web/playwright.pages.config.ts"
+      - "packages/server/src/kesef_server/browser.py"
+      - "packages/engine/src/**"
+      - "packages/engine/pyproject.toml"
+      - "packages/server/src/**"
+      - "packages/server/pyproject.toml"
+      - "uv.lock"
+
+concurrency:
+  group: pages-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same values as deploy-pages.yml's `SITE_BASE`/`SITE_API_URL` — the whole point is to smoke-test
+  # the artifact under the same base path and API wiring it will actually ship with. Kept in sync
+  # by hand rather than shared: a `workflow_call` split was more machinery than two three-line env
+  # blocks justify, and a drift here fails loudly (a base-path bug is what this job exists to catch)
+  # rather than silently.
+  SITE_BASE: /monopoly/
+  SITE_API_URL: https://kesef-street-api.onrender.com
+
+jobs:
+  pages-smoke:
+    name: Build + smoke-test the Pages artifact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Build the wheels
+        run: |
+          uv build --package kesef-engine --wheel --out-dir packages/web/public/wheels
+          uv build --package kesef-server --wheel --out-dir packages/web/public/wheels
+
+      - name: Write the wheel manifest
+        working-directory: packages/web/public/wheels
+        run: |
+          ls -1 *.whl | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' > manifest.json
+          cat manifest.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/web/package-lock.json
+
+      - run: npm ci
+        working-directory: packages/web
+
+      - name: Build (local engine, Pages base path)
+        working-directory: packages/web
+        env:
+          VITE_ENGINE: local
+          VITE_BASE: ${{ env.SITE_BASE }}
+          VITE_API_URL: ${{ env.SITE_API_URL }}
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: packages/web
+
+      - name: Smoke-test the artifact
+        working-directory: packages/web
+        env:
+          VITE_BASE: ${{ env.SITE_BASE }}
+        run: npm run test:e2e:pages
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: pages-smoke-report
+          path: |
+            packages/web/playwright-report/
+            packages/web/test-results/
+          retention-days: 7

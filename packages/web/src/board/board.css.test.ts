@@ -11,11 +11,11 @@
  * out of a Tailwind class list and into `board.css` where a test can quote them. Same shape, and the
  * same reason, as `panels/panels.css.test.ts`.
  *
- * The real measurement belongs to MON-707's Playwright surface, which does not exist yet (there is
- * no `playwright.config.ts` and no `e2e/` directory in this package). When it lands it should assert
- * `scrollHeight <= clientHeight + 1` on `[data-testid="board-grid"]` at 320 px; until then this file
- * plus `Board.test.tsx`'s explicit-placement test are the guard, and they are checks on the cause
- * rather than on the symptom.
+ * The real measurement is MON-707's Playwright surface, which exists now: `e2e/rtl.spec.ts:169`
+ * ("the board fits the space it is given") asserts exactly `scrollHeight <= clientHeight + 1` (and
+ * the same for width) on `[data-testid="board-grid"]` at 320 px, in both locales. This file plus
+ * `Board.test.tsx`'s explicit-placement test remain the guard on the *cause* — jsdom cannot see the
+ * symptom at all — while the Playwright spec guards the symptom itself.
  */
 
 import { readFileSync } from "node:fs";
