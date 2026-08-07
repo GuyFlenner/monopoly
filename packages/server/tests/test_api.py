@@ -651,17 +651,59 @@ def test_an_empty_table_is_refused_the_same_way(client: TestClient) -> None:
     assert response.json()["reason_key"] == "error.too_few_players"
 
 
-def test_a_refusal_the_factory_does_not_name_stays_one_coarse_key(client: TestClient) -> None:
-    """MON-418 keyed the three refusals a *player* can cause. This is the floor under the rest.
+def test_two_seats_on_one_pawn_are_named_rather_than_lumped_in_with_every_other_refusal(
+    client: TestClient,
+) -> None:
+    """MON-735: the fourth keyed seating refusal reaches the wire as itself.
 
-    Two seats sharing a ``token`` is reachable from the wire — ``SeatConfig.token`` is free-form —
-    and it is refused by ``GameState``'s own validator as a bare ``ValueError`` rather than by the
-    factory's keyed checks. That is a client defect, not a mistake a parent made (the setup screen
-    assigns a distinct piece per seat), so it keeps the coarse key: guessing a precise one here
-    would mean the transport holding a copy of a rule, which is what ``errors.py`` forbids.
+    This asserted ``error.invalid_new_game`` until MON-735 — the coarse key that MON-418 keyed three
+    of the four causes away from, left in place for the fourth because nothing named it. The route is
+    unchanged: the factory decides, the transport forwards. What changed is that the factory now has
+    something to say, so the setup screen can point at the pawn instead of reciting every seating
+    rule and hoping the parent spots theirs.
     """
     seats = [seat("Ann"), {**seat("Bob"), "token": seat("Ann")["token"]}]
     response = client.post("/games", json={"seats": seats})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json() == {
+        "reason_key": "error.duplicate_tokens",
+        "params": {"token": seat("Ann")["token"]},
+    }
+
+
+def test_a_reflected_pawn_key_is_truncated_on_the_way_out(client: TestClient) -> None:
+    """``SeatConfig.token`` carries no ``max_length``, unlike ``name`` — so the cap is here.
+
+    ``errors.invalid_seating`` used to forward params untouched, which was safe only because the one
+    string it could carry was capped at 24 characters at the field. MON-735 added a second, uncapped
+    one; without the truncation a 5 kB token comes back inside the error body, which is the
+    amplifier ``MAX_REFLECTED_CHARS`` was introduced to close.
+    """
+    long_token = "t" * (MAX_REFLECTED_CHARS + 40)
+    seats = [{**seat("Ann"), "token": long_token}, {**seat("Bob"), "token": long_token}]
+    response = client.post("/games", json={"seats": seats})
+    assert response.status_code == UNPROCESSABLE
+    assert response.json()["params"]["token"] == "t" * MAX_REFLECTED_CHARS + "..."
+
+
+def test_a_refusal_the_factory_does_not_name_stays_one_coarse_key(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MON-418 keyed the four refusals a *player* can cause. This is the floor under the rest.
+
+    Driven through a monkeypatched factory since MON-735, and that is the finding rather than a
+    weakening: two seats on one pawn was the last unkeyed ``ValueError`` a client could actually
+    provoke, so nothing reachable from the wire lands here any more. The arm stays because the next
+    field constraint added inside ``new_game`` would otherwise escape as a 500 with a traceback, and
+    guessing a precise key for it would mean the transport holding a copy of a rule — which is what
+    ``errors.py`` forbids.
+    """
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("a player state constraint, in developer prose")
+
+    monkeypatch.setattr("kesef_server.api.new_game", refuse)
+    response = client.post("/games", json=new_game_payload())
     assert response.status_code == UNPROCESSABLE
     assert response.json() == {"reason_key": "error.invalid_new_game", "params": {}}
 

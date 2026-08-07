@@ -118,22 +118,32 @@ def invalid_seating(reason_key: str, params: dict[str, int | str]) -> ApiError:
     :class:`~kesef_engine.errors.InvalidSeatingError`, and this is the forwarding.
 
     Nothing is inspected or re-decided: the key and its params arrive from the factory, and the
-    only judgement here is the status code, which is transport. A caller-supplied name reaches
-    ``params`` through the ``error.duplicate_names`` key — capped at 24 characters by ``Seat.name``
-    long before it gets here, and subject to the interpolation warning on
-    :data:`MAX_REFLECTED_CHARS` like every other reflected value.
+    only judgement here is the status code, which is transport.
+
+    Two of these keys reflect a caller-supplied string. ``error.duplicate_names`` carries a name,
+    capped at 24 characters by ``Seat.name`` long before it gets here; ``error.duplicate_tokens``
+    (MON-735) carries a pawn key, and ``SeatConfig.token`` is free-form with no ceiling at all — so
+    every string is truncated here rather than only the one that needs it today, which is the
+    version that stays right when the factory names a fifth refusal. All of them are subject to the
+    interpolation warning on :data:`MAX_REFLECTED_CHARS` like every other reflected value.
     """
-    return ApiError(UNPROCESSABLE, reason_key, **params)
+    return ApiError(
+        UNPROCESSABLE,
+        reason_key,
+        **{name: _reflected(value) if isinstance(value, str) else value for name, value in params.items()},
+    )
 
 
 def invalid_new_game() -> ApiError:
     """The factory refused the seats for a reason it did not name.
 
-    The three refusals a *player* can cause — too few seats, too many, duplicate names — are keyed
-    at source now and forwarded by :func:`invalid_seating`. This stays as the floor under anything
-    else that raises ``ValueError`` while an opening state is assembled (a ``PlayerState`` field
-    constraint, say), which is a defect rather than a mistake a parent made: one coarse key beats
-    guessing, and guessing precisely would put a copy of a rule in the transport.
+    The four refusals a *player* can cause — too few seats, too many, duplicate names, two seats
+    on one pawn — are keyed at source now and forwarded by :func:`invalid_seating`. The fourth was
+    this key's last reachable-from-the-wire caller until MON-735 named it. This stays as the floor
+    under anything else that raises ``ValueError`` while an opening state is assembled (a
+    ``PlayerState`` field constraint, say), which is a defect rather than a mistake a parent made:
+    one coarse key beats guessing, and guessing precisely would put a copy of a rule in the
+    transport.
     """
     return ApiError(UNPROCESSABLE, "error.invalid_new_game")
 

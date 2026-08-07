@@ -246,8 +246,9 @@ class BrowserHost:
             raise errors.unknown_board(request.board_id) from None
         except InvalidSeatingError as refused:
             # The engine's own key, forwarded whole, exactly as `api.create_game` forwards it
-            # (MON-418, G-33). "Two to six players" and "no shared names" are rules, so neither
-            # transport restates them nor flattens the three refusals into one coarse key.
+            # (MON-418, G-33). "Two to six players", "no shared names" and "one pawn each" are
+            # rules, so neither transport restates them nor flattens the four refusals into one
+            # coarse key.
             raise errors.invalid_seating(refused.reason_key, transport.wire_params(refused.context)) from None
         except ValueError:
             raise errors.invalid_new_game() from None

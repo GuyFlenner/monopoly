@@ -209,6 +209,7 @@
     "bid_above_ceiling": "ההצעה המקסימלית כאן היא {{maximum, money}}.",
     "bid_too_low": "הצעה צריכה להיות {{minimum, money}} לפחות.",
     "duplicate_names": "שני שחקנים נקראים {{name}}. צריך לשנות את השם של אחד מהם.",
+    "duplicate_tokens": "שני שחקנים בחרו את אותו החייל. צריך לשנות את החייל של אחד מהם.",
     "engine_failure": "משהו השתבש בתוך המשחק. שום דבר לא השתנה.",
     "game_already_exists": "כבר קיים משחק בשם הזה.",
     "game_not_found": "המשחק הזה לא קיים יותר.",

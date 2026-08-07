@@ -69,26 +69,46 @@ def new_game(
     """Build the opening state. Deterministic: the same arguments give the same game.
 
     Raises :class:`~kesef_engine.errors.InvalidSeatingError` — carrying an i18n key and its
-    params, per MON-418 — for fewer than 2 or more than 6 seats and for duplicate names
-    (case-insensitive). These are the same rules the state model enforces, raised here with the
-    caller's vocabulary before a half-built state ever exists; the difference is that a *player*
-    causes these three, so the refusal has to be something a setup screen can put in front of a
-    parent in either language.
+    params, per MON-418 — for fewer than 2 or more than 6 seats, for duplicate names
+    (case-insensitive) and for two seats holding the same pawn. These are the same rules the state
+    model enforces, raised here with the caller's vocabulary before a half-built state ever exists;
+    the difference is that a *player* causes these four, so the refusal has to be something a setup
+    screen can put in front of a parent in either language.
 
     Duplicate names are compared case-insensitively and the reported name is the one that
     repeated, as typed. Reflecting it is safe by construction: ``Seat.name`` is capped at 24
     characters, so there is no amplifier here of the sort ``kesef_server.errors`` truncates for.
+    A ``token`` is not capped, so the transport truncates that one on the way out.
     """
     if len(seats) < MIN_PLAYERS:
         raise InvalidSeatingError("error.too_few_players", minimum=MIN_PLAYERS, seats=len(seats))
     if len(seats) > MAX_PLAYERS:
         raise InvalidSeatingError("error.too_many_players", maximum=MAX_PLAYERS, seats=len(seats))
     seen: set[str] = set()
-    for seat in seats:
+    claimed: set[str] = set()
+    for index, seat in enumerate(seats):
         folded = seat.name.casefold()
         if folded in seen:
             raise InvalidSeatingError("error.duplicate_names", name=seat.name)
         seen.add(folded)
+        # MON-735: the fourth refusal a player can cause. Before this it fell through to
+        # `GameState`'s own "duplicate player tokens" validator — developer prose, which the
+        # transport can only answer with the coarse `error.invalid_new_game`, the exact failure
+        # MON-418 existed to remove. Compared on the *effective* token, because a seat that names
+        # none inherits `DEFAULT_TOKENS[index]` and can collide with a seat that named that pawn
+        # explicitly; comparing `seat.token` alone would let that pair past and straight into the
+        # unkeyed refusal. Exact, not case-folded, unlike names: a token is an asset key the client
+        # chose from a list, not prose somebody typed, so the check must agree with the model's
+        # validator character for character rather than being merely stricter than it.
+        #
+        # The `token` param is shipped and no sentence interpolates it, on the same argument
+        # `UNSPENT_PARAMS` records for `tile`: a setup screen highlights the pawn both seats
+        # claimed, which beats naming it, and naming it is not available anyway — `error.*` params
+        # cross the wire unresolved, so a `token.rocket` in the sentence would render as itself.
+        token = seat.token or DEFAULT_TOKENS[index]
+        if token in claimed:
+            raise InvalidSeatingError("error.duplicate_tokens", token=token)
+        claimed.add(token)
     load_board(board_id)  # unknown boards fail here, loudly, not on the first roll
 
     rules = ruleset if ruleset is not None else Ruleset.universal()
