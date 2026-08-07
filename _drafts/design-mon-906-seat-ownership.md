@@ -157,15 +157,19 @@ class SeatAuthority:
     host_secret: str
     seat_secrets: dict[int, str] = field(default_factory=dict)  # PlayerId -> secret; claimed only
 
-def mint_authority() -> SeatAuthority: ...          # secrets.token_hex(16) per credential
+
+def mint_authority() -> SeatAuthority: ...  # secrets.token_hex(16) per credential
+
 
 # transport.py — the single enforcement point, shared by api.py and browser.py
 class Speaker:  # discriminated union: Host | Seat(player: int) | Spectator
     ...
-def speaker_for(held: Session, secret: str | None) -> Speaker: ...   # compare_digest inside
+
+
+def speaker_for(held: Session, secret: str | None) -> Speaker: ...  # compare_digest inside
 def require_seat(held: Session, secret: str | None, player: int) -> None: ...  # 403 error.seat_not_yours
-def require_host(held: Session, secret: str | None) -> None: ...               # 403 error.host_only
-def claim_seat(held: Session, player: int) -> str: ...   # 409 error.seat_taken; refuses bot seats
+def require_host(held: Session, secret: str | None) -> None: ...  # 403 error.host_only
+def claim_seat(held: Session, player: int) -> str: ...  # 409 error.seat_taken; refuses bot seats
 def release_seat(held: Session, player: int) -> None: ...  # host precondition checked by caller
 def view(held: Session, events: tuple[LoggedEvent, ...] = (), *, speaker: Speaker) -> GameView: ...
 ```
@@ -174,15 +178,19 @@ def view(held: Session, events: tuple[LoggedEvent, ...] = (), *, speaker: Speake
 # schemas.py
 class SeatClaimView(BaseModel):
     player: int
-    claimed: bool                      # never the secret
+    claimed: bool  # never the secret
+
 
 class GameCreated(BaseModel):
-    host_secret: str                   # returned once, at creation, nowhere else
+    host_secret: str  # returned once, at creation, nowhere else
     view: GameView
+
 
 class SeatClaimed(BaseModel):
     seat_secret: str
     view: GameView
+
+
 # GameView gains: claims: tuple[SeatClaimView, ...]
 ```
 
@@ -236,6 +244,7 @@ async def test_a_guest_cannot_act_for_a_seat_it_did_not_claim(client) -> None:
     assert response.json()["reason_key"] == "error.seat_not_yours"  # FAILS until require_seat exists
     assert (await client.get(f"/games/{gid(created)}")).json()["event_cursor"] == created["view"]["event_cursor"]
 
+
 async def test_the_host_still_plays_every_unclaimed_seat(client) -> None:
     """AC: hotseat unchanged — the creator speaks for all unclaimed human seats."""
     created = (await client.post("/games", json=TWO_HUMANS)).json()
@@ -245,6 +254,7 @@ async def test_the_host_still_plays_every_unclaimed_seat(client) -> None:
         headers={"Authorization": f"Bearer {created['host_secret']}"},
     )
     assert ok.status_code == 200  # FAILS until speaker_for maps host -> unclaimed seats
+
 
 async def test_a_save_is_host_only_and_carries_no_secret(client) -> None:
     """AC: the RNG/deck cheat channel is closed, and the credential never serializes."""
