@@ -48,7 +48,10 @@ blocked backlog item (MON-503), or anything in §6 of `../docs/FABLE_KICKOFF.md`
 - **PostToolUse / Edit·Write·MultiEdit** → `hooks/edit-guardrail.sh`: blocks hardcoded keys and
   secrets, warns on ownerless TODOs. Use `TODO(MON-###)` so a TODO has an owning backlog item.
 - `settings.json` mirrors these as `permissions.deny` and pre-allows the safe verbs (`uv run`,
-  `npm run`, read-only git, `gh pr`/`gh issue`).
+  `npm run`, read-only git, `gh pr`/`gh issue`). The deny list is the fast pre-flight path —
+  a permission glob only expresses prefix/wildcard matches, not the hook's arbitrary-order
+  substring logic (e.g. flags typed in a different order, or chained via `&&`), so the hook
+  stays authoritative and always runs regardless of what the deny list catches first.
 
 ## Project-specific review checklist
 
