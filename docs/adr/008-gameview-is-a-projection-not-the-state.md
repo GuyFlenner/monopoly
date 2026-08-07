@@ -1,6 +1,6 @@
 # ADR-008 — GameView is a projection, not the raw GameState
 
-- **Status**: Proposed (Phase 0 gap analysis; awaiting owner review)
+- **Status**: Accepted. Proposed 2026-07-26 · Accepted in implementation by MON-301 (PR #7, 2026-07-28)
 - **Date**: 2026-07-26
 - **Deciders**: Guy Flenner
 - **Informs**: `GAP_ANALYSIS.md` G-30..G-36

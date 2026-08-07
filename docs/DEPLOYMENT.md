@@ -71,7 +71,7 @@ upload into the same in-memory store — no account, no cloud, nothing to delete
 | | HTTP build | Static build |
 |---|---|---|
 | First load | ~450 kB JS | ~450 kB JS **+ ~12 MB** interpreter and wheels, cached afterwards |
-| Multi-device play | possible later (MON-9xx) | one tab, one table |
+| Multi-device play | yes, via the API | one tab, one table — unless §6.7 (one build serves both; a shared `?game=` link joins online) |
 | Hosting | a Python host | none |
 
 The first-load size is why there is a real loading screen with named stages
