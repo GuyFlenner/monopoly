@@ -156,6 +156,26 @@ fingerprint, rollouts) + `hard.py` (policy only); no module over ~400 lines.
 - **Verify**: behaviour-preserving — `test_bot_hard.py`, `mypy`, and `pytest -m slow` win
   rates move not at all.
 
+### MON-750 — vitest 2 → 4 major bump (and the Dependabot npm group behind it) · **M · Opus** · *(added 2026-08-07)*
+Promised by PR #59's audit-gate comment: the `vitest` critical advisory (GHSA-5xrq-8626-4rwp)
+is fixed only by `vitest@4.1.10`, a major bump from `^2.1.8` — real test-infra work, not a
+lockfile nudge. Dependabot's first npm group PR (#61, 20 updates) fails the Web gate and
+Playwright for the same class of reason; resolve them together: land the vitest 4 migration
+(config changes, `@vitest/coverage-v8` major to match, any API renames across the 83 test
+files), then rebase or regenerate the Dependabot group on top.
+- **Verify**: full web gate green (`typecheck`, `lint`, `test -- --run --coverage` with the
+  MON-731 thresholds intact); `npm audit --audit-level=high` (unscoped) reports the vitest
+  advisory gone; PR #61 either merges green afterwards or is superseded and closed.
+
+### MON-751 — HardBot's threat-scaled reserve never reaches trade scoring · **S · Opus** · *(added 2026-08-07, found during MON-736's sweep)*
+`NormalBot._score_trade` reads the module constant `CASH_BUFFER` directly instead of
+`self._buffer(...)`, so `HardBot`'s threat-scaled reserve — its defining amendment — silently
+does not apply to the one decision (trades) MON-602/ADR-009 existed to enable. A bot-constant
+inconsistency, not a rule bug: the engine validates every trade either way.
+- **Verify**: a test with a threat level that moves `HardBot._buffer` far from `CASH_BUFFER`
+  asserts the hard bot's trade verdict differs from the normal bot's on the same draft —
+  red before the fix, green after; `pytest -m slow` win rates unchanged on the next nightly.
+
 ## J4 — Web / UX
 
 ### MON-743 — Muted-ink tokens: composite alpha into the contrast gate · **M · Fable** · Finding 5
