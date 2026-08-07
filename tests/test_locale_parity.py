@@ -109,6 +109,21 @@ def _plural_bases(keys: Iterable[str]) -> set[str]:
     return {_plural_base(key) for key in keys}
 
 
+def test_english_only_catalogues_have_no_hebrew_file() -> None:
+    """`ENGLISH_ONLY_CATALOGUES` is a *pending* list, not a permanent one — a catalogue belongs on it
+    only until its Hebrew file lands (MON-506 is the precedent: `cards` came off the day
+    `cards.he.json` did), and every other test above treats membership as trusted, skipping instead
+    of checking. That is exactly how a catalogue could get its Hebrew file written and never come off
+    the tuple: nothing would go red, because nothing looks.
+
+    Empty today (`ENGLISH_ONLY_CATALOGUES = ()`), so this is a guard against a future regression
+    rather than a live failure — and it is a real guard, not a vacuous one: putting `cards` back in
+    the tuple, whose `he` file already exists, turns this red.
+    """
+    lingering = [catalogue for catalogue in ENGLISH_ONLY_CATALOGUES if (LOCALES_DIR / f"{catalogue}.he.json").is_file()]
+    assert not lingering, f"already has a Hebrew catalogue — remove from ENGLISH_ONLY_CATALOGUES: {lingering}"
+
+
 @pytest.mark.parametrize("catalogue", CATALOGUES)
 def test_every_catalogue_exists_in_every_language(catalogue: str) -> None:
     for language in LANGUAGES:
