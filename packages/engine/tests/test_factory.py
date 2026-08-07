@@ -6,7 +6,14 @@ import pytest
 
 from kesef_engine.decks import CHANCE_CARD_IDS, COMMUNITY_CHEST_CARD_IDS
 from kesef_engine.errors import InvalidSeatingError
-from kesef_engine.factory import STREAM_CHANCE, STREAM_COMMUNITY_CHEST, STREAM_DICE, Seat, new_game
+from kesef_engine.factory import (
+    DEFAULT_TOKENS,
+    STREAM_CHANCE,
+    STREAM_COMMUNITY_CHEST,
+    STREAM_DICE,
+    Seat,
+    new_game,
+)
 from kesef_engine.phases import Phase
 from kesef_engine.primitives import BotLevel
 from kesef_engine.rng import Rng
@@ -112,6 +119,38 @@ def test_rejects_duplicate_names_case_insensitively() -> None:
     assert refused.value.reason_key == "error.duplicate_names"
     # The name as *typed*, and the second one — the repeat is what the player has to change.
     assert refused.value.context == {"name": "ada"}
+
+
+def test_rejects_two_seats_holding_the_same_pawn() -> None:
+    """MON-735: the fourth refusal a player can cause is keyed too.
+
+    It used to fall through to ``GameState``'s "duplicate player tokens" validator, whose message is
+    developer prose — so the transport could only answer ``error.invalid_new_game``, and a parent who
+    picked the rocket twice was told the whole seating was wrong without being told which part.
+    """
+    with pytest.raises(InvalidSeatingError) as refused:
+        new_game((Seat(name="Ada", token="token.kite"), Seat(name="Bo", token="token.kite")), seed=1)
+    assert refused.value.reason_key == "error.duplicate_tokens"
+    assert refused.value.context == {"token": "token.kite"}
+
+
+def test_rejects_a_named_pawn_colliding_with_a_seat_that_named_none() -> None:
+    """The comparison is on the *effective* token, not on what the seat spelled out.
+
+    Seat 0 names nothing and inherits ``DEFAULT_TOKENS[0]``; seat 1 asks for that same pawn by name.
+    A check that compared ``seat.token`` would see ``{None, "token.rocket"}``, wave the pair through,
+    and hand the collision back to the unkeyed validator — which is the bug this rule exists to stop,
+    reintroduced one layer down.
+    """
+    with pytest.raises(InvalidSeatingError) as refused:
+        new_game((Seat(name="Ada"), Seat(name="Bo", token=DEFAULT_TOKENS[0])), seed=1)
+    assert refused.value.reason_key == "error.duplicate_tokens"
+    assert refused.value.context == {"token": DEFAULT_TOKENS[0]}
+
+
+def test_the_default_pawns_do_not_collide_with_each_other() -> None:
+    """Six unnamed seats are a legal table — the new check must not refuse the common case."""
+    assert len(new_game(tuple(Seat(name=f"P{n}") for n in range(6)), seed=1).players) == 6
 
 
 def test_a_keyed_seating_refusal_is_still_a_value_error() -> None:

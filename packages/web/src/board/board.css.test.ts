@@ -11,11 +11,13 @@
  * out of a Tailwind class list and into `board.css` where a test can quote them. Same shape, and the
  * same reason, as `panels/panels.css.test.ts`.
  *
- * The real measurement is MON-707's Playwright surface, which exists now: `e2e/rtl.spec.ts:169`
- * ("the board fits the space it is given") asserts exactly `scrollHeight <= clientHeight + 1` (and
- * the same for width) on `[data-testid="board-grid"]` at 320 px, in both locales. This file plus
- * `Board.test.tsx`'s explicit-placement test remain the guard on the *cause* — jsdom cannot see the
- * symptom at all — while the Playwright spec guards the symptom itself.
+ * The real measurement belongs to MON-707's Playwright surface, and it landed: `e2e/rtl.spec.ts:169`
+ * ("the board fits the space it is given") asserts `scrollHeight <= clientHeight + 1` on
+ * `[data-testid="board-grid"]` at 320 px, in both locales — the assertion this docstring used to
+ * describe as future work. So the split is the finished one rather than an interim: that suite
+ * guards the *symptom*, this file and `Board.test.tsx`'s explicit-placement test guard the *cause*,
+ * and neither makes the other redundant, because a stylesheet can be right while a layout is wrong
+ * and a layout can be accidentally right while the declaration that guaranteed it has been deleted.
  */
 
 import { readFileSync } from "node:fs";

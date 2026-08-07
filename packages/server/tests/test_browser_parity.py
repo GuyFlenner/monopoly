@@ -342,6 +342,14 @@ def test_an_unknown_board_is_the_same_refusal(pair: PairFactory) -> None:
         ([seat("Ann"), seat("Ann")], "error.duplicate_names", "name", "Ann"),
         ([seat("Ann")], "error.too_few_players", "minimum", 2),
         ([seat(f"P{index}") for index in range(7)], "error.too_many_players", "maximum", 6),
+        # MON-735: the fourth. Both transports answered `error.invalid_new_game` here until the
+        # factory named it, so this row is what proves neither of them kept the coarse fallback.
+        (
+            [seat("Ann"), {**seat("Bob"), "token": "token.Ann"}],
+            "error.duplicate_tokens",
+            "token",
+            "token.Ann",
+        ),
     ],
 )
 def test_a_seating_the_engine_refuses_is_the_same_keyed_refusal(
@@ -349,12 +357,12 @@ def test_a_seating_the_engine_refuses_is_the_same_keyed_refusal(
 ) -> None:
     """``InvalidSeatingError``, forwarded whole by both transports (MON-418, G-33).
 
-    Three distinct keys rather than one coarse ``error.invalid_new_game``: "two to six players" and
-    "no shared names" are rules, so the engine is where they are decided and named. Both transports
-    forward the key *and* its params, which is what lets ``error.too_few_players`` say how many are
-    needed and ``error.duplicate_names`` say which name was repeated — and forwarding it is all
-    either transport does, since a server that looked for duplicates itself would hold a copy of a
-    rule even while agreeing with it.
+    Four distinct keys rather than one coarse ``error.invalid_new_game``: "two to six players", "no
+    shared names" and "one pawn each" are rules, so the engine is where they are decided and named.
+    Both transports forward the key *and* its params, which is what lets ``error.too_few_players``
+    say how many are needed and ``error.duplicate_names`` say which name was repeated — and
+    forwarding it is all either transport does, since a server that looked for duplicates itself
+    would hold a copy of a rule even while agreeing with it.
     """
     status, body = pair().create(seats=seats)
     assert (status, body["reason_key"], body["params"][param]) == (422, reason_key, value)

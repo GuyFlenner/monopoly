@@ -137,6 +137,4 @@ def _release(state: GameState, player_id: PlayerId) -> GameState:
 
 def _return_card(state: GameState, card: Deck) -> GameState:
     """A spent jail card returns to the bottom of its own deck (GAP G-11)."""
-    if card is Deck.CHANCE:
-        return state._replace(chance_deck=(*state.chance_deck, GET_OUT_OF_JAIL_IDS[card]))
-    return state._replace(community_chest_deck=(*state.community_chest_deck, GET_OUT_OF_JAIL_IDS[card]))
+    return state.deck_bottom(card, GET_OUT_OF_JAIL_IDS[card])

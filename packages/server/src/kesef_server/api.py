@@ -354,8 +354,9 @@ async def create_game(
         raise errors.unknown_board(request.board_id) from None
     except InvalidSeatingError as refused:
         # The engine's own key, forwarded whole — the same treatment `IllegalCommandError` gets, and
-        # for the same reason (G-33). "Two to six players" and "no shared names" are rules, so the
-        # server neither restates them nor flattens the three refusals into one coarse key: before
+        # for the same reason (G-33). "Two to six players", "no shared names" and "one pawn each"
+        # are rules, so the server neither restates them nor flattens the four refusals into one
+        # coarse key: before
         # MON-418 a removed seat was answered with `error.malformed_request` and a field path,
         # because a pydantic `min_length` refused the body before `new_game` ever ran.
         raise errors.invalid_seating(refused.reason_key, transport.wire_params(refused.context)) from None
