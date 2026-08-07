@@ -48,6 +48,12 @@ Board data is generated from one table so the two boards cannot drift.
    developer surfaces, never rendered to a player, and print key ids verbatim rather than
    resolving them — that is the point of them. They are the *only* prose allowed in the
    engine, and the cross-boundary test allowlists exactly those.
+   **(Amended 2026-08-07, MON-739.)** The exemption is now enforced in *both* directions — a key
+   must resolve in every catalogue, and a rejection reason that is not shaped like a key
+   (`^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$`) is refused outright — because a resolution scan looks for
+   `"error.…"` literals and therefore cannot see a hand-written `_no("It is not your turn")` at
+   all: it satisfies mypy, satisfies the validator, demands no catalogue entry, and ships the
+   exact defect §3 names.
 
 ## Alternatives considered
 

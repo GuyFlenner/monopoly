@@ -478,6 +478,104 @@ def test_no_rejection_param_names_an_enum_value_instead_of_a_key() -> None:
     )
 
 
+# --- Shape: the direction the resolution scan is blind to (MON-739) -------------------------
+
+
+KEY_SHAPE = re.compile(r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
+"""What a key looks like: ``snake_case`` segments, at least two, dot-separated (ADR-003 §6).
+
+``error.not_your_turn`` matches. ``It is not your turn`` does not, and neither does
+``error.NotYourTurn`` or a bare ``error``.
+"""
+
+REASON_ARGUMENT: dict[str, int] = {
+    "_no": 0,
+    "IllegalCommandError": 0,
+    "InvalidSeatingError": 0,
+    "ApiError": 1,
+}
+"""Every constructor whose *positional* argument at that index is a reason key.
+
+``ApiError``'s is second because its first is the status code. A ``reason_key=`` keyword is
+collected from any call at all, without a list, since the name is the contract wherever it appears.
+"""
+
+
+def _reason_literals() -> dict[str, list[str]]:
+    """``{module: every string literal it hands to something as a reason}``, by AST.
+
+    Only *literals*. ``reducer.py`` raises ``IllegalCommandError(verdict.reason_key)``, which is a
+    forwarding rather than an authoring — the literal behind it was written in ``legality.py`` and
+    is checked there. There is nothing a static reader can say about the non-literal case, and
+    pretending otherwise would mean a test that looks stricter than it is.
+    """
+    import ast
+
+    found: dict[str, list[str]] = {}
+    for path in _python_sources():
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            name = node.func.id if isinstance(node.func, ast.Name) else None
+            index = REASON_ARGUMENT.get(name or "")
+            candidates = [node.args[index]] if index is not None and len(node.args) > index else []
+            candidates.extend(
+                keyword.value for keyword in node.keywords if keyword.arg == "reason_key" and name != "ApiError"
+            )
+            found.setdefault(path.name, []).extend(
+                argument.value
+                for argument in candidates
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str)
+            )
+    return {module: literals for module, literals in found.items() if literals}
+
+
+def test_every_rejection_reason_is_shaped_like_a_key() -> None:
+    """MON-739: a reason that is not a key at all is refused by *shape*.
+
+    :func:`test_every_rejection_reason_resolves` reads the source for ``"error.…"`` literals and
+    asks the catalogue to define them. That is the only guard on rule 2 of the project's four, and
+    it has a hole exactly the size of the defect the rule names: ``_no("It is not your turn")``
+    contains no ``error.`` literal, so the scan does not *see* it — it satisfies mypy (the parameter
+    is ``str``), satisfies ``LegalityResult``'s validator (the string is truthy), demands no
+    catalogue entry, and ships hardcoded English out of the engine to a Hebrew-speaking child.
+
+    The two tests are the two directions of one contract, and neither substitutes for the other:
+    that one says **a key must resolve**, this one says **a reason must be a key**.
+
+    **One shape check already existed, and finding it is part of the answer rather than a reason to
+    skip this.** ``test_legality_properties.py``'s ``REASON_KEY`` asserts the same thing at
+    *runtime*, on whatever verdicts hypothesis's state generator happens to reach. That covers
+    ``legality.py`` well and nothing else at all: it cannot see ``factory.py``'s four seating
+    refusals, ``errors.py``'s nine, or either transport's, because no ``legal_commands`` call
+    reaches them. It also only sees a ``_no`` branch the generator can construct a state for, and a
+    branch it cannot is exactly where a hand-written sentence would survive longest. This one reads
+    the source instead, so coverage is a fact about the code rather than about the generator — and
+    it holds the whole boundary to one rule, since a rule that applied in ``legality.py`` and not in
+    its neighbour is a convention, not a contract.
+
+    Recorded on the MON-739 PR: a prose reason planted in ``api.py`` failed this test and nothing
+    else in 1,168; one planted in ``legality.py`` failed this, the runtime property, and the
+    spot-check that happened to name that key — while
+    :func:`test_every_rejection_reason_resolves`, the guard ADR-003 §6 points at, stayed green
+    through both, which is the gap being closed.
+    """
+    literals = _reason_literals()
+    assert len(literals) >= 3, f"the scan has drifted — reasons found in only {sorted(literals)}"
+    total = sum(len(found) for found in literals.values())
+    assert total >= 40, f"only {total} reason literals found; ADR-003 §3 covers far more than that"
+
+    prose = {
+        module: sorted({found for found in reasons if not KEY_SHAPE.fullmatch(found)})
+        for module, reasons in literals.items()
+    }
+    prose = {module: reasons for module, reasons in prose.items() if reasons}
+    assert not prose, (
+        "a rejection reason must be an i18n key, not a sentence (ADR-003 §3 and §7) — "
+        f"these are not shaped like keys: {prose}"
+    )
+
+
 def test_no_catalogue_key_is_camel_case() -> None:
     """``snake_case`` at every level of every namespace (ADR-003 §6).
 
