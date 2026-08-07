@@ -43,11 +43,22 @@
       "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(git reset --hard *)",
+      "Bash(git filter-branch *)",
+      "Bash(git filter-repo *)",
+      "Bash(git clean -f*)",
+      "Bash(git clean -d*)",
+      "Bash(git clean -x*)",
+      "Bash(git clean --force*)",
       "Bash(npm publish *)",
       "Bash(uv publish *)",
       "Bash(twine upload *)",
       "Bash(gh repo delete *)",
-      "Bash(gh repo archive *)"
+      "Bash(gh repo archive *)",
+      "Bash(gh repo edit --visibility*)",
+      "Bash(gh release delete *)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(rm -rf .*)"
     ]
   }
 }
