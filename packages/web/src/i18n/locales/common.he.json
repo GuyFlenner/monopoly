@@ -573,10 +573,10 @@
   },
   "token": {
     "bicycle": "אופניים",
-    "boat": "סירה",
-    "drum": "תוף",
-    "kite": "עפיפון",
+    "cactus": "קקטוס",
+    "cat": "חתול",
     "rocket": "רקטה",
+    "sailboat": "מפרשית",
     "umbrella": "מטרייה"
   },
   "trade": {
