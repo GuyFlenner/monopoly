@@ -93,8 +93,6 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from kesef_engine.board.models import TileKind
-
 # The normal bot's internals, imported by the one module entitled to them: its subclass. The
 # underscores mark them as private to the *bot package* rather than to the file — a group's ownership
 # count and a printed price are readings both bots need, and duplicating them here is how the two
@@ -305,36 +303,41 @@ class _Meter:
 def _estimated_rent(state: GameState, tile_index: int) -> int:
     """What landing on this square would cost right now, as an estimate. Zero if nobody owns it.
 
-    **This is a valuation, not a charge.** ``rules/rent.py`` is the authority and the only thing that
-    ever moves money; if the two disagree, that function is right and this is a bad guess — which costs
-    the bot points and cannot cost a player a shekel. It is written to the same shape as the real ladder
-    on purpose, because a threat estimate that budgeted for a different game would be worse than none:
+    **A valuation, not a charge — and no longer a second opinion.** ``rules/rent.py`` is the authority
+    and the only thing that ever moves money. This used to be written *to the same shape* as the real
+    ladder: it re-read the houses, re-applied the whole-group doubling, and re-derived the station and
+    utility tiers from a count of its own. Every one of those was correct and none of them was
+    guaranteed to stay correct, because the guarantee was that somebody would remember to change two
+    files. ``rules.rent.quote`` (MON-420) answers all three authoritatively, so the estimate asks it —
+    reached through ``GameState.rent_due``, the accessor the rest of the product uses, so a bot does
+    not have to know which rule module owns the ladder (MON-737).
 
-    * a street charges its printed figure for the number of houses on it, doubled when the group is
-      whole and unimproved (``state.owns_whole_group`` answers that — the rule is not restated here);
-    * a station charges by how many of its group the owner holds;
-    * a utility charges a multiple of the dice, so an average total stands in for the roll.
+    Two things are still this function's own, and they are the reason it exists at all:
 
-    A mortgaged deed charges nothing, which is a rule the estimate has to know about because a bot that
-    feared a mortgaged square would keep the wrong reserve.
+    * **A number, always.** A utility's rent is a multiple of a throw that has not happened, so the
+      quote states its ``multiplier`` and leaves ``amount`` as ``None`` rather than inventing one — see
+      :class:`~kesef_engine.events.RentQuote` on why a plausible fiction is worse than a gap. A bot
+      ranking squares cannot hold ``None``, so :data:`_AVERAGE_DICE_TOTAL` stands in. That stand-in is
+      the *whole* of the arithmetic left on this side, which is what makes it reviewable.
+    * **Zero rather than absence.** ``None`` from the quote means nothing at all is owed — unowned,
+      mortgaged, or owned by somebody who has left the game — and "nothing" is a figure that a maximum
+      (:func:`_worst_landing`) and a sum (:func:`_potential_rent`) can both take. The bankrupt-owner
+      arm is new here and is the one behaviour this refactor changes: the estimate used to fear a dead
+      player's hotel, which the engine would never have charged.
+
+    The payer is any seat that is not the owner. Rent depends on the owner's holdings and never on who
+    is paying; the only thing the payer's identity decides is that a square does not charge its own
+    owner, which is precisely the case being asked around here — :func:`_potential_rent` reads a seat's
+    *own* estate, so passing that seat would quote every square at nothing. ``GameState`` will not
+    validate a game with fewer than two seats, so there is always somebody to ask on behalf of.
     """
-    prop = state.properties[tile_index]
-    owner = prop.owner
-    if owner is None or prop.mortgaged:
+    owner = state.properties[tile_index].owner
+    if owner is None:
         return 0
-    tile = state.board.tile(tile_index)
-    if tile.kind is TileKind.PROPERTY:
-        assert tile.group is not None  # a PROPERTY tile always carries one
-        base = tile.rent[prop.houses]
-        doubled = prop.houses == 0 and state.owns_whole_group(owner, tile.group)
-        return base * 2 if doubled else base
-    held = sum(
-        1
-        for candidate in state.board.tiles
-        if candidate.kind is tile.kind and state.properties[candidate.index].owner == owner
-    )
-    step = tile.rent[min(held, len(tile.rent)) - 1] if tile.rent else 0
-    return step * _AVERAGE_DICE_TOTAL if tile.kind is TileKind.UTILITY else step
+    quoted = state.rent_due(tile_index, payer_id=next(seat.id for seat in state.players if seat.id != owner))
+    if quoted is None:
+        return 0
+    return quoted.amount if quoted.amount is not None else quoted.multiplier * _AVERAGE_DICE_TOTAL
 
 
 def _worst_landing(state: GameState, player: PlayerId) -> int:

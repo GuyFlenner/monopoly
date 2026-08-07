@@ -38,10 +38,14 @@ contest is a pure function of the position, so a second run deals the identical 
 
 from __future__ import annotations
 
+import json
 import time
+from collections import Counter
+from pathlib import Path
 
 import pytest
 import tournament
+from pydantic import TypeAdapter
 
 from helpers import make_player, make_state
 from kesef_engine.bots import EasyBot, HardBot, NormalBot, hard
@@ -169,6 +173,52 @@ def _settling_a_debt(*, owned: tuple[int, ...], cash: int = 0, owed: int = 900) 
         resume=Phase.AWAITING_END_TURN,
     )
     return GameState(**{**dict(state), "phase": Phase.DEBT_SETTLEMENT, "interrupts": (frame,)})
+
+
+GOLDENS_DIR = Path(__file__).parent / "goldens"
+_COMMANDS: TypeAdapter[Command] = TypeAdapter(Command)
+
+
+def _golden_midgames(*, per_golden: int = 3) -> tuple[GameState, ...]:
+    """Positions from partway through every committed golden game.
+
+    Recorded boards rather than built ones, because the property they serve has to hold over *every*
+    ownable square and a hand-built fixture only ever carries the branches whoever wrote it had in
+    mind. The goldens were recorded for spec §3.6's rent traps (`test_goldens.py`), so between them
+    they put mortgaged deeds, part-built and whole groups, and stations and utilities in one hand onto
+    the same board — which is the population a claim about rent wants to be sampled from.
+
+    Two filters, each for a reason:
+
+    * **Interrupt-free only**, because of what the sample is used for: the test splices a landing into
+      each position to see what the engine really charges, and a state resting inside a card frame or
+      an auction is not one a landing can be spliced into.
+    * **The first four fifths of each game**, because a golden's closing commands are a bankruptcy
+      settling, and once every deed has changed hands the squares stop being interesting.
+
+    Replaying here rather than importing `test_goldens._replay` is deliberate in the same way that
+    module's own duplication of `_project` is: the golden net must not share a code path with anything
+    that could make it agree with a mistake.
+    """
+    boards: list[GameState] = []
+    for path in sorted(GOLDENS_DIR.glob("*.json")):
+        if path.name == "traps.json":
+            continue
+        golden = json.loads(path.read_text(encoding="ascii"))
+        state = new_game(
+            tuple(Seat.model_validate(seat) for seat in golden["seats"]),
+            seed=golden["seed"],
+            board_id=golden["board_id"],
+            ruleset=Ruleset.model_validate(golden["ruleset"]),
+        )
+        settled: list[GameState] = []
+        for command in golden["commands"][: len(golden["commands"]) * 4 // 5]:
+            state, _events = apply(state, _COMMANDS.validate_python(command))
+            if not state.interrupts:
+                settled.append(state)
+        stride = max(1, len(settled) // (per_golden + 1))
+        boards.extend(settled[stride::stride][:per_golden])
+    return tuple(boards)
 
 
 class TestTheProtocol:
@@ -304,6 +354,70 @@ class TestTheRentEstimateAgreesWithTheEngine:
 
     def test_an_unowned_square_charges_nothing(self) -> None:
         assert _estimated_rent(_state(), 16) == 0
+
+    def test_it_is_the_engines_own_quote_on_every_square_of_a_real_board(self) -> None:
+        """MON-737. The property that says the estimate has no rent ladder of its own.
+
+        Two claims, and the second is what makes the first worth writing:
+
+        1. **The estimate is the quote.** For every ownable square of every sampled board it equals
+           ``rent_due``'s figure, with :data:`~kesef_engine.bots.hard._AVERAGE_DICE_TOTAL` applied
+           where the quote declines to name an amount — the one piece of arithmetic left on the bot's
+           side of the boundary, and the only thing this file has to review.
+        2. **The quote is what gets charged.** An equality against ``rent_due`` alone would say only
+           that the bot asks the same function the test does, and would stay green if ``quote`` and
+           ``charge`` had drifted apart. So every square that is not a utility is *charged*, for real,
+           and the estimate is compared against money the engine actually moves. Utilities are exempt
+           for the reason the stand-in exists: charging one rolls, and a roll is not a quote.
+
+        The tally is the guard against the whole thing being vacuous — an assertion that holds for
+        forty unowned squares holds for nothing. Each branch is identified by the note key the engine
+        itself attached, so the coverage claim is the engine's word rather than the test's re-reading
+        of the board, and every branch the ladder can take has to have been reached.
+        """
+        boards = _golden_midgames()
+        assert len(boards) >= 3, "the sample stopped being a sample"
+        reached: Counter[str] = Counter()
+
+        for state in boards:
+            for tile in state.board.tiles:
+                if not tile.is_ownable:
+                    continue
+                estimate = _estimated_rent(state, tile.index)
+                owner = state.properties[tile.index].owner
+                if owner is None:
+                    reached["unowned"] += 1
+                    assert estimate == 0
+                    continue
+                payer = next((seat.id for seat in state.solvent_players if seat.id != owner), None)
+                assert payer is not None, "a golden with one solvent seat left is a finished game"
+                quoted = state.rent_due(tile.index, payer_id=payer)
+                if quoted is None:
+                    # Mortgaged: the deed is dormant and the bot must not fear it (trap 2).
+                    reached["mortgaged"] += 1
+                    assert state.properties[tile.index].mortgaged
+                    assert estimate == 0
+                    continue
+
+                reached[quoted.note_keys[0]] += 1
+                if quoted.amount is None:
+                    assert estimate == quoted.multiplier * hard._AVERAGE_DICE_TOTAL
+                    continue
+                assert estimate == quoted.amount
+                assert estimate == self._rent_charged(state, payer, tile.index), (
+                    f"the estimate and the charge disagree on tile {tile.index}"
+                )
+
+        assert reached.keys() >= {
+            "unowned",
+            "mortgaged",
+            "rent.note.base",
+            "rent.note.full_group_doubled",
+            "rent.note.with_houses",
+            "rent.note.with_hotel",
+            "rent.note.railroad_count",
+            "rent.note.utility_quote",
+        }, f"the sampled boards stopped reaching every rent branch: {sorted(reached)}"
 
 
 class TestAmendmentTwoDenial:
