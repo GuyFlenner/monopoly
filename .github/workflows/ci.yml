@@ -27,7 +27,7 @@ jobs:
       web: ${{ steps.check.outputs.web }}
       contract: ${{ steps.check.outputs.contract }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: check
         run: |
           echo "web=$([ -f packages/web/package-lock.json ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
@@ -37,10 +37,10 @@ jobs:
     name: Python gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -95,9 +95,9 @@ jobs:
       run:
         working-directory: packages/web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -151,18 +151,18 @@ jobs:
     needs: gate
     if: needs.gate.outputs.web == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Both toolchains, unlike the `web` job: these specs drive the real stack — uvicorn serving
       # the engine, Vite proxying `/api` to it — so a proxy bug is in scope alongside a layout bug.
       # A mocked edge is what the Vitest suite already covers.
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv python install 3.13
       - run: uv sync --frozen
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -182,7 +182,7 @@ jobs:
 
       # The trace and screenshots for a failed geometric assertion are the whole diagnosis — a
       # number out of range says nothing about *where* the layout went.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -201,9 +201,9 @@ jobs:
     needs: [python, gate]
     if: needs.gate.outputs.contract == 'true'
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
       - run: uv sync --frozen
