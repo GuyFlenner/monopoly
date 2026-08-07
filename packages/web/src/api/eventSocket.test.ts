@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import commonEn from "@/i18n/locales/common.en.json";
+import commonHe from "@/i18n/locales/common.he.json";
+
 import type { SocketLike } from "./client";
 import { EventQueue } from "./eventQueue";
-import { EventSocket, parseFrame, TERMINAL_CLOSE_CODES, WS_CURSOR_RESET } from "./eventSocket";
+import {
+  CLOSE_REASON_KEYS,
+  closeReasonKey,
+  EventSocket,
+  parseFrame,
+  TERMINAL_CLOSE_CODES,
+  WS_CURSOR_RESET,
+} from "./eventSocket";
 import type { LoggedEvent } from "./types";
 
 /**
@@ -333,6 +343,41 @@ describe("EventSocket — a save that takes the game's id over (MON-907)", () =>
 
     expect(h.urls).toEqual([2, 2]);
     expect(h.queue.cursor).toBe(2);
+  });
+});
+
+describe("close codes carry their own sentence (MON-908)", () => {
+  /** `"error.game_not_found"` -> the string at that path, or `undefined`. */
+  function leaf(catalogue: unknown, key: string): unknown {
+    return key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        catalogue,
+      );
+  }
+
+  it.each([
+    ["en", commonEn],
+    ["he", commonHe],
+  ])("has a %s sentence for every close code this client maps", (_language, catalogue) => {
+    // Walked from the map rather than from the catalogue, so a close code added to `api.py` and
+    // mirrored here reaches this test before it reaches a player as a blank connection note.
+    const unsayable = Object.entries(CLOSE_REASON_KEYS)
+      .filter(([, key]) => typeof leaf(catalogue, key) !== "string")
+      .map(([code, key]) => `${code} -> ${key}`);
+    expect(unsayable).toEqual([]);
+  });
+
+  it("has nothing to say about a code that is not a refusal", () => {
+    // 1006 is the browser's own "the connection dropped", and 1000 is a clean close. Neither is a
+    // decision anybody made about this player, so the caller keeps its generic status line.
+    expect(closeReasonKey(1006)).toBeUndefined();
+    expect(closeReasonKey(1000)).toBeUndefined();
+    expect(closeReasonKey(undefined)).toBeUndefined();
   });
 });
 

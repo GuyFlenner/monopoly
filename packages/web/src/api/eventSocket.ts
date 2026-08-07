@@ -59,6 +59,39 @@ export const TERMINAL_CLOSE_CODES: readonly number[] = [
   WS_MALFORMED_REQUEST, // the handshake itself was wrong; the same one will be too.
 ];
 
+/**
+ * The sentence each close code deserves — the catalogue side of MON-908.
+ *
+ * This used to say the catalogue "does not yet carry the WebSocket close keys", and the screen
+ * collapsed all five causes into `status.offline`: "Not connected to the table", for a game that
+ * had been deleted, for a watcher cap that was full, and for a handshake bug alike. Now each code
+ * names its own sentence.
+ *
+ * **Keyed off the code rather than off `event.reason`**, even though the server sends a key there
+ * too, for two reasons. A close reason is a string from the wire, and rendering an arbitrary one
+ * means `t()` on something no catalogue is guaranteed to define — the blank-panel defect
+ * `tests/test_key_contract.py` was written about. And the two sides do not always want the same
+ * sentence: 4422's server-side reason is `error.malformed_request`, whose sentence names the form
+ * fields that were wrong (`{{fields}}`), and a socket handshake has no form and no fields to name.
+ */
+export const CLOSE_REASON_KEYS: Readonly<Record<number, string>> = {
+  [WS_GAME_NOT_FOUND]: "error.game_not_found",
+  [WS_CURSOR_RESET]: "error.session_replaced",
+  [WS_WATCHER_TOO_SLOW]: "error.watcher_too_slow",
+  [WS_MALFORMED_REQUEST]: "error.malformed_handshake",
+  [WS_TOO_MANY_WATCHERS]: "error.too_many_watchers",
+};
+
+/**
+ * The i18n key for a close code, or `undefined` for a code this client has no sentence for.
+ *
+ * `undefined` rather than a guess: 1006 (the browser's own "connection lost") and 1000 are not
+ * refusals and have nothing specific to say, so the caller keeps its generic status line.
+ */
+export function closeReasonKey(code: number | undefined): string | undefined {
+  return code === undefined ? undefined : CLOSE_REASON_KEYS[code];
+}
+
 export interface BackoffPolicy {
   readonly initialMs: number;
   readonly maxMs: number;

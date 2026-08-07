@@ -221,6 +221,7 @@
     "duplicate_names": "Two players are both called {{name}}. Give one of them a different name.",
     "invalid_new_game": "Those seats won't work. Every player needs a different name, and a game takes between two and six of them.",
     "jail_card_not_held": "You don't have the {{deck}} Get Out of Jail card.",
+    "malformed_handshake": "This page asked to watch the game in a way the table didn't understand. Refreshing usually fixes it.",
     "malformed_request": "Something in the form isn't right yet: {{fields}}.",
     "method_not_allowed": "That isn't something this table can do.",
     "mortgages_disabled": "Mortgages are switched off in this game.",

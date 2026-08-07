@@ -6,6 +6,8 @@ export { ApiError, asApiError, isApiError, NO_RESPONSE, TRANSPORT_ERROR_KEY } fr
 export { DEFAULT_CAPACITY, EventQueue } from "./eventQueue";
 export type { EventListener } from "./eventQueue";
 export {
+  CLOSE_REASON_KEYS,
+  closeReasonKey,
   DEFAULT_BACKOFF,
   EventSocket,
   parseFrame,
