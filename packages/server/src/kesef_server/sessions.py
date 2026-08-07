@@ -254,8 +254,12 @@ class SessionStore:
         self._sessions.pop(game_id, None)
 
     def all(self) -> tuple[Session, ...]:
-        """Every live game. Sweeps first, but does not *touch*: a polling lobby screen must not
-        be able to keep an abandoned game alive forever."""
+        """Every live game. Sweeps first, but does not *touch*: enumerating the store must not
+        be able to keep an abandoned game alive forever.
+
+        No route reaches this since MON-909 deleted ``GET /games`` — it is the store's own
+        inventory, used by the eviction tests and by anything that has to reason about the
+        whole set rather than one game."""
         self._evict_idle()
         return tuple(self._sessions.values())
 

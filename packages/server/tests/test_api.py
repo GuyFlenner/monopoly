@@ -43,7 +43,9 @@ EXPECTED_PATHS: Final = {
     ("get", "/boards"),
     ("get", "/rulesets"),
     ("post", "/games"),
-    ("get", "/games"),
+    # No `("get", "/games")`: MON-909 deleted the lobby route. It enumerated every live game id
+    # and its players on a public API, nullifying the 64 bits of id entropy that is currently all
+    # that stands between a stranger and somebody else's game.
     ("post", "/games/load"),
     ("get", "/games/{game_id}"),
     ("get", "/games/{game_id}/save"),
@@ -82,7 +84,6 @@ EXPECTED_SCHEMAS: Final = {
     "CommandRequest",
     "LegalityView",
     "ErrorResponse",
-    "GameSummary",
     "BoardSummary",
     # The ruleset projection (MON-417, G-36): `/rulesets` no longer returns raw flags, so the
     # setup screen's client-side diff and its `ruleset.<field>` label map both deleted.
@@ -202,7 +203,7 @@ def test_every_game_route_declares_the_structured_error_shape(client: TestClient
     """G-33: a 422 the client cannot type is a 422 the client will render as prose."""
     schema = client.get("/openapi.json").json()
     for method, path in sorted(EXPECTED_PATHS):
-        if not path.startswith("/games") or path == "/games":
+        if not path.startswith("/games"):
             continue
         responses = schema["paths"][path][method]["responses"]
         failures = [code for code in responses if code.startswith(("4", "5"))]
@@ -247,6 +248,71 @@ def test_the_two_starlette_failures_carry_the_keys_the_catalogue_will_need(clien
     refused = client.put("/games")
     assert refused.json() == {"reason_key": "error.method_not_allowed", "params": {"status": 405}}
     assert "Allow" in refused.headers, "a 405 without Allow is a 405 the client cannot act on"
+
+
+# --- CORS -------------------------------------------------------------------
+
+CORS_ORIGIN: Final = "http://localhost:5173"
+"""The one origin `Settings.cors_origins` ships with — the Vite dev server."""
+
+SAFELISTED_REQUEST_HEADERS: Final = {"accept", "accept-language", "content-language", "content-type"}
+"""The CORS spec's own always-allowed set, which starlette adds to whatever we pass. A browser
+may send these on a cross-origin request with no preflight at all, so they are not ours to
+withhold — the assertion below is about the headers this API adds *beyond* them."""
+
+
+def _preflight(client: TestClient, method: str, headers: str | None = None) -> Any:
+    asking = {"Origin": CORS_ORIGIN, "Access-Control-Request-Method": method}
+    if headers is not None:
+        asking["Access-Control-Request-Headers"] = headers
+    return client.options("/games", headers=asking)
+
+
+def _listed(response: Any, header: str) -> set[str]:
+    return {value.strip().lower() for value in response.headers[header].split(",")}
+
+
+def test_the_preflight_permits_exactly_the_verbs_and_headers_this_api_serves() -> None:
+    """MON-909: `allow_methods=["*"]` advertised PUT, PATCH and TRACE cross-origin on an app that
+    answers 405 to all three, and `allow_headers=["*"]` let a page send anything at all.
+
+    `Authorization` is named on purpose and ahead of its use: MON-906 puts per-seat Bearer
+    secrets on `/games/{id}` requests, and a browser will not send that header cross-origin
+    unless the preflight already permits it.
+    """
+    with TestClient(app) as client:
+        response = _preflight(client, "POST", headers="Content-Type, Authorization")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert _listed(response, "access-control-allow-methods") == {"get", "post", "delete", "options"}
+        assert _listed(response, "access-control-allow-headers") == SAFELISTED_REQUEST_HEADERS | {"authorization"}
+        assert response.headers["access-control-allow-origin"] == CORS_ORIGIN
+
+
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "TRACE"])
+def test_a_verb_the_api_does_not_serve_is_refused_at_the_preflight(method: str) -> None:
+    """A failed preflight is a 400 whose allow-list does not name what was asked for, and a
+    browser refuses to send the real request on that answer alone."""
+    with TestClient(app) as client:
+        response = _preflight(client, method)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert method.lower() not in _listed(response, "access-control-allow-methods")
+
+
+def test_a_header_the_api_never_reads_is_refused_at_the_preflight() -> None:
+    with TestClient(app) as client:
+        response = _preflight(client, "POST", headers="X-Seat-Secret")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "x-seat-secret" not in _listed(response, "access-control-allow-headers")
+
+
+def test_an_origin_the_settings_do_not_name_gets_no_allow_origin_back() -> None:
+    with TestClient(app) as client:
+        response = client.options(
+            "/games",
+            headers={"Origin": "https://not-ours.example", "Access-Control-Request-Method": "POST"},
+        )
+        assert "access-control-allow-origin" not in response.headers
 
 
 def test_a_reflected_id_is_truncated_rather_than_amplified(client: TestClient) -> None:
@@ -483,17 +549,19 @@ def test_a_flag_carries_both_halves_of_the_change_classified_by_kind(client: Tes
     }
 
 
-def test_games_list_starts_empty(client: TestClient) -> None:
-    assert client.get("/games").json() == []
+def test_there_is_no_route_that_enumerates_the_live_games(client: TestClient, store: SessionStore) -> None:
+    """MON-909: the lobby route is gone, and a live game does not bring it back.
 
-
-def test_games_list_names_the_games_it_holds(client: TestClient) -> None:
-    """The old version of this test could not fail: the store was provably always empty."""
+    `POST /games` still exists, so the path is known and the answer is starlette's keyed 405 —
+    the same shape every other refusal has, not FastAPI's `{"detail": ...}`.
+    """
     created = _create(client)
-    summaries = client.get("/games").json()
-    assert [summary["game_id"] for summary in summaries] == [created["state"]["game_id"]]
-    assert summaries[0]["player_names"] == ["Ann", "Ben"]
-    assert summaries[0]["ruleset"] == "universal"
+    assert store.all(), "nothing was live, so an empty answer would prove nothing"
+
+    refused = client.get("/games")
+    assert refused.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+    assert refused.json() == {"reason_key": "error.method_not_allowed", "params": {"status": 405}}
+    assert created["state"]["game_id"] not in refused.text, "the refusal leaked the id it refused to list"
 
 
 # --- POST /games ------------------------------------------------------------
@@ -870,7 +938,9 @@ def test_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:
     assert response.json()["reason_key"] == "error.game_not_found"
 
 
-def test_an_idle_game_is_evicted_and_answers_the_ordinary_404(client: TestClient, clock: FakeClock) -> None:
+def test_an_idle_game_is_evicted_and_answers_the_ordinary_404(
+    client: TestClient, clock: FakeClock, store: SessionStore
+) -> None:
     """`session_ttl_minutes` reaching the wire: from the client's side an evicted game is a
     game that is not there, which is the same key as one that never was."""
     game_id = _create(client)["state"]["game_id"]
@@ -878,7 +948,7 @@ def test_an_idle_game_is_evicted_and_answers_the_ordinary_404(client: TestClient
     response = client.get(f"/games/{game_id}")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["reason_key"] == "error.game_not_found"
-    assert client.get("/games").json() == []
+    assert store.all() == (), "the slot was answered 404 but never reclaimed"
 
 
 def test_a_negative_cursor_is_refused(client: TestClient) -> None:
@@ -928,7 +998,7 @@ def test_loading_a_game_that_is_already_live_is_a_conflict(client: TestClient) -
     assert refused.json()["params"]["game_id"] == game_id
 
 
-def test_a_load_may_replace_the_live_game_when_the_player_says_so(client: TestClient) -> None:
+def test_a_load_may_replace_the_live_game_when_the_player_says_so(client: TestClient, store: SessionStore) -> None:
     """MON-714: the answer to "Replace the game in progress" (ADR-011).
 
     The file is deliberately *behind* the live game, because that is the case where a replace is a
@@ -944,10 +1014,10 @@ def test_a_load_may_replace_the_live_game_when_the_player_says_so(client: TestCl
     assert response.status_code == status.HTTP_201_CREATED
     assert response.json()["state"]["game_id"] == game_id, "a replace keeps the id it took over"
     assert client.get(f"/games/{game_id}").json()["state"]["phase"] == saved["state"]["phase"]
-    assert len(client.get("/games").json()) == 1, "a replace left two sessions behind"
+    assert len(store) == 1, "a replace left two sessions behind"
 
 
-def test_a_load_may_be_seated_beside_the_live_game_as_a_copy(client: TestClient) -> None:
+def test_a_load_may_be_seated_beside_the_live_game_as_a_copy(client: TestClient, store: SessionStore) -> None:
     """MON-714: the answer to "Load as a separate game" (ADR-011)."""
     game_id = _create(client)["state"]["game_id"]
     saved = client.get(f"/games/{game_id}/save").json()
@@ -959,7 +1029,7 @@ def test_a_load_may_be_seated_beside_the_live_game_as_a_copy(client: TestClient)
     assert is_addressable_game_id(copied), f"a minted id no route can address: {copied!r}"
     assert client.get(f"/games/{game_id}").status_code == status.HTTP_200_OK
     assert client.get(f"/games/{copied}").json()["state"]["turn_number"] == saved["state"]["turn_number"]
-    assert len(client.get("/games").json()) == 2
+    assert len(store) == 2
 
 
 def test_a_conflict_policy_only_matters_on_a_conflict(client: TestClient) -> None:
@@ -1067,13 +1137,13 @@ def test_a_save_naming_an_unknown_board_does_not_escape_as_a_500(client: TestCli
 
 
 @pytest.mark.parametrize("game_id", ["kitchen/table", "  ", "..", ".", "../etc", "a" * 65])
-def test_a_save_naming_an_unaddressable_game_is_refused(client: TestClient, game_id: str) -> None:
+def test_a_save_naming_an_unaddressable_game_is_refused(client: TestClient, store: SessionStore, game_id: str) -> None:
     """The load route takes its id from inside the body, where no field constraint reaches."""
     saved = minimal_state(game_id=game_id).model_dump(mode="json")
     response = client.post("/games/load", json=saved)
     assert response.status_code == UNPROCESSABLE, f"{game_id!r} was accepted"
     assert response.json() == {"reason_key": "error.invalid_game_id", "params": {}}
-    assert client.get("/games").json() == [], "the refused save must not have taken a slot"
+    assert len(store) == 0, "the refused save must not have taken a slot"
 
 
 def test_a_structurally_broken_save_is_a_keyed_422(client: TestClient) -> None:
@@ -1201,11 +1271,11 @@ def test_the_load_route_still_declares_a_savefile_body(client: TestClient) -> No
 # --- DELETE ----------------------------------------------------------------
 
 
-def test_deleting_a_game_removes_it(client: TestClient) -> None:
+def test_deleting_a_game_removes_it(client: TestClient, store: SessionStore) -> None:
     game_id = _create(client)["state"]["game_id"]
     assert client.delete(f"/games/{game_id}").status_code == status.HTTP_204_NO_CONTENT
     assert client.get(f"/games/{game_id}").status_code == status.HTTP_404_NOT_FOUND
-    assert client.get("/games").json() == []
+    assert len(store) == 0
 
 
 def test_deleting_an_unknown_game_is_a_404_with_a_key(client: TestClient) -> None:

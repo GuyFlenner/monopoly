@@ -25,7 +25,6 @@ import {
 import type {
   BoardSummary,
   Command,
-  GameSummary,
   GameView,
   IfExists,
   LegalityView,
@@ -122,10 +121,6 @@ export class ApiClient {
 
   createGame(request: NewGameRequest, signal?: AbortSignal): Promise<GameView> {
     return this.request<GameView>("POST", "/games", { body: request, signal });
-  }
-
-  listGames(signal?: AbortSignal): Promise<GameSummary[]> {
-    return this.request<GameSummary[]>("GET", "/games", { signal });
   }
 
   /**

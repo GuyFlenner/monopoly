@@ -27,7 +27,6 @@ describe("the route table", () => {
   it.each([
     ["GET", "/api/boards", "listBoards", []],
     ["GET", "/api/rulesets", "listRulesets", []],
-    ["GET", "/api/games", "listGames", []],
     ["GET", "/api/games/g1", "getGame", ["g1", null]],
     ["GET", "/api/games/g1?since=7", "getGame", ["g1", "7"]],
     ["GET", "/api/games/g1?since=0", "getGame", ["g1", "0"]],
@@ -127,6 +126,20 @@ describe("what comes back", () => {
       reason_key: "error.method_not_allowed",
       params: { status: 405 },
     });
+  });
+
+  it("has no route that lists the live games, in either transport", async () => {
+    // MON-909: `GET /games` enumerated every live game id, and nothing ever called it. `/games` is
+    // still a known path because `POST` creates, so the answer is the same keyed 405 the HTTP app
+    // now gives — and no call reaches the bridge.
+    const { localFetch, bridge } = fetchWith();
+    const response = await localFetch("/api/games");
+    expect(response.status).toBe(405);
+    expect(await response.json()).toEqual({
+      reason_key: "error.method_not_allowed",
+      params: { status: 405 },
+    });
+    expect(bridge.calls).toEqual([]);
   });
 
   it("treats GET /games/load as a game called load, exactly as starlette's router does", async () => {

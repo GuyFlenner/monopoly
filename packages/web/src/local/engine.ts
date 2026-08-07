@@ -98,7 +98,6 @@ interface BrowserFacade {
   list_boards(): string;
   list_rulesets(): string;
   create_game(requestJson: string): string;
-  list_games(): string;
   // Optional on this side too, because that is how "not given" crosses into Python — see `bridgeTo`.
   load_game(saveJson: string, ifExists?: string): string;
   get_game(gameId: string, since?: string): string;
@@ -182,7 +181,6 @@ export function bridgeTo(facade: BrowserFacade): PyBridge {
     listBoards: () => Promise.resolve(facade.list_boards()),
     listRulesets: () => Promise.resolve(facade.list_rulesets()),
     createGame: (requestJson) => Promise.resolve(facade.create_game(requestJson)),
-    listGames: () => Promise.resolve(facade.list_games()),
     /*
       An absent optional parameter is *omitted*, never passed as `null`.
 

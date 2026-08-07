@@ -41,7 +41,6 @@ function recordingFacade(): { calls: Call[]; facade: Parameters<typeof bridgeTo>
     list_boards: record("list_boards"),
     list_rulesets: record("list_rulesets"),
     create_game: record("create_game"),
-    list_games: record("list_games"),
     load_game: record("load_game"),
     get_game: record("get_game"),
     save_game: record("save_game"),

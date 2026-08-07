@@ -153,9 +153,6 @@ class Pair:
             _envelope(self.facade.create_game(json.dumps(payload))),
         )
 
-    def games(self) -> Answer:
-        return self.same("GET /games", _response(self.http.get("/games")), _envelope(self.facade.list_games()))
-
     def load(self, save: object, if_exists: str | None = None) -> Answer:
         query = "" if if_exists is None else f"?if_exists={if_exists}"
         return self.same(
@@ -530,12 +527,13 @@ def test_an_oversized_save_is_the_same_refusal(pair: PairFactory) -> None:
     assert (status, body["reason_key"], body["params"]["limit_bytes"]) == (413, "error.save_too_large", 64)
 
 
-def test_the_game_list_matches(pair: PairFactory) -> None:
+def test_neither_transport_can_enumerate_the_live_games(pair: PairFactory) -> None:
+    """MON-909 deleted the lobby route from both sides: the HTTP app has no `GET /games`, and
+    the facade has no `list_games` for the local build's router to reach for."""
     both = pair()
-    assert both.games() == (200, [])
     both.create()
-    status, listed = both.games()
-    assert (status, [entry["game_id"] for entry in listed]) == (200, [GAME_ID])
+    assert both.http.get("/games").status_code == 405
+    assert not hasattr(both.facade, "list_games")
 
 
 # --- Commands ---------------------------------------------------------------
@@ -635,7 +633,7 @@ def test_deleting_a_game_matches(pair: PairFactory) -> None:
     both.create()
     assert both.delete(GAME_ID) == (204, None)
     assert both.get(GAME_ID)[0] == 404
-    assert both.games() == (200, [])
+    assert both.delete(GAME_ID)[0] == 404, "deleted in one transport and still there in the other"
 
 
 @pytest.mark.parametrize("route", ["get", "save", "delete", "submit", "validate"])
@@ -879,7 +877,7 @@ def test_the_module_level_functions_share_one_host() -> None:
     payload = json.dumps(new_game_payload(game_id=game_id))
     assert _envelope(browser.create_game(payload))[0] == 201
     try:
-        assert game_id in {entry["game_id"] for entry in _envelope(browser.list_games())[1]}
+        assert _envelope(browser.get_game(game_id))[1]["state"]["game_id"] == game_id
         assert _envelope(browser.submit_command(game_id, json.dumps(_roll(0))))[0] == 200
         assert _envelope(browser.validate_command(game_id, json.dumps(_end_turn(0))))[1]["legal"] is False
         assert _envelope(browser.get_game(game_id, 0))[1]["events"]

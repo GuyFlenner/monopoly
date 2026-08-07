@@ -72,8 +72,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Games */
-        get: operations["list_games_games_get"];
+        get?: never;
         put?: never;
         /**
          * Create Game
@@ -1012,18 +1011,6 @@ export interface components {
              * @default []
              */
             rent_quotes: (components["schemas"]["RentQuote"] | null)[];
-        };
-        /** GameSummary */
-        GameSummary: {
-            /** Game Id */
-            game_id: string;
-            /** Board Id */
-            board_id: string;
-            ruleset: components["schemas"]["RulesetName"];
-            /** Turn Number */
-            turn_number: number;
-            /** Player Names */
-            player_names: string[];
         };
         /**
          * GameView
@@ -2171,26 +2158,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RulesetView"][];
-                };
-            };
-        };
-    };
-    list_games_games_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GameSummary"][];
                 };
             };
         };

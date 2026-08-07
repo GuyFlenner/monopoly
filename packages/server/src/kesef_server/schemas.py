@@ -93,7 +93,7 @@ GAME_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$"
 """What a ``game_id`` may contain, on every wire path that accepts one.
 
 Constrained only by a length, a client could name a game ``kitchen/table``: ``POST /games``
-answered 201, the game took one of ``max_sessions`` slots and was listed by ``GET /games``,
+answered 201, the game took one of ``max_sessions`` slots,
 and it was then unreachable by ``GET``, ``POST``, ``%2F`` *or* ``DELETE``. ``"  "`` did the
 same. So an unauthenticated client could wedge ``POST /games`` and ``POST /games/load`` at
 503 permanently, with no recovery short of a restart (MON-303 security review).
@@ -698,14 +698,6 @@ class LegalityView(BaseModel):
     legal: bool
     reason_key: str | None = None
     params: dict[str, int | str] = {}
-
-
-class GameSummary(BaseModel):
-    game_id: str
-    board_id: str
-    ruleset: RulesetName
-    turn_number: int
-    player_names: tuple[str, ...]
 
 
 class BoardSummary(BaseModel):
