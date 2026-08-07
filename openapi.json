@@ -85,29 +85,6 @@
       }
     },
     "/games": {
-      "get": {
-        "tags": [
-          "game"
-        ],
-        "summary": "List Games",
-        "operationId": "list_games_games_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/GameSummary"
-                  },
-                  "type": "array",
-                  "title": "Response List Games Games Get"
-                }
-              }
-            }
-          }
-        }
-      },
       "post": {
         "tags": [
           "game"
@@ -2460,41 +2437,6 @@
         ],
         "title": "GameStateView",
         "description": "What the state carries, minus the hidden information, plus the derived facts.\n\nField order follows ``GameState`` so the two read side by side; the omissions and the\npromotions are enumerated in ``test_projection.py`` and checked mechanically."
-      },
-      "GameSummary": {
-        "properties": {
-          "game_id": {
-            "type": "string",
-            "title": "Game Id"
-          },
-          "board_id": {
-            "type": "string",
-            "title": "Board Id"
-          },
-          "ruleset": {
-            "$ref": "#/components/schemas/RulesetName"
-          },
-          "turn_number": {
-            "type": "integer",
-            "title": "Turn Number"
-          },
-          "player_names": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Player Names"
-          }
-        },
-        "type": "object",
-        "required": [
-          "game_id",
-          "board_id",
-          "ruleset",
-          "turn_number",
-          "player_names"
-        ],
-        "title": "GameSummary"
       },
       "GameView": {
         "properties": {

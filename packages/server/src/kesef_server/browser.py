@@ -259,9 +259,6 @@ class BrowserHost:
         self._open_budget(state.game_id)
         return Reply(CREATED, _dumped(transport.view(session)))
 
-    def list_games(self) -> str:
-        return self._answer("/games", lambda: Reply(OK, _listed(transport.game_summaries(self.store))))
-
     def load_game(self, save_json: str, if_exists: str | None = None) -> str:
         """``POST /games/load?if_exists=``. The body is exactly what :meth:`save_game` returned."""
         return self._answer("/games/load", lambda: self._load_game(save_json, if_exists))
@@ -452,10 +449,6 @@ def list_rulesets() -> str:
 
 def create_game(request_json: str) -> str:
     return host().create_game(request_json)
-
-
-def list_games() -> str:
-    return host().list_games()
 
 
 def load_game(save_json: str, if_exists: str | None = None) -> str:

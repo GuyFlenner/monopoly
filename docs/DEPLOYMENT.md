@@ -70,12 +70,15 @@ upload into the same in-memory store — no account, no cloud, nothing to delete
 
 | | HTTP build | Static build |
 |---|---|---|
-| First load | ~450 kB JS | ~450 kB JS **+ ~12 MB** interpreter and wheels, cached afterwards |
+| First load | ~505 kB JS | ~505 kB JS **+ ~12 MB** interpreter and wheels, cached afterwards |
 | Multi-device play | yes, via the API | one tab, one table — unless §6.7 (one build serves both; a shared `?game=` link joins online) |
 | Hosting | a Python host | none |
 
 The first-load size is why there is a real loading screen with named stages
-(`engine.stage.*` in both catalogues), not a spinner and not a blank page.
+(`engine.stage.*` in both catalogues), not a spinner and not a blank page. The JS figure is
+measured, not aspirational: the nightly `bundle-size` job asserts `dist/**/*.js` stays under
+its recorded threshold (MON-911 — 506,139 bytes measured 2026-08-07, ceiling set at +10%),
+so when this table drifts again the gate says so before the doc does.
 
 ---
 

@@ -51,7 +51,6 @@ from kesef_server.schemas import (
     BoardSummary,
     CommandRequest,
     ErrorResponse,
-    GameSummary,
     GameView,
     IfExists,
     LegalityView,
@@ -100,12 +99,24 @@ app = FastAPI(
     ),
 )
 
+CORS_METHODS = ["GET", "POST", "DELETE", "OPTIONS"]
+"""Exactly the verbs this app serves. ``["*"]`` advertised PUT, PATCH and TRACE as permitted
+cross-origin on an API that answers 405 to all three (MON-909)."""
+
+CORS_HEADERS = ["Content-Type", "Authorization"]
+"""``Content-Type`` is what a JSON body needs. ``Authorization`` is deliberate advance
+coordination for MON-906's per-seat Bearer secrets — a browser cannot send that header
+cross-origin unless the preflight already allows it, so narrowing to ``Content-Type`` alone
+today would have to be widened again by the very next item
+(``_drafts/design-mon-906-seat-ownership.md``, "CORS coordination"). Nothing is exposed by
+naming a header the server does not yet read."""
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.cors_origins),
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=CORS_METHODS,
+    allow_headers=CORS_HEADERS,
 )
 
 _store = SessionStore(
@@ -357,11 +368,6 @@ async def create_game(
     # that sits for as long as the bot's opening turn takes.
     background.add_task(_advance_bots, store, session.state.game_id, config)
     return _view(session)
-
-
-@app.get("/games", tags=["game"])
-def list_games(store: StoreDep) -> list[GameSummary]:
-    return transport.game_summaries(store)
 
 
 @app.post(

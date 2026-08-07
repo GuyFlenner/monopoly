@@ -430,7 +430,14 @@ class NormalBot:
 
             case PayJailFine():
                 # Out early while there is a board to play; sit it out when the reserve is thin.
-                return 55.0 if me.cash - 50 >= buffer else 15.0
+                #
+                # The fine comes off the rule set rather than off the printed 50 (MON-736). What the
+                # bot is weighing is "can I afford to leave", and a bot that had memorised the classic
+                # figure would answer that question about a different game the moment MON-712's
+                # house-rules mechanism let somebody change it: it would pay a 400 fine down to nothing
+                # while believing it kept its buffer, and both difficulty tiers inherit the mistake.
+                # A preference may be a constant here; a *price the rules set* may not.
+                return 55.0 if me.cash - state.ruleset.jail_fine >= buffer else 15.0
 
             case UseJailCard():
                 # Free, so better than paying.
