@@ -1,0 +1,46 @@
+# Dependabot — MON-911. Weekly, grouped so a bump is one PR per ecosystem per week, not one
+# PR per package (three ecosystems here would otherwise be dozens of PRs a week at this
+# repo's dependency count).
+#
+# `directory: "/"` for pip and github-actions covers the whole repo; npm is scoped to
+# packages/web because that is the repo's only npm project (MON-401) — there is no root
+# package.json to also watch.
+version: 2
+updates:
+  # kesef-street is a **uv workspace**, not a plain pip project: `uv.lock` is the lockfile
+  # that actually pins resolved versions, and this config schema has no native "uv"
+  # ecosystem yet. The `pip` ecosystem still reads `[project.dependencies]` out of the root
+  # `pyproject.toml` and opens a PR bumping the constraint there — but it does not know how
+  # to regenerate `uv.lock` to match. `ci.yml`'s `python` job runs `uv sync --frozen`, which
+  # fails fast on precisely that mismatch, so **a Dependabot bump PR here is not mergeable
+  # until `uv sync` (no `--frozen`) is run to rewrite `uv.lock` and committed onto the PR
+  # branch** — a manual step, or a follow-up CI job, not something this file can do alone.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      python-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      web-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
