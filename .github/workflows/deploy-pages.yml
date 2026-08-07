@@ -74,10 +74,10 @@ jobs:
     name: Build the static site
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -99,7 +99,7 @@ jobs:
           ls -1 *.whl | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' > manifest.json
           cat manifest.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -129,7 +129,7 @@ jobs:
           VITE_BASE: ${{ env.SITE_BASE }}
         run: npm run test:e2e:pages
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: pages-smoke-report
@@ -151,9 +151,9 @@ jobs:
       # So the first run on a repository where Pages has never been switched on fails here, by
       # design, with "Get Pages site failed". docs/DEPLOYMENT.md §1 is the one-time fix. Every run
       # after that finds the site and passes.
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: packages/web/dist
 
@@ -168,4 +168,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
