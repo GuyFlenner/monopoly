@@ -49,9 +49,10 @@ import {
   MIN_CARD_SECONDS,
   useCardDwellPreference,
 } from "@/animation";
+import { Token, TOKEN_PX } from "@/board";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import type { Transport } from "@/local/mode";
-import { Icon } from "@/theme";
+import { Icon, SEAT_COUNT, tokenForSeat, type SeatNumber } from "@/theme";
 
 import { LoadSavedGame } from "./LoadSavedGame";
 import { ErrorState } from "./States";
@@ -59,44 +60,19 @@ import { ErrorState } from "./States";
 // --- Seat identities --------------------------------------------------------
 
 /**
- * TODO(MON-412): replace with the six token identities from `@/theme/tokens`.
+ * MON-748 (closing MON-412's TODO): the seat picker draws the six shipped token identities —
+ * shape, colour and icon from `TOKEN_IDENTITY` in `@/theme/tokens`, the same table the board, the
+ * turn indicator, the dossier and the auction list read for the same seat. There used to be a
+ * second, local set of six here (kite, drum, boat, …) built in parallel while MON-412 was still
+ * in flight; it is gone, and so is the drift risk of two silhouette sets that both claim to be
+ * "the" identities. Nothing below picks a shape or a colour of its own — every seat's badge and
+ * name is `tokenForSeat(seatNumber)`, imported.
  *
- * MON-412 owns "six token identities = shape + colour + icon, one source of truth reused by
- * board, turn indicator, dossiers and auction list", and it is being built in parallel — so
- * this is a deliberately minimal local stand-in rather than a second opinion in the sibling's
- * territory. Swapping it out should be a one-line import change: everything below reads
- * `TOKEN_IDENTITIES` and nothing reads a shape or a colour directly.
- *
- * The pieces are ordinary objects on purpose. `SeatConfig.token` is a free-form string on the
- * wire, and the trademarked product's tokens are its trade dress; these are original, and each
- * silhouette is distinguishable from the others and from every colour-group icon in
- * `theme/groups.ts` (no acorn, no star — those are taken).
+ * The `token` posted as `SeatConfig.token` is derived from the identity's icon name
+ * (`token.${icon}`, e.g. `"token.cat"`) rather than invented separately: the engine only asks
+ * that it be a non-empty string unique per seat (`state.py`'s duplicate check, MON-735), so this
+ * keeps one source for "which piece is seat N" instead of two that could disagree.
  */
-interface TokenIdentity {
-  /** The value posted as `SeatConfig.token`. */
-  readonly token: string;
-  readonly nameKey: string;
-  /** An SVG path in a 32×32 box. Shape is the channel that survives greyscale. */
-  readonly shape: string;
-  readonly color: string;
-  readonly icon: string;
-}
-
-const CIRCLE = "M16 3a13 13 0 1 0 0 26a13 13 0 1 0 0-26Z";
-const SQUARE = "M6 4h20a2 2 0 0 1 2 2v20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z";
-const TRIANGLE = "M16 3 30 28H2Z";
-const DIAMOND = "M16 2 30 16 16 30 2 16Z";
-const HEXAGON = "M16 2 28 9v14l-12 7L4 23V9Z";
-const SHIELD = "M16 2 29 7v11c0 7-6 11-13 13C9 29 3 25 3 18V7Z";
-
-export const TOKEN_IDENTITIES: readonly TokenIdentity[] = [
-  { token: "kite", nameKey: "token.kite", shape: TRIANGLE, color: "#d64550", icon: "🪁" },
-  { token: "drum", nameKey: "token.drum", shape: CIRCLE, color: "#f0a021", icon: "🥁" },
-  { token: "boat", nameKey: "token.boat", shape: DIAMOND, color: "#2f7fd6", icon: "⛵" },
-  { token: "rocket", nameKey: "token.rocket", shape: SHIELD, color: "#7a4fd6", icon: "🚀" },
-  { token: "bicycle", nameKey: "token.bicycle", shape: HEXAGON, color: "#2f9e58", icon: "🚲" },
-  { token: "umbrella", nameKey: "token.umbrella", shape: SQUARE, color: "#c2568f", icon: "☂" },
-];
 
 /**
  * How many seat rows the form can offer.
@@ -105,7 +81,7 @@ export const TOKEN_IDENTITIES: readonly TokenIdentity[] = [
  * are six of those. The *rule* about how many players a game takes lives in the engine, which
  * is why removing seats goes all the way down to one and the server is what says no.
  */
-const MAX_SEAT_ROWS = TOKEN_IDENTITIES.length;
+const MAX_SEAT_ROWS = SEAT_COUNT;
 
 // --- Draft state ------------------------------------------------------------
 
@@ -659,7 +635,11 @@ function SeatCard({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const fieldId = useId();
-  const identity = TOKEN_IDENTITIES[index % TOKEN_IDENTITIES.length];
+  // Bounds-checked the same way `board/projection.ts::seatOf` is, rather than an unchecked cast:
+  // `index` is always `< SEAT_COUNT` in practice (seats.length is capped at `MAX_SEAT_ROWS` —
+  // see the "add seat" button below), but nothing here relies on that by assertion alone.
+  const seatNumber = index < SEAT_COUNT ? ((index + 1) as SeatNumber) : undefined;
+  const identity = seatNumber === undefined ? undefined : tokenForSeat(seatNumber);
   const seatLabel = t("setup.seat", { number: index + 1 });
 
   return (
@@ -668,13 +648,13 @@ function SeatCard({
         <legend className="sr-only">{seatLabel}</legend>
 
         <div className="flex flex-wrap items-center gap-3">
-          {identity !== undefined && <TokenBadge identity={identity} />}
+          {seatNumber !== undefined && <Token seat={seatNumber} size={TOKEN_PX.inline} />}
           <div className="flex flex-col">
             <span className="text-xs font-semibold uppercase tracking-[0.14em] opacity-60">
               {seatLabel}
             </span>
             {identity !== undefined && (
-              <span className="text-sm font-medium">{t(identity.nameKey)}</span>
+              <span className="text-sm font-medium">{t(`token.${identity.icon}`)}</span>
             )}
           </div>
           {canRemove && (
@@ -741,27 +721,6 @@ function SeatCard({
         />
       </fieldset>
     </li>
-  );
-}
-
-/**
- * A seat's identity: shape, colour, icon. Decorative — the seat's name is next to it in text.
- *
- * The SVG carries the shape so the badge survives greyscale and a colour-vision deficiency,
- * which is the whole reason the identity is not "the blue one".
- */
-function TokenBadge({ identity }: { readonly identity: TokenIdentity }): React.JSX.Element {
-  return (
-    // `size-9` (36 px), not `size-11` (44 px). The badge is decorative and `aria-hidden`; the 44 px
-    // minimum belongs to the *label* around it, which keeps `min-h-11` — so the thing a six-year-old
-    // has to hit is unchanged and only the silhouette got smaller. Owner feedback on the first
-    // playable build was that the pieces read as oversized, and this was the largest of them.
-    <span aria-hidden="true" className="relative grid size-9 shrink-0 place-items-center">
-      <svg viewBox="0 0 32 32" className="absolute inset-0 size-full">
-        <path d={identity.shape} fill={identity.color} />
-      </svg>
-      <span className="relative text-sm">{identity.icon}</span>
-    </span>
   );
 }
 
@@ -961,7 +920,9 @@ function buildRequest(
       name: seat.name.trim(),
       is_bot: seat.isBot,
       bot_level: seat.isBot ? seat.botLevel : null,
-      token: TOKEN_IDENTITIES[index % TOKEN_IDENTITIES.length]?.token ?? String(index),
+      // The seat's own icon name, read from the same `TOKEN_IDENTITY` the badge above draws —
+      // not a second literal that could name a different piece than the one shown.
+      token: `token.${tokenForSeat(index + 1).icon}`,
       grammatical_gender: seat.gender,
     })),
     board_id: boardId,

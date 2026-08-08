@@ -570,11 +570,11 @@
     "go_to_jail": "go to jail"
   },
   "token": {
-    "kite": "Kite",
-    "drum": "Drum",
-    "boat": "Boat",
-    "rocket": "Rocket",
     "bicycle": "Bicycle",
+    "cactus": "Cactus",
+    "cat": "Cat",
+    "rocket": "Rocket",
+    "sailboat": "Sailboat",
     "umbrella": "Umbrella"
   },
   "trade": {
