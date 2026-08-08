@@ -57,6 +57,7 @@ import { useTranslation } from "react-i18next";
 
 import { SCREEN_HEADING_ATTRIBUTE, useEventNarration } from "@/a11y";
 import { FastForward, Pulse, SkipMotionButton, useAnimationQueue } from "@/animation";
+import { closeReasonKey } from "@/api";
 import type { Command, PlayerView, RentQuote } from "@/api";
 import {
   Board,
@@ -588,11 +589,23 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     return { tile: selectedTile, owner };
   }, [selectedTile, board, state]);
 
+  /**
+   * The one sentence about the transport, and — since MON-908 — the *specific* one.
+   *
+   * A closed socket had five causes and one sentence: "Not connected to the table", whether the
+   * game had been deleted, the watcher cap was full, or the handshake was refused. Three of those
+   * are answerable ("this game no longer exists" is a reason to start a new one, "too many people
+   * are watching" is a reason to wait) and the collapsed line answered none of them.
+   *
+   * `status.offline` stays as the fallback and is still what most closes get: a dropped network
+   * closes with 1006, which is exactly the case where the honest sentence is the vague one.
+   * `closeReasonKey` decides, off the code, and returns `undefined` when it has nothing to add.
+   */
   const connectionKey =
     status.connection.state === "reconnecting"
       ? "status.reconnecting"
       : status.connection.state === "closed"
-        ? "status.offline"
+        ? (closeReasonKey(status.connection.closeCode) ?? "status.offline")
         : null;
 
   // Nothing to draw yet: either the first view is still in flight, or it failed. Both keep the

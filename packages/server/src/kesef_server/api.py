@@ -20,7 +20,8 @@ from __future__ import annotations
 import asyncio
 import secrets
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any
+from enum import StrEnum
+from typing import Annotated, Any, NamedTuple
 
 from fastapi import (
     BackgroundTasks,
@@ -91,6 +92,21 @@ WS_MALFORMED_REQUEST = 4422
 """A handshake FastAPI's validation refused — an unparseable ``?since=``, say. Mirrors the 422
 ``error.malformed_request`` the HTTP routes answer; without it FastAPI's default closed the
 socket with 1008 and pydantic's *English* error list as the reason (G-33)."""
+
+WS_CURSOR_RESET = 4409
+"""A save took this game's id over while this socket was watching it (MON-907). Mirrors HTTP 409.
+
+Neither terminal nor an ordinary retry, and that distinction is the whole point of a fourth code.
+The replacement session's log restarts at ``seq`` 1, so a client that reconnects carrying its old
+high-water mark is sent nothing at all — ``Session.events_since`` returns only entries *above* the
+cursor. So this code means "come back, and come back at ``since=0``": the client clears its event
+queue first (``eventQueue.reset``) and only then reopens.
+
+ADR-011 §"what this does not do" accepted the silent watcher deliberately, on the ground that a
+close code *without* the cursor reset would replace one quiet socket with a reconnect loop in front
+of another, and named MON-901 — networked play — as the revisit trigger. That trigger has fired: a
+game is reachable from a shared link, so the client whose id gets taken over is no longer a second
+tab belonging to the person doing the taking."""
 
 app = FastAPI(
     title="Kesef Street",
@@ -727,30 +743,66 @@ async def game_event_stream(
         log.info("ws.disconnected")
 
 
-async def next_entry(subscriber: Subscriber) -> LoggedEvent | None:
-    """Whichever comes first: the next event, or this mailbox overflowing (``None``).
+class StreamEnd(StrEnum):
+    """Why a stream stopped, when what stopped it was not an event and not the client leaving."""
 
-    Two waiters rather than a plain ``queue.get()`` because an overflow has to reach the socket
-    *now*. Checking the flag between gets would only notice once the client had drained the
-    backlog — and a client that drains its backlog is not the one that overflows.
+    OVERFLOWED = "overflowed"
+    """This mailbox filled up, so it is missing events and must not pretend otherwise."""
+    DETACHED = "detached"
+    """A save took this game's id over, so this mailbox belongs to a session nothing can reach."""
 
-    Public for the same reason :func:`stream_events` is: a tie, where the mailbox is both
-    non-empty *and* already overflowed, is reachable in one loop turn and unreachable from a
-    test client, so the rule that the overflow wins it has to be assertable directly.
+
+class StreamClose(NamedTuple):
+    """How one :class:`StreamEnd` leaves the wire: a close code, a key, and a log event name."""
+
+    code: int
+    reason_key: str
+    log_event: str
+
+
+STREAM_END_CLOSES: dict[StreamEnd, StreamClose] = {
+    StreamEnd.OVERFLOWED: StreamClose(WS_WATCHER_TOO_SLOW, "error.watcher_too_slow", "ws.overflowed"),
+    StreamEnd.DETACHED: StreamClose(WS_CURSOR_RESET, "error.session_replaced", "ws.replaced"),
+}
+"""One table rather than a branch per ending, so a fifth reason to close is a row and the client's
+mirror of it (``eventSocket.ts``'s ``CLOSE_REASON_KEYS``) has one thing to be compared against.
+
+``ws.replaced`` is a countable event on purpose: `DEPLOYMENT.md` §6.2 asks how often an id is taken
+over from under a live watcher before deciding whether a game should survive a restart, and this is
+the measurement that answers it."""
+
+
+async def next_entry(subscriber: Subscriber) -> LoggedEvent | StreamEnd:
+    """Whichever comes first: the next event, or a reason this stream has ended.
+
+    Three waiters rather than a plain ``queue.get()`` because neither ending can wait for the next
+    event to arrive — a mailbox that overflowed may never receive another, and a detached session's
+    log is never appended to again, so a flag checked *between* gets would be a flag nobody reads.
+
+    The order of the checks below is a rule, not an implementation detail:
+
+    * **Detachment wins everything.** Whatever is still queued belongs to a game that no longer
+      holds this id, and the client is about to throw its cursor away regardless; delivering those
+      frames first would only put the old game's tail on screen a moment before it is discarded.
+    * **An overflow beats a waiting event**, which is the older rule and unchanged: a stream
+      silently missing whatever the overflow ate is worse than a socket that said why it left.
+
+    Public for the same reason :func:`stream_events` is: both ties are reachable in a single loop
+    turn and neither is reachable from a test client, so the rules have to be assertable directly.
     """
     get = asyncio.ensure_future(subscriber.queue.get())
     overflow = asyncio.ensure_future(subscriber.overflowed.wait())
-    done, pending = await asyncio.wait((get, overflow), return_when=asyncio.FIRST_COMPLETED)
+    detached = asyncio.ensure_future(subscriber.detached.wait())
+    done, pending = await asyncio.wait((get, overflow, detached), return_when=asyncio.FIRST_COMPLETED)
     for task in pending:
         task.cancel()
-    if overflow in done:
-        # The mailbox is full whenever the flag is set — ``offer`` only sets it on ``QueueFull``,
-        # and ``subscriber_queue_size`` is at least 1 — so ``get`` finished in the same turn.
-        # Its event is retrieved and dropped rather than sent on: a stream silently missing
-        # whatever the overflow ate is worse than a socket that said why it left.
-        assert get in done
-        get.result()
-        return None
+    if detached in done or overflow in done:
+        if get in done:
+            # An event that landed in the same turn, retrieved and dropped rather than sent on.
+            # (Under ``overflow`` this is certain — ``offer`` only sets the flag on ``QueueFull``,
+            # and ``subscriber_queue_size`` is at least 1. Under ``detached`` it is a coincidence.)
+            get.result()
+        return StreamEnd.DETACHED if detached in done else StreamEnd.OVERFLOWED
     return get.result()
 
 
@@ -770,8 +822,10 @@ async def stream_events(
     the snapshot and the queue, so anything at or below the high-water mark is dropped —
     without it the animation queue would play one event twice (G-34).
 
-    A mailbox that overflowed ends the stream here rather than in the writer: the writer must
-    never block on a socket, and this is the only coroutine that owns this one.
+    A mailbox that overflowed — or a session a save took over (MON-907) — ends the stream *here*
+    rather than in the writer or in the store: neither of those may block on a socket, and this is
+    the only coroutine that owns this one. Both hand over a :class:`StreamEnd` and this decides
+    what it costs the client, which is the close code in :data:`STREAM_END_CLOSES`.
     """
     sent = since
     try:
@@ -780,9 +834,10 @@ async def stream_events(
             sent = entry.seq
         while True:
             pushed = await next_entry(subscriber)
-            if pushed is None:
-                log.info("ws.overflowed", reason_key="error.watcher_too_slow")
-                await websocket.close(code=WS_WATCHER_TOO_SLOW, reason="error.watcher_too_slow")
+            if isinstance(pushed, StreamEnd):
+                closing = STREAM_END_CLOSES[pushed]
+                log.info(closing.log_event, reason_key=closing.reason_key)
+                await websocket.close(code=closing.code, reason=closing.reason_key)
                 return
             if pushed.seq <= sent:
                 continue  # already covered by the replay above

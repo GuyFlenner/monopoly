@@ -1,7 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import commonEn from "@/i18n/locales/common.en.json";
+import commonHe from "@/i18n/locales/common.he.json";
+
 import type { SocketLike } from "./client";
-import { EventSocket, parseFrame, TERMINAL_CLOSE_CODES } from "./eventSocket";
+import { EventQueue } from "./eventQueue";
+import {
+  CLOSE_REASON_KEYS,
+  closeReasonKey,
+  EventSocket,
+  parseFrame,
+  TERMINAL_CLOSE_CODES,
+  WS_CURSOR_RESET,
+} from "./eventSocket";
 import type { LoggedEvent } from "./types";
 
 /**
@@ -257,6 +268,116 @@ describe("EventSocket — reconnecting", () => {
     vi.advanceTimersByTime(50);
     expect(attempts).toBe(2);
     socket.stop();
+  });
+});
+
+describe("EventSocket — a save that takes the game's id over (MON-907)", () => {
+  /**
+   * A harness with a **real** `EventQueue` behind it, which is the point of these three tests.
+   *
+   * The others pin the cursor with a plain number, and for reconnect arithmetic that is the right
+   * fixture. Here the claim under test spans two objects — the socket asks the queue to forget, and
+   * the *next connect* has to read what the queue then says — so a fake cursor would let the reset
+   * be asserted and the consequence be assumed. This is the wiring `GameProvider` does, minus React.
+   */
+  function resetHarness() {
+    const queue = new EventQueue();
+    const opened: FakeSocket[] = [];
+    const urls: number[] = [];
+    const socket = new EventSocket({
+      open: (since) => {
+        urls.push(since);
+        const fake = new FakeSocket();
+        opened.push(fake);
+        return fake;
+      },
+      cursor: () => queue.cursor,
+      onFrames: (frames) => {
+        queue.offer(frames);
+      },
+      onCursorReset: () => {
+        queue.reset();
+      },
+      backoff: { initialMs: 100, maxMs: 800, factor: 2 },
+      random: () => 1,
+    });
+    return { queue, opened, urls, socket };
+  }
+
+  it("is not terminal: 4409 means come back, unlike 4404 and 4429", () => {
+    expect(TERMINAL_CLOSE_CODES).not.toContain(WS_CURSOR_RESET);
+  });
+
+  it("forgets the cursor and reconnects at since=0", () => {
+    const h = resetHarness();
+    h.queue.offer([frame(1), frame(2)]); // the game as it stood before the takeover
+    h.socket.start();
+    h.opened[0]?.accept();
+    // The opening connect carries the real cursor, so the second one carrying 0 is a *change* and
+    // not the value a fresh queue would have produced anyway.
+    expect(h.urls).toEqual([2]);
+
+    h.opened[0]?.serverClose(WS_CURSOR_RESET, "error.session_replaced");
+    vi.advanceTimersByTime(100);
+
+    expect(h.urls).toEqual([2, 0]);
+    expect(h.queue.cursor).toBe(0);
+    expect(h.queue.log).toEqual([]);
+    // ... and the replacement's own events are accepted, which the old high-water mark of 2 would
+    // have swallowed whole: the restored game's log restarts at seq 1.
+    h.opened[1]?.accept();
+    h.opened[1]?.push(frame(1));
+    expect(h.queue.log.map((entry) => entry.seq)).toEqual([1]);
+  });
+
+  it("leaves the cursor alone on a close that is an ordinary retry", () => {
+    const h = resetHarness();
+    h.queue.offer([frame(1), frame(2)]);
+    h.socket.start();
+    h.opened[0]?.accept();
+
+    // 4413 — fell behind. The backlog is still ours to replay, so forgetting it here would throw
+    // away a log the server is about to re-send and re-narrate the whole game at the player.
+    h.opened[0]?.serverClose(4413, "error.watcher_too_slow");
+    vi.advanceTimersByTime(100);
+
+    expect(h.urls).toEqual([2, 2]);
+    expect(h.queue.cursor).toBe(2);
+  });
+});
+
+describe("close codes carry their own sentence (MON-908)", () => {
+  /** `"error.game_not_found"` -> the string at that path, or `undefined`. */
+  function leaf(catalogue: unknown, key: string): unknown {
+    return key
+      .split(".")
+      .reduce<unknown>(
+        (node, part) =>
+          typeof node === "object" && node !== null
+            ? (node as Record<string, unknown>)[part]
+            : undefined,
+        catalogue,
+      );
+  }
+
+  it.each([
+    ["en", commonEn],
+    ["he", commonHe],
+  ])("has a %s sentence for every close code this client maps", (_language, catalogue) => {
+    // Walked from the map rather than from the catalogue, so a close code added to `api.py` and
+    // mirrored here reaches this test before it reaches a player as a blank connection note.
+    const unsayable = Object.entries(CLOSE_REASON_KEYS)
+      .filter(([, key]) => typeof leaf(catalogue, key) !== "string")
+      .map(([code, key]) => `${code} -> ${key}`);
+    expect(unsayable).toEqual([]);
+  });
+
+  it("has nothing to say about a code that is not a refusal", () => {
+    // 1006 is the browser's own "the connection dropped", and 1000 is a clean close. Neither is a
+    // decision anybody made about this player, so the caller keeps its generic status line.
+    expect(closeReasonKey(1006)).toBeUndefined();
+    expect(closeReasonKey(1000)).toBeUndefined();
+    expect(closeReasonKey(undefined)).toBeUndefined();
   });
 });
 
