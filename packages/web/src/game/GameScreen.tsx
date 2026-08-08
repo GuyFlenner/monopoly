@@ -47,6 +47,15 @@
  * the board stays exactly where it was. Blanking the screen would be reporting a worse failure
  * than the one that happened.
  *
+ * ## Four of the pieces are siblings now (MON-747)
+ *
+ * `Chrome`, `TurnSummary`, `SquareRent` and the connection note were declared above this component
+ * and are now `./Chrome`, `./TurnSummary`, `./SquareRent` and `./ConnectionNote`. The move was
+ * exactly that — the bodies, their props and their docstrings are the lines that were deleted from
+ * here, so `git diff -M` shows them as renames rather than as rewrites. Nothing about what the
+ * screen decides changed, because the answer to "what does this file decide" is still the paragraph
+ * at the top: where a component goes, and nothing else.
+ *
  * *Visual direction*: the felt table, with the board as the centrepiece and a column of painted
  * cards beside it — the moves, the wallet, the ledger. On a phone the column falls below the
  * board rather than shrinking beside it, because a 320 px board is already the whole width.
@@ -55,16 +64,14 @@
 import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { SCREEN_HEADING_ATTRIBUTE, useEventNarration } from "@/a11y";
-import { FastForward, Pulse, SkipMotionButton, useAnimationQueue } from "@/animation";
-import { closeReasonKey } from "@/api";
-import type { Command, PlayerView, RentQuote } from "@/api";
+import { useEventNarration } from "@/a11y";
+import { FastForward, SkipMotionButton, useAnimationQueue } from "@/animation";
+import type { Command, PlayerView } from "@/api";
 import {
   Board,
   describeTile,
   DiceTray,
   seatOf,
-  SkipAnimationsToggle,
   Token,
   TOKEN_PX,
   type BoardMotion,
@@ -72,30 +79,29 @@ import {
 } from "@/board";
 import { useCopy } from "@/i18n/copy";
 import type { GroupNameScope } from "@/i18n/groupNames";
-import { LocaleSwitch } from "@/i18n/LocaleSwitch";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { CardReveal } from "@/panels/CardReveal";
 import { CompareTray, PinToggle } from "@/panels/CompareTray";
 import { EventLog } from "@/panels/EventLog";
-import { noteLines } from "@/panels/EventLogLines";
-import { HintPanel, RentExplanation } from "@/panels/HintPanel";
+import { HintPanel } from "@/panels/HintPanel";
 import { suggest } from "@/panels/hints";
 import { PlayerDossier } from "@/panels/PlayerDossier";
 import { SquareBuild } from "@/panels/SquareBuild";
 import { ErrorState, LoadingState } from "@/panels/States";
 import { TradeBuilder } from "@/panels/TradeBuilder";
 import { TurnBanner } from "@/panels/TurnBanner";
-import { ReplayButton } from "@/replay";
-import { MuteToggle, useSoundCues } from "@/sound";
-import { ACTION_THEME, COMFORT_ATTRIBUTE, Icon, KIDS_COMFORT } from "@/theme";
+import { useSoundCues } from "@/sound";
+import { ACTION_THEME, Icon, KIDS_COMFORT } from "@/theme";
 
 import { endTurnAfterDecline, useAutoEndTurn } from "./autoEndTurn";
-import { AutoEndTurnToggle } from "./AutoEndTurnToggle";
 import { useAutoEndTurnPreference } from "./autoEndTurnPreference";
+import { Chrome } from "./Chrome";
+import { ConnectionNote } from "./ConnectionNote";
 import { presentationFor, type Presentation } from "./presentation";
-import { SaveGameButton } from "./SaveGameButton";
 import { actingFor, movesAtThisScreen } from "./seatedCommands";
+import { SquareRent } from "./SquareRent";
+import { TurnSummary } from "./TurnSummary";
 import { useUiStore } from "./uiStore";
 import { useGame } from "./useGame";
 import { useMoney } from "@/i18n";
@@ -114,212 +120,6 @@ const NO_PLAYERS: readonly PlayerView[] = [];
  * `<ErrorState>` is the one that replaced all four — same catalogue lookup, same `i18n.exists`
  * guard, same focus move instead of a second live region. See that file.
  */
-
-/**
- * The header both the loading gate and the game itself carry, so leaving is always possible.
- *
- * It is also where the comfort scale is switched (MON-604). `data-comfort="kids"` on this one box
- * raises `--kesef-target` for the whole subtree, so every `.target` control below — chits, seat
- * picker, dice toggle, the mute switch, the save button, the confirm dialog's two buttons, the trade
- * panel's cash steppers — grows together. One attribute rather than a `kids ? …` in each component,
- * because the per-component version is a list, and a list grows a hole the first time somebody adds
- * a button. Modals are inside this subtree even when they paint over it, so they inherit it too.
- */
-function Chrome({
-  onLeave,
-  comfort,
-  autoEndTurnSwitch = false,
-  children,
-}: {
-  readonly onLeave: () => void;
-  /** `"kids"` steps the hit-target scale up; `undefined` leaves the 44 px floor in place. */
-  readonly comfort?: string | undefined;
-  /**
-   * Offer the auto-end-turn switch.
-   *
-   * `false` while the first view is still in flight, because a preference about what happens after a
-   * purchase is not reachable-and-useful on a loading screen, and `false` in a kids game — where the
-   * feature is unconditionally on and a fourth switch would be one more thing between a six-year-old
-   * and the board. See `autoEndTurn.ts`.
-   */
-  readonly autoEndTurnSwitch?: boolean;
-  readonly children: React.ReactNode;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <div
-      {...{ [COMFORT_ATTRIBUTE]: comfort }}
-      className="mx-auto flex w-full max-w-7xl flex-col gap-4 p-2 text-start sm:p-4"
-    >
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        {/* `tabIndex={-1}` and the marker so the shell can land focus here when the setup screen is
-            replaced by this one — see `a11y/screenFocus.ts`. Never a tab stop. */}
-        <h1
-          {...{ [SCREEN_HEADING_ATTRIBUTE]: "" }}
-          tabIndex={-1}
-          className="text-2xl font-bold tracking-tight"
-        >
-          {t("app.title")}
-        </h1>
-        <div className="flex flex-wrap items-center gap-2">
-          {/* The dice tray's copy of this switch is off; the setting lives in the chrome so it is
-              reachable without hunting for the board's interior. The store behind it is
-              module-level, so the two cannot disagree. */}
-          <SkipAnimationsToggle />
-          {/* The mute switch sits beside the animation switch because they are the same kind of
-              decision — "less of the flourish, please" — and a player looking for one will look
-              here for the other. The store behind it is module-level (MON-706). */}
-          <MuteToggle />
-          {/* Third of the "less of this, please" switches, beside the other two for the same reason
-              they are beside each other: a player looking for one will look here for the rest. */}
-          {autoEndTurnSwitch && <AutoEndTurnToggle />}
-          {/* Mid-game language change, which M5 requires to leave game state untouched. It does,
-              structurally rather than by care: this control writes to i18next and the document
-              element, and the game reaches this package as a projection cached by TanStack Query
-              that nothing here invalidates. */}
-          <LocaleSwitch />
-          {/* Saving is available at any point in a game, including while the first view is still in
-              flight — the file comes from the server's state, not from this screen's copy of it. */}
-          <SaveGameButton />
-          {/* The replay (MON-705), beside the save button because both are "what happened", not "what
-              now". It fetches its own copy of the event log and renders over this screen without
-              touching it, so watching turn three mid-game leaves the live board exactly where it is. */}
-          <ReplayButton />
-          <button
-            type="button"
-            onClick={onLeave}
-            className="target bg-tile text-ink border-hairline rounded-xl border px-4 py-2 text-sm font-semibold"
-          >
-            {t("app.new_game")}
-          </button>
-        </div>
-      </header>
-      {children}
-    </div>
-  );
-}
-
-/** Whose turn it is, in the board's interior well. Both figures are read, never worked out. */
-function TurnSummary({
-  players,
-  currentId,
-  turnNumber,
-  cashPulse,
-  t,
-  money,
-}: {
-  readonly players: readonly PlayerView[];
-  readonly currentId: number;
-  readonly turnNumber: number;
-  /** The animation queue's cash beat for the acting seat (MON-701). Presentation only. */
-  readonly cashPulse?: number | undefined;
-  /** The screen's translate, so the well's wording matches the column beside it. */
-  readonly t: Translate;
-  /** The screen's money formatter, passed for the same reason `t` is (MON-720). */
-  readonly money: (amount: number) => string;
-}): React.JSX.Element {
-  const current = players.find((player) => player.id === currentId);
-  const seat = current === undefined ? undefined : seatOf(players, current.id);
-
-  return (
-    <div className="flex flex-col items-center gap-1 text-center">
-      <p className="text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-80">
-        {t("label.turn", { number: turnNumber })}
-      </p>
-      <p className="flex items-center gap-2 text-sm font-bold">
-        {seat !== undefined && <Token seat={seat} size={TOKEN_PX.heading} isCurrent />}
-        <span>{current?.name ?? String(currentId)}</span>
-      </p>
-      <p className="flex items-baseline gap-2 text-xs">
-        <span className="opacity-80">{t("label.cash")}</span>
-        {/* The figure is the projection's; the beat only decides whether it arrives with a swell. The
-            symbol is the language's (MON-720) — `dir="ltr"` stays, because `50 ₪` is a left-to-right
-            sequence of characters inside a right-to-left page either way. */}
-        <Pulse nonce={cashPulse}>
-          <span dir="ltr" className="font-bold tabular-nums">
-            {money(current?.cash ?? 0)}
-          </span>
-        </Pulse>
-      </p>
-    </div>
-  );
-}
-
-/**
- * What the selected square would charge, and why (MON-420).
- *
- * Every figure is `RentQuote`'s, and the explanation is the engine's own `rent.note.*` keys
- * rendered through the same resolver the event log uses — so the sentence a player reads *before*
- * landing is assembled exactly like the one they read in the log afterwards. Two resolvers is how
- * the board and the log would end up explaining one figure differently.
- *
- * `amount` is nullable and the nullability is the point: a utility's rent is a multiple of a throw
- * that has not happened, so the engine sends no amount and `rent.note.utility_quote` says
- * "× whatever the dice show". Printing the last roll's total, or an average, would be a number
- * nothing stands behind.
- *
- * Nothing here decides whether rent is owed. A square that charges nothing quotes `null`, which is
- * why the caller renders no panel at all rather than a zero.
- */
-function SquareRent({
-  quote,
-  scope,
-  kids,
-  money,
-}: {
-  readonly quote: RentQuote;
-  /**
-   * The screen's translate plus the board a group's name may come from.
-   *
-   * A scope rather than a bare `t` because `rent.note.full_group_doubled` interpolates a group, and
-   * on the Israeli board a group is a city — "the whole Tel Aviv set", not "the whole dark blue
-   * set". `noteLines` routes every `*_key` param through `groupLabel`, and this is what it needs to
-   * do it (`i18n/groupNames.ts`).
-   */
-  readonly scope: GroupNameScope;
-  /** Unfold the "why this much?" breakdown by default. `presentation.kids` (MON-605). */
-  readonly kids: boolean;
-  /**
-   * The screen's money formatter, passed for the same reason `TurnSummary` takes one (MON-720).
-   *
-   * This figure is the projection's own integer and reaches the player without passing through a
-   * catalogue sentence, so nothing else on the way can tell it which currency it is — which is how
-   * it came to sit bare beside "Lowest you can bid: $10" (MON-744).
-   */
-  readonly money: (amount: number) => string;
-}): React.JSX.Element {
-  const t = scope.translate;
-  return (
-    <span data-testid="square-rent" className="flex flex-col gap-1">
-      <span className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[0.625rem] font-semibold tracking-[0.14em] uppercase opacity-65">
-          {t("label.rent")}
-        </span>
-        {quote.amount !== null && quote.amount !== undefined && (
-          <span data-testid="square-rent-amount" dir="ltr" className="font-bold tabular-nums">
-            {/* `dir="ltr"` and `tabular-nums` both survive the symbol: `50 ₪` is a left-to-right
-                sequence inside a right-to-left page either way, and the tabular figures are what
-                stop the number jumping when a quote changes — the glyph is one more character in
-                front of them, not a different kind of text. */}
-            {money(quote.amount)}
-          </span>
-        )}
-        {noteLines(quote.note_keys, quote.note_params, scope).map((note) => (
-          <span key={note.key} className="text-xs opacity-75">
-            {t(note.key, note.params)}
-          </span>
-        ))}
-      </span>
-      {/*
-        MON-605's "why this number" affordance, on top of MON-420's sentences rather than instead of
-        them: the engine's own explanation stays on screen, and the *figures* it was built from fold
-        away behind a disclosure that Kids Mode opens. Nothing in there is multiplied — see
-        `RentExplanation`.
-      */}
-      <RentExplanation quote={quote} t={t} open={kids} />
-    </span>
-  );
-}
 
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -601,25 +401,6 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     return { tile: selectedTile, owner };
   }, [selectedTile, board, state]);
 
-  /**
-   * The one sentence about the transport, and — since MON-908 — the *specific* one.
-   *
-   * A closed socket had five causes and one sentence: "Not connected to the table", whether the
-   * game had been deleted, the watcher cap was full, or the handshake was refused. Three of those
-   * are answerable ("this game no longer exists" is a reason to start a new one, "too many people
-   * are watching" is a reason to wait) and the collapsed line answered none of them.
-   *
-   * `status.offline` stays as the fallback and is still what most closes get: a dropped network
-   * closes with 1006, which is exactly the case where the honest sentence is the vague one.
-   * `closeReasonKey` decides, off the code, and returns `undefined` when it has nothing to add.
-   */
-  const connectionKey =
-    status.connection.state === "reconnecting"
-      ? "status.reconnecting"
-      : status.connection.state === "closed"
-        ? (closeReasonKey(status.connection.closeCode) ?? "status.offline")
-        : null;
-
   // Nothing to draw yet: either the first view is still in flight, or it failed. Both keep the
   // chrome, so "New game" is reachable from a game id that no longer resolves.
   if (state === undefined || board === undefined || shownPlayer === undefined) {
@@ -674,11 +455,7 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             of `<main>` (a complementary landmark nested in another landmark is its own axe finding),
             which is why the pair moved into the column rather than the grid moving into a `<main>`.
           */}
-          {connectionKey !== null && (
-            <p data-testid="connection-note" className="text-sm opacity-80">
-              {t(connectionKey)}
-            </p>
-          )}
+          <ConnectionNote connection={status.connection} />
 
           {/*
             A failure with the board already on screen gets **no retry**, deliberately. What failed
