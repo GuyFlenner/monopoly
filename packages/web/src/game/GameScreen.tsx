@@ -280,6 +280,9 @@ function SquareRent({
   readonly kids: boolean;
 }): React.JSX.Element {
   const t = scope.translate;
+  // The hook rather than a prop: this component already takes the screen's `scope` for wording, and a
+  // second "here is how to write things" prop beside it would be one more thing a caller can forget.
+  const money = useMoney();
   return (
     <span data-testid="square-rent" className="flex flex-col gap-1">
       <span className="flex flex-wrap items-baseline gap-x-2">
@@ -287,8 +290,15 @@ function SquareRent({
           {t("label.rent")}
         </span>
         {quote.amount !== null && quote.amount !== undefined && (
+          /*
+            Through the formatter, like every other figure in the product (MON-720, MON-744). A bare
+            `{quote.amount}` said `10` in both languages — right nowhere, since the whole point of
+            MON-720 is that a figure names its currency. `dir="ltr"` stays for the same reason the
+            cash readout keeps it: the figure is a left-to-right run of characters inside a page that
+            may be right-to-left, whichever side the symbol falls.
+          */
           <span data-testid="square-rent-amount" dir="ltr" className="font-bold tabular-nums">
-            {quote.amount}
+            {money(quote.amount)}
           </span>
         )}
         {noteLines(quote.note_keys, quote.note_params, scope).map((note) => (

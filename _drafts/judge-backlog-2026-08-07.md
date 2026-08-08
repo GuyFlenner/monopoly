@@ -187,10 +187,23 @@ non-disabled text (`DiceTray.tsx:212,225`, `SetupScreen.tsx:673,816,888`,
   pattern) refuses new `opacity-[1-8][05]` on text outside `disabled:`; visual check both
   themes.
 
-### MON-744 — Money formatting on rent readout + auction figures · **S · Sonnet** · Finding 6
+### MON-744 — Money formatting on rent readout + auction figures ✅ **DONE** (2026-08-08) · **S** · Finding 6
 `SquareRent` amount and `AuctionPanel` current bid/increments through `useMoney()`.
 - **Verify**: unit tests assert `$10` / `10 ₪` per locale; `auction.spec.ts` text assertions
   updated; grep shows no bare money figure rendered from a projection.
+- **Shipped**: two figures were bare, and both were the one a player actually reads — the auction's
+  5xl bid readout and `SquareRent`'s amount. Every *sentence* around them had interpolated
+  `{{amount, money}}` since MON-720, so each panel named its currency everywhere except on the
+  number being decided. Both now go through `useMoney()`.
+- **The sweep found no others.** `share_of_cash` was already formatted; the remaining hits are a
+  `<input type="number">` value (a form control, which must stay a raw number) and two animation
+  nonces named `cashPulse`.
+- **`auction.spec.ts` needed no change**, and that is worth recording rather than quietly skipping:
+  it reads the floor off the number field's `min` attribute, so it never asserted rendered figure
+  text at all.
+- **Both fixes verified red**: reverting either figure to its bare form fails the new tests. The
+  App-level rent assertion was strengthened at the same time — it said `toContain("4")`, which
+  passes just as happily on a bare `4` as on `$4`, which is what it had been passing on.
 
 ### MON-745 — Sanction or remove the LocalEngineGate live region · **S · Sonnet** · Finding 7
 Either a never-co-mount test + documented exception in `Announcer.tsx`, or narrate through

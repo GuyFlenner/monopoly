@@ -39,6 +39,7 @@ import { useTranslation } from "react-i18next";
 
 import type { BoardView, Command, InterruptFrameView, PlayerView } from "@/api";
 import { seatOf, Token, TOKEN_PX } from "@/board";
+import { useMoney } from "@/i18n";
 import { Icon, requiresConfirmation } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
@@ -91,6 +92,7 @@ export function AuctionPanel({
   onClose,
 }: AuctionPanelProps): React.JSX.Element {
   const { t } = useTranslation();
+  const money = useMoney();
   const bidder = frame.turn ?? null;
   const [amount, setAmount] = useState(frame.min_bid);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -273,8 +275,15 @@ export function AuctionPanel({
           {ceiling !== null && ` · ${t("auction.ceiling", { amount: ceiling })}`}
         </p>
 
+        {/*
+          The figure the bidder is actually reading, through the formatter (MON-720, MON-744).
+
+          It is the largest number on the panel and it was the one bare one: every *sentence* around
+          it — the floor, the ceiling, the standing bid — has said `{{amount, money}}` since MON-720,
+          so the panel used to name its currency everywhere except on the figure being decided.
+        */}
         <p className="mt-3 text-5xl font-bold tabular-nums" dir="ltr">
-          {amount}
+          {money(amount)}
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2">

@@ -15,8 +15,9 @@
  * 5. **No `aria-live` anywhere** — MON-411 owns the regions (GAP D1/G-54).
  */
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import i18next from "i18next";
 import { useEffect, useState } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -467,5 +468,51 @@ describe("a frame with no bidder", () => {
       screen.getByRole("heading", { name: "Nobody is bidding right now" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Bid/ })).toBeDisabled();
+  });
+});
+
+/**
+ * The figure a bidder is actually deciding on (MON-744).
+ *
+ * Every *sentence* on this panel — the floor, the ceiling, the standing bid, the share of cash — has
+ * interpolated `{{amount, money}}` since MON-720. The one figure that did not was the large readout
+ * in the middle: the number the bidder reads before pressing. So the panel named its currency
+ * everywhere except on the thing being decided, which is the one place a table playing in shekels
+ * could read a dollar figure and not notice.
+ */
+describe("the bid readout says which money it is", () => {
+  /** The big readout, by the class the panel gives it — it carries no text of its own to match on. */
+  function readout(): HTMLElement {
+    const node = document.querySelector<HTMLElement>("p.text-5xl");
+    if (node === null) {
+      throw new Error("the bid readout is not on screen");
+    }
+    return node;
+  }
+
+  it("writes it the English way", () => {
+    renderPanel(makeFrame({ min_bid: 10 }));
+    expect(readout().textContent).toBe("$10");
+  });
+
+  it("writes it the Hebrew way", async () => {
+    await act(async () => {
+      await i18next.changeLanguage("he");
+    });
+    try {
+      renderPanel(makeFrame({ min_bid: 10 }));
+      // The symbol trails the digits in Hebrew, joined by a non-breaking space the DOM normalises.
+      expect(readout().textContent.replace(/\u00a0/g, " ")).toBe("10 ₪");
+      expect(readout().textContent).not.toContain("$");
+    } finally {
+      await act(async () => {
+        await i18next.changeLanguage("en");
+      });
+    }
+  });
+
+  it("groups a four-figure bid, so 1500 is not read as 150", () => {
+    renderPanel(makeFrame({ min_bid: 1500 }));
+    expect(readout().textContent).toBe("$1,500");
   });
 });

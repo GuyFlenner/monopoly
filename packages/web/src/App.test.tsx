@@ -377,7 +377,9 @@ describe("App — the game screen", () => {
       );
 
       const panel = await screen.findByTestId("square-rent");
-      expect(panel.textContent).toContain("4");
+      // `$4`, not `4` (MON-744). Asserted on the *formatted* figure because `toContain("4")` — what
+      // this line used to say — passes just as happily on a bare number, which is what it was.
+      expect(screen.getByTestId("square-rent-amount").textContent).toBe("$4");
       // The note, with its group key resolved — the same resolver the log uses (MON-415).
       expect(panel.textContent).toContain("Brown");
       expect(panel.textContent).not.toContain("group.");
