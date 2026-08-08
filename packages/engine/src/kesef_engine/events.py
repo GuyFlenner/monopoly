@@ -18,6 +18,7 @@ Like everything else in the engine, events carry keys and numbers, never sentenc
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -130,12 +131,16 @@ class RentQuote(BaseModel):
     group: ColorGroup | None = None
     note_keys: tuple[str, ...] = ()
     """i18n keys explaining the maths, e.g. ``rent.note.full_group_doubled``."""
-    note_params: dict[str, int | str] = Field(default_factory=dict)
+    note_params: Mapping[str, int | str] = Field(default_factory=dict)
     """Interpolation values for ``note_keys``. Keys and numbers only — never a sentence.
 
     A param whose name ends in ``_key`` carries an i18n key rather than a value, which is how
     ``rent.note.full_group_doubled`` names a colour group without shipping the enum's English
-    identifier into a Hebrew sentence (MON-415)."""
+    identifier into a Hebrew sentence (MON-415).
+
+    MON-741: ``frozen=True`` blocks rebinding this field and the ``Mapping`` annotation blocks
+    typed mutation under ``mypy``, but the underlying dict's ``__setitem__`` remains physically
+    callable at runtime — that residual hole is closed by review, not by the type system."""
 
 
 class RentCharged(RentQuote):

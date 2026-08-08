@@ -45,9 +45,23 @@ packages = ["src/kesef_engine"]
 # the one the tests import.
 # ---------------------------------------------------------------------------
 [tool.mutmut]
+# MON-732: `reducer.py` joins the scope. The phase machine (`_dispatch`) and the interrupt
+# stack drain (`_drain`) are the design's own self-declared hardest parts (ADR-007), and until
+# now they sat outside the only gate that measures test *strength* rather than coverage —
+# `is_legal`/`apply` agreement and the goldens both hold the boundary fixed, so a mutant here
+# could survive both. `mutate_only_covered_lines=true` (below) already bounds the added cost:
+# reducer.py is 211 lines, most of it docstring and imports, and the handful of `# pragma: no
+# cover` defensive branches (`is_legal` already rejects the command shapes they guard) carry no
+# coverage and so mutmut skips them regardless.
+#
+# `state.py` deliberately does NOT join this list. Its pydantic validators mutate into
+# pydantic's own internals (`model_validator`/`field_validator` machinery, `ConfigDict`
+# resolution) rather than into rule logic mutmut can reason about the same way — out of scope
+# per the backlog item (MON-732), not an oversight.
 source_paths = [
     "src/kesef_engine/rules",
     "src/kesef_engine/legality.py",
+    "src/kesef_engine/reducer.py",
 ]
 
 # The whole package and the whole suite, because `source_paths` is a *mutation*

@@ -1,10 +1,10 @@
 # Nightly — the expensive gates that would make every PR wait for no reason.
 #
-# MON-209: mutation testing (mutmut) over the rule modules and the legality gate, with
-# a >=80% kill-rate gate that fails the job, plus the `slow`-marked test lane. Neither of
-# these belongs on the PR path (mutmut alone runs the suite once per surviving mutant),
-# so this workflow carries no `pull_request:` and no `push:` trigger — schedule and a
-# manual button only.
+# MON-209: mutation testing (mutmut) over the rule modules, the legality gate and (MON-732)
+# the reducer, with a >=80% kill-rate gate that fails the job, plus the `slow`-marked test
+# lane. Neither of these belongs on the PR path (mutmut alone runs the suite once per
+# surviving mutant), so this workflow carries no `pull_request:` and no `push:` trigger —
+# schedule and a manual button only.
 name: Nightly
 
 on:
@@ -19,14 +19,37 @@ concurrency:
 
 jobs:
   mutation:
-    name: Mutation kill-rate gate (rules/ + legality.py)
+    name: Mutation kill-rate gate (rules/ + legality.py + reducer.py)
     runs-on: ubuntu-latest
     # Measured, not guessed: once MON-209's gate could actually run, `mutmut run` went past **82
     # minutes** without finishing on a dispatched run. That is not a hang — it is what mutation
     # testing costs when every mutant re-runs a slice of an 820-test suite — but an unbounded job
     # inherits GitHub's six-hour default, and a nightly that might burn six hours is one nobody will
-    # leave scheduled. 120 minutes is generous against the measurement and still a bound.
-    timeout-minutes: 120
+    # leave scheduled. 120 minutes is generous against the measurement.
+    #
+    # MON-732 raised this to 130 on top of that measurement, because `reducer.py` joined
+    # `source_paths` in the same change and the 82-minute figure predates it. Reasoning, done
+    # without running mutmut (Linux-only — can't run it on this machine):
+    #   * the 2026-08-05 nightly (`docs/BACKLOG.md`) recorded 3,285/3,445 mutants over the
+    #     2,865 raw lines that made up `rules/` + `legality.py` at the time — ~1.20 mutants
+    #     per raw line, a ratio that already reflects `mutate_only_covered_lines=true` pruning
+    #     docstrings, blanks and uncovered defensive branches out of the count.
+    #   * `reducer.py` is 211 raw lines, but unusually documentation-heavy even by this
+    #     engine's ~30%-density norm (per the 2026-08-07 audit): ~57 lines of docstring, ~37 of
+    #     imports, ~14 blank, and 8 `# pragma: no cover` defensive branches `is_legal` already
+    #     makes unreachable (so mutate_only_covered_lines skips them regardless) — leaving
+    #     roughly 80-90 lines actually eligible for mutation.
+    #   * applying the measured ratio to that eligible-line count gives ~95-110 new mutants;
+    #     applying it to the full 211 raw lines instead (no adjustment, the pessimistic case)
+    #     gives ~250. Call the honest range 90-250 additional mutants, i.e. a 2.6%-7.3% growth
+    #     in the total mutant count mutmut has to run.
+    #   * time scales with mutant count more than with which file a mutant sits in (each
+    #     mutant re-runs a slice of the same suite), so expected runtime grows by the same
+    #     2.6%-7.3% — 82 * 1.073 ≈ 88 minutes in the pessimistic case. Scaling the timeout by
+    #     that same factor to hold the measured margin steady: 120 * 1.073 ≈ 129, rounded up
+    #     to 130. The next dispatched run's `::notice::` finish time (below) is the real check;
+    #     if the pessimistic case understates it, that run is the signal to raise this again.
+    timeout-minutes: 130
     steps:
       - uses: actions/checkout@v7
 
@@ -50,7 +73,7 @@ jobs:
       # `src/` + `tests/` project. Run from the workspace root it built a `mutants/`
       # tree with no test suite in it, so pytest never started — see the long comment
       # on `[tool.mutmut]` in `packages/engine/pyproject.toml`.
-      - name: Run mutmut over the rule modules and the legality gate
+      - name: Run mutmut over the rule modules, the legality gate and the reducer
         working-directory: packages/engine
         run: uv run mutmut run || true
 
@@ -86,8 +109,8 @@ jobs:
 
           total = len(statuses)
           if total == 0:
-              print("::error::mutmut reported zero mutants for rules/ and legality.py — "
-                    "treating this as a failure, not a silent pass")
+              print("::error::mutmut reported zero mutants for rules/, legality.py and "
+                    "reducer.py — treating this as a failure, not a silent pass")
               sys.exit(1)
 
           killed = sum(1 for s in statuses if s == "killed")
