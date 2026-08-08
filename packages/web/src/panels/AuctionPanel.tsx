@@ -39,6 +39,7 @@ import { useTranslation } from "react-i18next";
 
 import type { BoardView, Command, InterruptFrameView, PlayerView } from "@/api";
 import { seatOf, Token, TOKEN_PX } from "@/board";
+import { useMoney } from "@/i18n";
 import { Icon, requiresConfirmation } from "@/theme";
 
 import { ModalDialog } from "./ModalDialog";
@@ -91,6 +92,17 @@ export function AuctionPanel({
   onClose,
 }: AuctionPanelProps): React.JSX.Element {
   const { t } = useTranslation();
+  /*
+    The three figures on this panel that never reach a catalogue sentence (MON-744).
+
+    Every *sentence* here already says which money it is — `auction.floor`, `auction.ceiling`,
+    `action.place_bid` and the rest interpolate `{{amount, money}}`, which is MON-720's per-string
+    decision. What was left bare is what the panel draws itself: the standing figure, the
+    increments on the buttons, and the ribbon on the rail. So a player read "Lowest you can bid:
+    $10" directly above an unlabelled "10", which is the one arrangement that makes a child ask
+    whether the two are the same number.
+  */
+  const money = useMoney();
   const bidder = frame.turn ?? null;
   const [amount, setAmount] = useState(frame.min_bid);
   const [pending, setPending] = useState<Pending | null>(null);
@@ -273,8 +285,16 @@ export function AuctionPanel({
           {ceiling !== null && ` · ${t("auction.ceiling", { amount: ceiling })}`}
         </p>
 
-        <p className="mt-3 text-5xl font-bold tabular-nums" dir="ltr">
-          {amount}
+        {/* The biggest figure on the panel, and until MON-744 the only one that did not say what it
+            was. `tabular-nums` still earns its place — the digits are what change as the steppers
+            are pressed, and they must not shift the line — and `dir="ltr"` still holds the whole
+            token together in a right-to-left page. */}
+        <p
+          data-testid="auction-current-bid"
+          className="mt-3 text-5xl font-bold tabular-nums"
+          dir="ltr"
+        >
+          {money(amount)}
         </p>
 
         <div className="mt-3 flex flex-wrap gap-2">
@@ -289,7 +309,9 @@ export function AuctionPanel({
               className="target flex items-center gap-1 rounded-2xl border-2 border-hairline px-4 text-lg font-bold disabled:opacity-40"
             >
               <Icon name="plus" size={16} />
-              <span dir="ltr">{by}</span>
+              {/* "+ $10", not "+ 10": the increment is an amount of money, and this button sits
+                  directly under the figure it moves. */}
+              <span dir="ltr">{money(by)}</span>
             </button>
           ))}
         </div>
@@ -352,6 +374,9 @@ function BidderRail({
   readonly playerName: (id: number) => string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  // The ribbon's figure is drawn, not said — the sentence below it (`auction.standing_bid`) already
+  // carries the symbol through the catalogue, so the two disagreed about the same number (MON-744).
+  const money = useMoney();
   const highBidder = frame.high_bidder ?? null;
   return (
     <section aria-labelledby="auction-bidders-heading">
@@ -404,7 +429,7 @@ function BidderRail({
                   className="rounded-full border-2 border-on-table px-2 py-0.5 text-sm font-bold tabular-nums"
                   dir="ltr"
                 >
-                  {frame.high_bid}
+                  {money(frame.high_bid)}
                 </span>
               )}
             </li>

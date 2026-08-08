@@ -15,13 +15,14 @@
  * 5. **No `aria-live` anywhere** — MON-411 owns the regions (GAP D1/G-54).
  */
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { AnnouncerProvider, useAnnouncer, type AnnouncementDraft } from "@/a11y";
 import type { BoardView, Command, PlayerView } from "@/api";
+import { i18n } from "@/i18n";
 
 import { makeBoard, makePlayer, makeTile } from "../test/fixtures";
 import { AuctionPanel, type AuctionFrameView } from "./AuctionPanel";
@@ -129,6 +130,16 @@ function enterAmount(value: string): void {
   fireEvent.change(screen.getByRole("spinbutton"), { target: { value } });
 }
 
+afterEach(async () => {
+  // The suite runs in English (`src/test/setup.ts`). The Hebrew case below changes that and has to
+  // hand it back, the way `CardReveal.test.tsx` does.
+  if (i18n.language !== "en") {
+    await act(async () => {
+      await i18n.changeLanguage("en");
+    });
+  }
+});
+
 /** The bidder's row on the rail, found by the projected player id rather than by position. */
 function bidderRow(id: number): HTMLElement {
   const row = document.querySelector<HTMLElement>(`[data-bidder="${String(id)}"]`);
@@ -162,7 +173,9 @@ describe("the projected auction state is rendered, never a derived one", () => {
     renderPanel(makeFrame({ high_bid: 45, high_bidder: 1, min_bid: 46 }));
 
     expect(screen.getByText("Dan holds the bid at $45.")).toBeInTheDocument();
-    expect(within(bidderRow(1)).getByText("45")).toBeInTheDocument();
+    // The ribbon says which money it is too (MON-744) — it used to read a bare "45" directly under
+    // the sentence above, which is the same figure written two ways.
+    expect(within(bidderRow(1)).getByText("$45")).toBeInTheDocument();
   });
 
   it("names the acting bidder from `turn` and marks that row", () => {
@@ -213,7 +226,7 @@ describe("the bid ceiling comes off the projection", () => {
     const user = userEvent.setup();
     renderPanel(makeFrame({ min_bid: 1, max_bid: 20 }));
 
-    await user.click(screen.getByRole("button", { name: "50" }));
+    await user.click(screen.getByRole("button", { name: "$50" }));
 
     expect(screen.getByRole("button", { name: /Bid \$20/ })).toBeEnabled();
   });
@@ -238,6 +251,54 @@ describe("the bid ceiling comes off the projection", () => {
     renderPanel(makeFrame({ max_bid: null }));
 
     expect(screen.queryByText(/Highest you can bid/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * MON-744: the figures this panel *draws* say which money they are, like the ones it *says*.
+ *
+ * The sentences were never the problem — `auction.floor` and friends interpolate
+ * `{{amount, money}}` and have since MON-720. The three drawn figures did not, so the panel read
+ * "Lowest you can bid: $10" directly above an unlabelled "10" and a row of buttons offering "10".
+ *
+ * The Hebrew case is what makes this a formatter test rather than a string test: the same
+ * component, the same frame, a different language, and the symbol moves to the other side of the
+ * digits. An implementation that hardcoded a `$` passes the English half and fails here.
+ */
+describe("the drawn figures carry the currency, in both languages", () => {
+  /**
+   * The space `money.ts` puts between a Hebrew figure and its sign: **non-breaking**.
+   *
+   * Written as an escape here for the reason that file gives for writing it as one — a code point
+   * nobody can see in a diff is a code point nobody can review.
+   */
+  const NBSP = "\u00a0";
+
+  it("labels the standing figure, the increments and the ribbon in English", () => {
+    renderPanel(makeFrame({ min_bid: 10, high_bid: 45, high_bidder: 1 }));
+
+    expect(screen.getByTestId("auction-current-bid")).toHaveTextContent("$10");
+    expect(screen.getByRole("button", { name: "$1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "$10" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "$50" })).toBeInTheDocument();
+    expect(within(bidderRow(1)).getByText("$45")).toBeInTheDocument();
+  });
+
+  it("puts the shekel sign after the figure in Hebrew, with no change to this component", async () => {
+    await act(async () => {
+      await i18n.changeLanguage("he");
+    });
+    renderPanel(makeFrame({ min_bid: 10, high_bid: 45, high_bidder: 1 }));
+
+    // `textContent` rather than a text matcher, so the non-breaking space is asserted as itself:
+    // Testing Library's normaliser collapses it to a plain space, which is exactly the layout
+    // guarantee `money.ts` makes and therefore the one a text matcher cannot see.
+    const figure = screen.getByTestId("auction-current-bid").textContent;
+    expect(figure).toBe(`10${NBSP}₪`);
+    // Not the English rendering — the falsifier for a symbol hardcoded into the component.
+    expect(figure).not.toBe("$10");
+    // The ribbon, through a matcher, where the collapsed space is what the matcher sees.
+    expect(within(bidderRow(1)).getByText("45 ₪")).toBeInTheDocument();
   });
 });
 

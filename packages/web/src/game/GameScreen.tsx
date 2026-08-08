@@ -265,6 +265,7 @@ function SquareRent({
   quote,
   scope,
   kids,
+  money,
 }: {
   readonly quote: RentQuote;
   /**
@@ -278,6 +279,14 @@ function SquareRent({
   readonly scope: GroupNameScope;
   /** Unfold the "why this much?" breakdown by default. `presentation.kids` (MON-605). */
   readonly kids: boolean;
+  /**
+   * The screen's money formatter, passed for the same reason `TurnSummary` takes one (MON-720).
+   *
+   * This figure is the projection's own integer and reaches the player without passing through a
+   * catalogue sentence, so nothing else on the way can tell it which currency it is — which is how
+   * it came to sit bare beside "Lowest you can bid: $10" (MON-744).
+   */
+  readonly money: (amount: number) => string;
 }): React.JSX.Element {
   const t = scope.translate;
   return (
@@ -288,7 +297,11 @@ function SquareRent({
         </span>
         {quote.amount !== null && quote.amount !== undefined && (
           <span data-testid="square-rent-amount" dir="ltr" className="font-bold tabular-nums">
-            {quote.amount}
+            {/* `dir="ltr"` and `tabular-nums` both survive the symbol: `50 ₪` is a left-to-right
+                sequence inside a right-to-left page either way, and the tabular figures are what
+                stop the number jumping when a quote changes — the glyph is one more character in
+                front of them, not a different kind of text. */}
+            {money(quote.amount)}
           </span>
         )}
         {noteLines(quote.note_keys, quote.note_params, scope).map((note) => (
@@ -787,7 +800,12 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                 so there is no branch here about what any of those mean.
               */}
               {squareQuote !== null && squareQuote !== undefined && (
-                <SquareRent quote={squareQuote} scope={groupScope} kids={presentation.kids} />
+                <SquareRent
+                  quote={squareQuote}
+                  scope={groupScope}
+                  kids={presentation.kids}
+                  money={money}
+                />
               )}
               {/*
                 Whether a house can go here, and the engine's own reason when it cannot (MON-725).
