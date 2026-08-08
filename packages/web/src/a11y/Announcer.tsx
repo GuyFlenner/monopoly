@@ -13,7 +13,22 @@
  *
  * Nothing blocks on this. The bus never waits for a region to be free (see `announcements.ts`),
  * a player can act while a sentence is still being read, and no other component may render an
- * `aria-live` region of its own (GAP D1/D2/D3, G-54).
+ * `aria-live` region of its own (GAP D1/D2/D3, G-54) — with one documented exception.
+ *
+ * ## The one exception: `local/LocalEngineGate.tsx`
+ *
+ * The Pyodide loading screen (MON-805) has its own `aria-live="polite"` stage line, and it is
+ * sanctioned rather than removed (MON-745). The reason ordinary components cannot do this is that
+ * a second region and this one would both be live at once, so the same event gets announced
+ * twice, or two unrelated sentences interleave in one listener's ear. That failure needs two
+ * regions *at the same time*, and the gate's cannot be one of them: it renders before `<App>`
+ * exists at all, which is also before `<AnnouncerProvider>` and this component exist — see
+ * `shell.tsx` and `App.tsx`, where `<LocalEngineGate>` wraps `<App>` rather than the reverse. The
+ * gate hands off to `children(client)` — `<App>`, with this `<Announcer>` inside it — the instant
+ * loading finishes, and renders nothing of its own from that point on. So the two live regions
+ * are never both mounted; `local/localTransport.test.tsx`'s "the loading gate" suite (MON-745)
+ * asserts exactly that, by counting `[aria-live]` nodes through both phases, and is the thing to
+ * make red before touching either file's narration.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";

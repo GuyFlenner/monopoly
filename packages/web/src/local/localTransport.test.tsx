@@ -2,6 +2,7 @@ import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { Announcer, AnnouncerProvider } from "@/a11y";
 import { ApiClient, ApiError, EventSocket, isApiError } from "@/api";
 
 import type { PyBridge } from "./bridge";
@@ -356,6 +357,53 @@ describe("the loading gate", () => {
     expect(await screen.findByText("ready")).toBeInTheDocument();
     expect(start).toHaveBeenCalledTimes(2);
     logged.mockRestore();
+  });
+
+  it("never lets its own aria-live region coexist with the root Announcer's (MON-745)", async () => {
+    // The finding this closes: the gate's stage line is `aria-live` of its own, which
+    // `a11y/index.ts`'s rule says is a defect everywhere else. What makes it a sanctioned
+    // exception rather than a second instance of that defect is that the two regions are never
+    // both on screen — see the exception recorded in `a11y/Announcer.tsx`. `children` here stands
+    // in for `<App>`, which is what actually owns the real `<Announcer>` once the gate hands off.
+    const client = new ApiClient();
+    let resolveStart: (() => void) | undefined;
+    const start = vi.fn(
+      () =>
+        new Promise<ApiClient>((resolve) => {
+          resolveStart = () => {
+            resolve(client);
+          };
+        }),
+    );
+
+    render(
+      <LocalEngineGate start={start}>
+        {() => (
+          <AnnouncerProvider>
+            <Announcer stepMs={5} />
+            <p>ready</p>
+          </AnnouncerProvider>
+        )}
+      </LocalEngineGate>,
+    );
+
+    // Loading: exactly the gate's own stage line. Nothing here claims to be the shared
+    // Announcer — there is no `<AnnouncerProvider>` above it for one to belong to yet.
+    const whileLoading = [...document.querySelectorAll("[aria-live]")];
+    expect(whileLoading).toHaveLength(1);
+    expect(whileLoading[0]).not.toHaveAttribute("data-announcer");
+
+    await act(async () => {
+      resolveStart?.();
+      await settle();
+    });
+    await screen.findByText("ready");
+
+    // Ready: the gate's own line is gone — unmounted, not merely hidden — and the two regions
+    // left are both the Announcer's (GAP D1/G-54), never the gate's.
+    const onceReady = [...document.querySelectorAll("[aria-live]")];
+    expect(onceReady).toHaveLength(2);
+    expect(onceReady.every((region) => region.hasAttribute("data-announcer"))).toBe(true);
   });
 
   it("does not restart a multi-megabyte download when its parent re-renders", async () => {

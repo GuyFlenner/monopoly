@@ -85,8 +85,20 @@ export function LocalEngineGate({ start, children }: LocalEngineGateProps): Reac
       {progress.phase === "loading" ? (
         <>
           {/*
-            `aria-live="polite"` on the stage line, and nothing else on this screen: a load has no
-            interactive element to announce, and the stage changing is the only news there is.
+            The one sanctioned exception to "no `aria-live` outside the root `<Announcer>`"
+            (MON-745; see the exception recorded in `a11y/Announcer.tsx`). This screen exists
+            because there is no `<App>` yet — `shell.tsx` renders `<LocalEngineGate>` *around*
+            `<App>`, not inside it, so there is no `<AnnouncerProvider>` above this component to
+            narrate through. `useOptionalAnnounce` cannot fix that: it would fall silent for the
+            whole load, trading a real accessibility need (a multi-second wait, worth saying so)
+            for architectural purity with no listener left to benefit from it.
+
+            What makes this safe rather than a second copy of the same defect: the two regions
+            are never both mounted. The instant `phase` reaches "ready" this branch stops
+            rendering — see the early return above — and `children(client)` (`<App>`, with the
+            real `<Announcer>` inside it) takes over completely. `localTransport.test.tsx`'s "the
+            loading gate" suite asserts that invariant directly; treat it as load-bearing before
+            changing either file's narration.
           */}
           <p className="text-sm font-semibold" aria-live="polite">
             {t(progress.stageKey)}
