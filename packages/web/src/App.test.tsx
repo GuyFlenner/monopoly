@@ -377,7 +377,10 @@ describe("App — the game screen", () => {
       );
 
       const panel = await screen.findByTestId("square-rent");
-      expect(panel.textContent).toContain("4");
+      // With the symbol, since MON-744: this figure never passes through a catalogue sentence, so
+      // the formatter is the only thing that can tell it which money it is. Asserting `"$4"` rather
+      // than `"4"` is also what makes this line fail if the readout goes back to a bare number.
+      expect(panel.textContent).toContain("$4");
       // The note, with its group key resolved — the same resolver the log uses (MON-415).
       expect(panel.textContent).toContain("Brown");
       expect(panel.textContent).not.toContain("group.");

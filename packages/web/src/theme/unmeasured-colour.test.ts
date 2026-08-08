@@ -120,11 +120,21 @@ const MODULES = shippedModules();
  * `SetupScreen`) and recorded the rest here rather than leaving them unmeasured *and* unnamed. The
  * counts come down as screens are touched; `MON-747` splits `GameScreen` and takes several with it.
  * Nothing may be added.
+ *
+ * MON-747 then did exactly that, which is the one kind of edit this ledger expects to receive
+ * without a colour changing: `game/GameScreen.tsx`'s seven became **2 + 2 + 2 + 1** across the four
+ * files the screen was split into, and the total is the same seven. A re-partition, not a
+ * concession — every one of them is still owed a named solid, and the three files
+ * `SetupScreen.tsx` was split into appear nowhere below because that screen was already cleared and
+ * the split was taken from the cleared bytes.
  */
 const AWAITING_MUTED_INK: Readonly<Record<string, number>> = {
   "animation/SkipMotionButton.tsx": 1,
   "board/Tile.tsx": 2,
-  "game/GameScreen.tsx": 7,
+  "game/ConnectionNote.tsx": 1,
+  "game/GameScreen.tsx": 2,
+  "game/SquareRent.tsx": 2,
+  "game/TurnSummary.tsx": 2,
   "local/LocalEngineGate.tsx": 2,
   "panels/ActionBar.tsx": 6,
   "panels/CardReveal.tsx": 2,

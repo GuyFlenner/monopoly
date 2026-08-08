@@ -37,10 +37,7 @@ import {
   type AuctionMinimum,
   type BoardSummary,
   type NewGameRequest,
-  type RuleFlagView,
   type RulesetView,
-  type RuleValue,
-  type SeatConfig,
 } from "@/api";
 import { SCREEN_HEADING_ATTRIBUTE } from "@/a11y";
 import {
@@ -49,84 +46,15 @@ import {
   MIN_CARD_SECONDS,
   useCardDwellPreference,
 } from "@/animation";
-import { Token, TOKEN_PX } from "@/board";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import type { Transport } from "@/local/mode";
-import { Icon, SEAT_COUNT, tokenForSeat, type SeatNumber } from "@/theme";
+import { Icon, tokenForSeat } from "@/theme";
 
 import { LoadSavedGame } from "./LoadSavedGame";
+import { RuleDiff } from "./RuleDiff";
+import { MAX_SEAT_ROWS, SeatCard, seatDraft, type SeatDraft } from "./SeatCard";
+import { Choice } from "./SetupFields";
 import { ErrorState } from "./States";
-
-// --- Seat identities --------------------------------------------------------
-
-/**
- * MON-748 (closing MON-412's TODO): the seat picker draws the six shipped token identities —
- * shape, colour and icon from `TOKEN_IDENTITY` in `@/theme/tokens`, the same table the board, the
- * turn indicator, the dossier and the auction list read for the same seat. There used to be a
- * second, local set of six here (kite, drum, boat, …) built in parallel while MON-412 was still
- * in flight; it is gone, and so is the drift risk of two silhouette sets that both claim to be
- * "the" identities. Nothing below picks a shape or a colour of its own — every seat's badge and
- * name is `tokenForSeat(seatNumber)`, imported.
- *
- * The `token` posted as `SeatConfig.token` is derived from the identity's icon name
- * (`token.${icon}`, e.g. `"token.cat"`) rather than invented separately: the engine only asks
- * that it be a non-empty string unique per seat (`state.py`'s duplicate check, MON-735), so this
- * keeps one source for "which piece is seat N" instead of two that could disagree.
- */
-
-/**
- * How many seat rows the form can offer.
- *
- * A presentation limit, not the game's: one seat needs one distinguishable identity, and there
- * are six of those. The *rule* about how many players a game takes lives in the engine, which
- * is why removing seats goes all the way down to one and the server is what says no.
- */
-const MAX_SEAT_ROWS = SEAT_COUNT;
-
-// --- Draft state ------------------------------------------------------------
-
-type BotLevel = NonNullable<SeatConfig["bot_level"]>;
-type Gender = SeatConfig["grammatical_gender"];
-
-const BOT_LEVELS: readonly BotLevel[] = ["easy", "normal", "hard"];
-
-// No `Record<BotLevel, string>` map here: MON-501 moved the three level names to `bot_level.*`,
-// so the key is the level. The same reason `ActionLabels.ts` no longer exists — a hand-written
-// bridge between the engine's vocabulary and the catalogue's is a bridge that can drift.
-
-const GENDERS: readonly Gender[] = ["n", "m", "f"];
-
-interface SeatDraft {
-  /** Stable across reorderings, so React keys and label ids do not follow the array index. */
-  readonly id: number;
-  readonly name: string;
-  readonly isBot: boolean;
-  readonly botLevel: BotLevel;
-  readonly gender: Gender;
-}
-
-/**
- * The gender a new seat starts on, which depends on the language the table is being set up in.
- *
- * **Hebrew: masculine. Everything else: neutral.** The owner asked for this on 2026-08-04, and it
- * amends what `schemas.py::SeatConfig` says — *"`n` is the neutral fallback, never the masculine"*
- * (owner decision 5, GAP G-42). That sentence is still true of the **fallback**: a seat whose gender
- * nobody chose, in a game whose language nobody chose, is still `"n"`. What changed is the *default
- * offered on a Hebrew setup screen*, where every verb in the narration conjugates and "them" is the
- * one option a Hebrew sentence cannot use gracefully. Two presses put it back, per seat, and the
- * control is right there.
- *
- * Read at the moment a row is created rather than watched: a language switch mid-setup does not
- * rewrite genders the player may already have chosen, and the fallback it leaves behind is the
- * neutral one. The app opens in Hebrew, so the two seats a family finds are masculine.
- */
-export function defaultGenderFor(locale: Locale): Gender {
-  return locale === "he" ? "m" : "n";
-}
-
-function seatDraft(id: number, locale: Locale): SeatDraft {
-  return { id, name: "", isBot: false, botLevel: "normal", gender: defaultGenderFor(locale) };
-}
 
 export interface SetupScreenProps {
   /**
@@ -624,262 +552,16 @@ export function SetupScreen({
   );
 }
 
-// --- Pieces -----------------------------------------------------------------
+// --- What the form posts ----------------------------------------------------
 
-function SeatCard({
-  seat,
-  index,
-  canRemove,
-  onChange,
-  onRemove,
-}: {
-  readonly seat: SeatDraft;
-  readonly index: number;
-  readonly canRemove: boolean;
-  readonly onChange: (change: Partial<SeatDraft>) => void;
-  readonly onRemove: () => void;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const fieldId = useId();
-  // Bounds-checked the same way `board/projection.ts::seatOf` is, rather than an unchecked cast:
-  // `index` is always `< SEAT_COUNT` in practice (seats.length is capped at `MAX_SEAT_ROWS` —
-  // see the "add seat" button below), but nothing here relies on that by assertion alone.
-  const seatNumber = index < SEAT_COUNT ? ((index + 1) as SeatNumber) : undefined;
-  const identity = seatNumber === undefined ? undefined : tokenForSeat(seatNumber);
-  const seatLabel = t("setup.seat", { number: index + 1 });
-
-  return (
-    <li className="rounded-2xl bg-panel p-4 text-on-panel shadow-card">
-      <fieldset className="flex flex-col gap-3">
-        <legend className="sr-only">{seatLabel}</legend>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {seatNumber !== undefined && <Token seat={seatNumber} size={TOKEN_PX.inline} />}
-          <div className="flex flex-col">
-            <span className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
-              {seatLabel}
-            </span>
-            {identity !== undefined && (
-              <span className="text-sm font-medium">{t(`token.${identity.icon}`)}</span>
-            )}
-          </div>
-          {canRemove && (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="ms-auto min-h-11 min-w-11 rounded-xl border border-edge px-4 text-sm"
-            >
-              {t("setup.remove_player")}
-              <span className="sr-only"> — {seatLabel}</span>
-            </button>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`${fieldId}-name`} className="text-sm font-medium">
-            {t("setup.player_name")}
-          </label>
-          <input
-            id={`${fieldId}-name`}
-            type="text"
-            autoComplete="off"
-            value={seat.name}
-            onChange={(event) => {
-              onChange({ name: event.target.value });
-            }}
-            className="min-h-11 rounded-xl border border-edge bg-transparent px-3"
-          />
-        </div>
-
-        <Choice
-          name={`${fieldId}-kind`}
-          label={t("setup.player_type")}
-          options={[
-            { value: "human", label: t("setup.human") },
-            { value: "bot", label: t("setup.bot") },
-          ]}
-          value={seat.isBot ? "bot" : "human"}
-          onChange={(value) => {
-            onChange({ isBot: value === "bot" });
-          }}
-        />
-
-        {seat.isBot && (
-          <Picker
-            id={`${fieldId}-level`}
-            label={t("setup.bot_level_label")}
-            value={seat.botLevel}
-            options={BOT_LEVELS.map((level) => ({ value: level, label: t(`bot_level.${level}`) }))}
-            onChange={(value) => {
-              onChange({ botLevel: value as BotLevel });
-            }}
-          />
-        )}
-
-        <Picker
-          id={`${fieldId}-gender`}
-          label={t("setup.pronoun")}
-          value={seat.gender}
-          options={GENDERS.map((gender) => ({ value: gender, label: t(`gender.${gender}`) }))}
-          onChange={(value) => {
-            onChange({ gender: value as Gender });
-          }}
-        />
-      </fieldset>
-    </li>
-  );
-}
-
-interface Option {
-  readonly value: string;
-  readonly label: string;
-  readonly hint?: string;
-}
-
-/**
- * A radio group drawn as chunky cards.
- *
- * Real `<input type="radio">` elements, visually hidden and labelled — so arrow keys move
- * within the group, the label is tied to the input, and the focus ring lands on the card the
- * user can see. A `<div role="radiogroup">` with click handlers would have had to reimplement
- * all three.
+/*
+ * The pieces that used to be under this line are siblings as of MON-747: `SeatCard.tsx` (the seat
+ * row and the model behind it), `SetupFields.tsx` (the radio group and the select they share) and
+ * `RuleDiff.tsx` (what the chosen rule set changes). The move was a move — same bodies, same
+ * docstrings, and an `export` in front of each name this file still calls. It was taken a second
+ * time, against the merged file, so that MON-748's shared identities and MON-743/746's measured
+ * tokens are what travelled rather than the bytes they replaced.
  */
-function Choice({
-  name,
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  readonly name: string;
-  readonly label: string;
-  readonly options: readonly Option[];
-  readonly value: string;
-  readonly onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <fieldset className="flex flex-col gap-2">
-      <legend className="pb-1 text-sm font-medium">{label}</legend>
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => (
-          <label
-            key={option.value}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-edge px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
-          >
-            <input
-              type="radio"
-              name={name}
-              value={option.value}
-              checked={value === option.value}
-              onChange={() => {
-                onChange(option.value);
-              }}
-              className="sr-only"
-            />
-            <span>{option.label}</span>
-            {option.hint !== undefined && (
-              <span dir="ltr" className="text-ink-muted text-xs tabular-nums">
-                {option.hint}
-              </span>
-            )}
-          </label>
-        ))}
-      </div>
-    </fieldset>
-  );
-}
-
-/** A labelled `<select>`, for the choices that are settings rather than the main decision. */
-function Picker({
-  id,
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  readonly id: string;
-  readonly label: string;
-  readonly value: string;
-  readonly options: readonly Option[];
-  readonly onChange: (value: string) => void;
-}): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => {
-          onChange(event.target.value);
-        }}
-        className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-/** What the chosen rule set changes, one row per flag the server marked. */
-function RuleDiff({
-  differences,
-}: {
-  readonly differences: readonly RuleFlagView[];
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  if (differences.length === 0) {
-    return <p className="text-ink-muted text-sm">{t("setup.kids_no_changes")}</p>;
-  }
-  return (
-    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-notice bg-current/5 p-3">
-      <h3 className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
-        {t("setup.kids_changes")}
-      </h3>
-      <ul className="flex flex-col gap-1.5">
-        {differences.map((flag) => (
-          <li key={flag.field} className="flex flex-wrap items-baseline gap-x-2 text-sm">
-            <span className="font-medium">{t(flag.label_key)}</span>
-            <span className="font-semibold">{renderValue(flag.value, t)}</span>
-            {/*
-              "Full rules: N" rather than "was N → now M": an arrow is a direction, and a
-              direction is the one thing that does not survive `dir="rtl"`.
-            */}
-            <span className="text-ink-muted text-xs">
-              {t("ruleset.previous", { value: renderValue(flag.universal_value, t) })}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-type Translate = ReturnType<typeof useTranslation>["t"];
-
-/**
- * One value as text. Presentation only — the classification is the server's `kind` tag.
- *
- * The `switch` is exhaustive over a discriminated union read off `generated.ts`, so a fifth kind
- * added to the contract is a compile error here rather than a blank cell.
- */
-function renderValue(value: RuleValue, t: Translate): string {
-  switch (value.kind) {
-    case "flag":
-      return t(value.on ? "ruleset.value.on" : "ruleset.value.off");
-    case "number":
-      return String(value.value);
-    case "numbers":
-      return value.values.join(", ");
-    case "absent":
-      return t("ruleset.value.none");
-  }
-}
 
 /*
  * `Rejection` used to live here — a focus-target box that rendered `{reason_key, params}`, with a
