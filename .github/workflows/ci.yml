@@ -109,19 +109,19 @@ jobs:
       # is what turns it into a gate that fails the job on a new high/critical advisory.
       #
       # Scoped to `--omit=dev` — the gate guards what ships (the production dependency tree of
-      # the published site), which is clean today (checked 2026-08-07). Dev-tree advisories are
-      # Dependabot's job (added in this same PR, weekly, grouped), because the two open today
-      # are exactly the kind a hard gate cannot fix and should not hide:
+      # the published site), which is clean today (checked 2026-08-08). Dev-tree advisories are
+      # Dependabot's job (weekly, grouped), because the ones open today are exactly the kind a
+      # hard gate cannot fix and should not hide:
       #   - `js-yaml` (GHSA-5p4m-2wfm-xmqj, high, dev): nested inside
       #     `@redocly/openapi-core@1.34.18`, which `openapi-typescript@7.13.0` pins exactly; the
       #     fixed js-yaml is a major (5.x) and `openapi-typescript` is deliberately version-pinned
       #     (see the `contract` job below), so the fix arrives via upstream, not an override.
-      #   - `vitest` (GHSA-5xrq-8626-4rwp, critical, dev): the fix is `vitest@4.1.10`, a major
-      #     bump from `^2.1.8` — filed as its own backlog item rather than forced through as a
-      #     side effect of a CI-hygiene change. The vulnerable surface (the vitest UI server
-      #     listening) never runs in CI (`vitest --run`, no `--ui`).
-      # `brace-expansion` and `fast-uri` (both high) WERE fixed in this same PR via a
-      # lockfile-only `npm audit fix` — no `package.json` range changed.
+      #   - `nanoid` (GHSA-2v37-7h3g-55p8, high, dev): nested inside `stylelint`'s `postcss`, so
+      #     it is a transitive lockfile bump belonging to the Dependabot group, not to a hand edit.
+      # `vitest` (GHSA-5xrq-8626-4rwp, critical, dev) used to be the third entry here; MON-750
+      # took the `vitest@4` major it needed, so it is gone rather than tolerated.
+      # `brace-expansion` and `fast-uri` (both high) were fixed in MON-911 via a lockfile-only
+      # `npm audit fix` — no `package.json` range changed.
       - name: npm audit (production dependency tree)
         run: npm audit --omit=dev --audit-level=high
 

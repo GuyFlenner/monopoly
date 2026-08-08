@@ -70,18 +70,34 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/api/generated.ts", // openapi-typescript output — nothing here is hand-written or tested
       ],
-      // Measured TOTAL at the time this floor landed (`npm run test -- --run --coverage`):
-      // statements 95.4, branches 89.63, functions 90.96, lines 95.4. Each floor below is that
-      // figure rounded down and then given one further point of slack, for the same reason
-      // `pyproject.toml`'s `fail_under = 90` comment gives for its own floor: room for ordinary
-      // branch-coverage noise rather than a gate pinned to today's exact number. Four figures
-      // because v8 reports branches separately from statements, and a coverage regression can hide
-      // in either.
+      // Each floor below is the measured TOTAL (`npm run test -- --run --coverage`) rounded down
+      // and then given one further point of slack, for the same reason `pyproject.toml`'s
+      // `fail_under = 90` comment gives for its own floor: room for ordinary branch-coverage noise
+      // rather than a gate pinned to today's exact number. Four figures because v8 reports branches
+      // separately from statements, and a coverage regression can hide in either.
+      //
+      // MON-750 re-measured them under vitest 4. `@vitest/coverage-v8` 4 remaps V8's raw byte
+      // ranges through the AST (`ast-v8-to-istanbul`, opt-in as `experimentalAstAwareRemapping` in
+      // vitest 3, the only behaviour in 4), so the same tests over the same code report different
+      // figures — the measurement changed, the coverage did not:
+      //
+      //     metric      vitest 2   vitest 4
+      //     statements     95.38      93.69
+      //     branches       89.65      89.40
+      //     functions      91.06      92.41
+      //     lines          95.38      94.10
+      //
+      // Statements and lines were identical under 2 because raw V8 output cannot tell them apart;
+      // 4 counts them separately. Functions rose because 2 charged every module with an uncovered
+      // line 1 — that phantom is gone from the per-file reports here. The floors are re-derived
+      // from the right-hand column by the same round-down-then-one rule, not lowered to fit;
+      // consecutive runs of the unchanged suite land within about a tenth of a point of those
+      // figures, which is the noise the point of slack is there to absorb.
       thresholds: {
-        statements: 94,
+        statements: 92,
         branches: 88,
-        functions: 89,
-        lines: 94,
+        functions: 91,
+        lines: 93,
       },
     },
   },
