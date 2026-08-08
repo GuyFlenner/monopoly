@@ -13,12 +13,12 @@
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { ApiError, NO_RESPONSE } from "@/api";
 import { expectAxeClean } from "@/test/axe";
 
-import { LoadSavedGame } from "./LoadSavedGame";
+import { LoadSavedGame, type LoadSavedGameProps } from "./LoadSavedGame";
 
 /** A save file as the browser hands one over. Contents only have to be JSON. */
 function savedGame(body: unknown = { schema_version: 1, game_id: "g1" }): File {
@@ -131,8 +131,15 @@ describe("LoadSavedGame", () => {
     appeared would pass against two buttons wired to nothing.
   */
   describe("when the game in the save is still being played", () => {
-    /** An `onLoad` that refuses a first attempt with the conflict and accepts any answer to it. */
-    function refusingFirst(): ReturnType<typeof vi.fn> {
+    /**
+     * An `onLoad` that refuses a first attempt with the conflict and accepts any answer to it.
+     *
+     * Typed as a mock *of the prop's own signature* (MON-750): under vitest 2 this said
+     * `ReturnType<typeof vi.fn>`, which asserted nothing about what the mock is called with, and
+     * vitest 4's `vi.fn` — whose bare return type is now `Mock<Procedure | Constructable>`, since a
+     * mock may stand in for a constructor — stopped being assignable to the prop at all.
+     */
+    function refusingFirst(): Mock<LoadSavedGameProps["onLoad"]> {
       return vi.fn((_save: unknown, ifExists?: string) =>
         ifExists === undefined
           ? Promise.reject(new ApiError(409, "error.game_already_exists", { game_id: "g1" }))
