@@ -11,7 +11,7 @@ import {
   toGrey,
 } from "./contrast";
 import { TILE_THEME, TILE_THEME_KEYS } from "./groups";
-import { FOCUS_RING, SURFACES, THEMES, type ThemeName } from "./surfaces";
+import { FOCUS_RING, SURFACES, THEMES, UA_CANVAS, type ThemeName } from "./surfaces";
 import { TOKEN_IDENTITY } from "./tokens";
 
 /**
@@ -26,14 +26,23 @@ import { TOKEN_IDENTITY } from "./tokens";
  * ## Which floor applies where, and why
  *
  * - **Text ≥ 4.5:1.** Labels, prices, rent notes, button text, and the pattern motif — the motif
- *   is drawn in the band's own `onColor`, so it inherits the text floor for free.
- * - **Non-text ≥ 3:1.** The keyline, and the focus ring.
+ *   is drawn in the band's own `onColor`, so it inherits the text floor for free. Secondary text
+ *   too: it is read, so it is text, and "it is only a hint" is not a WCAG exemption (MON-743).
+ * - **Non-text ≥ 3:1.** The keyline, the control edge, and the focus ring.
  * - **The band fill is gated on neither, and that is the finding, not a dodge.** No yellow that
  *   is still yellow reaches 3:1 against a card face light enough to read black text on; the
  *   arithmetic is in `surfaces.ts`. The band's *edge* is therefore carried by the keyline, which
  *   is gated at 3:1 against both the card face and the felt, and the band's fill is gated on the
  *   thing it is actually responsible for: being visible as a region at all, even with hue
  *   removed. That last one is the greyscale-separation test below.
+ *
+ * ## What this file could not see before MON-743
+ *
+ * Every pair here is a pair of *solids*, and that used to be a loophole as well as a discipline:
+ * markup written `text-ink opacity-60` names the solid `ink`, so the gate measured `ink` and passed
+ * while the browser painted a composite at 4.38:1. The quiet tier is now solid tokens, measured
+ * below like everything else, and `unmeasured-colour.test.ts` is the tripwire that stops the
+ * loophole being reopened by the next `opacity-70`.
  */
 
 /** Minimum separation in the 0–255 greyscale channel for a region to read as a region. */
@@ -98,6 +107,84 @@ describe.each([...THEMES])("surfaces — %s theme", (theme: ThemeName) => {
     expect(ratio(surface.hairline, surface.table), "hairline vs table").toBeGreaterThanOrEqual(
       CONTRAST_FLOOR.nonText,
     );
+  });
+
+  // --- The quiet tier (MON-743) ------------------------------------------------------------
+  //
+  // These four assertions are the whole point of the item. Each replaces an `opacity-*` whose
+  // composite was measured *below* its floor while this file reported green, so each names the
+  // surface the markup actually renders on, exactly as the solid pairs above do.
+
+  it("reads secondary text on a card face at ≥ 4.5:1 (inkMuted vs tile)", () => {
+    expect(ratio(surface.inkMuted, surface.tile)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
+  it("reads secondary text on the felt at ≥ 4.5:1 (onTableMuted vs table)", () => {
+    // Was `text-on-table opacity-80` → 3.94:1 in the light theme. The felt's whole budget is
+    // 5.13:1, which is why there is one quiet tier here and not two — see surfaces.ts.
+    expect(ratio(surface.onTableMuted, surface.table)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
+  it("keeps the quiet tier quieter than the full ink it stands in for", () => {
+    // Without this, the cheapest way to pass the two tests above is to set the muted tokens to the
+    // full inks, which would pass the gate and delete the design.
+    expect(ratio(surface.inkMuted, surface.tile), "inkMuted is not quieter than ink").toBeLessThan(
+      ratio(surface.ink, surface.tile),
+    );
+    expect(
+      ratio(surface.onTableMuted, surface.table),
+      "onTableMuted is not quieter than onTable",
+    ).toBeLessThan(ratio(surface.onTable, surface.table));
+  });
+
+  it("draws a control edge at ≥ 3:1 against a card face (edge vs tile)", () => {
+    // Was `border-current/30` → 1.91:1: a rim a sighted adult can find only by knowing it is there,
+    // and the *only* edge on the remove-player button.
+    expect(ratio(surface.edge, surface.tile)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.nonText);
+  });
+
+  it("keeps the control edge softer than the keyline, or it is not a second token", () => {
+    expect(ratio(surface.edge, surface.tile)).toBeLessThan(ratio(surface.hairline, surface.tile));
+  });
+});
+
+/**
+ * The page itself.
+ *
+ * The setup screen — the first screen anybody sees — has no background of its own, so its text and
+ * its control edges sit on the user agent's `Canvas`. That surface is not the theme's to choose,
+ * which is exactly why it has to be measured rather than assumed: a token tuned against `tile` and
+ * rendered on `#ffffff` is a claim nobody checked.
+ */
+describe.each([...THEMES])("the user agent's canvas — %s theme", (theme: ThemeName) => {
+  const surface = SURFACES[theme];
+  const canvas = UA_CANVAS[theme];
+
+  it("reads secondary text on the page at ≥ 4.5:1 (inkMuted vs Canvas)", () => {
+    expect(ratio(surface.inkMuted, canvas)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
+  it("draws a control edge on the page at ≥ 3:1 (edge vs Canvas)", () => {
+    expect(ratio(surface.edge, canvas)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.nonText);
+  });
+});
+
+describe("the dark canvas is a range, not a constant", () => {
+  // Chrome #121212, Firefox #1c1b22, Safari #1e1e1e — and nothing stops a fourth engine picking
+  // another. Sweeping the range is the same move the focus ring makes, and for the same reason:
+  // a pass against one browser's constant is a pass against one browser.
+  const brightest = relativeLuminance(UA_CANVAS.dark);
+
+  it.each([
+    ["inkMuted", SURFACES.dark.inkMuted, CONTRAST_FLOOR.text],
+    ["onTableMuted", SURFACES.dark.onTableMuted, CONTRAST_FLOOR.text],
+    ["edge", SURFACES.dark.edge, CONTRAST_FLOOR.nonText],
+  ])("%s clears its floor on every dark canvas up to Safari's", (_name, color, floor) => {
+    for (let step = 0; step <= 255; step += 1) {
+      const grey = `#${step.toString(16).padStart(2, "0").repeat(3)}`;
+      if (relativeLuminance(grey) > brightest) break;
+      expect(ratio(color, grey), `grey ${grey}`).toBeGreaterThanOrEqual(floor);
+    }
   });
 });
 
@@ -211,6 +298,21 @@ describe("the measured table", () => {
         `  onTable    vs table  ${ratio(surface.onTable, surface.table).toFixed(2)}  (text ≥ 4.5)`,
       );
       lines.push(
+        `  inkMuted   vs tile   ${ratio(surface.inkMuted, surface.tile).toFixed(2)}  (text ≥ 4.5)`,
+      );
+      lines.push(
+        `  inkMuted   vs canvas ${ratio(surface.inkMuted, UA_CANVAS[theme]).toFixed(2)}  (text ≥ 4.5)`,
+      );
+      lines.push(
+        `  onTblMuted vs table  ${ratio(surface.onTableMuted, surface.table).toFixed(2)}  (text ≥ 4.5)`,
+      );
+      lines.push(
+        `  edge       vs tile   ${ratio(surface.edge, surface.tile).toFixed(2)}  (non-text ≥ 3)`,
+      );
+      lines.push(
+        `  edge       vs canvas ${ratio(surface.edge, UA_CANVAS[theme]).toFixed(2)}  (non-text ≥ 3)`,
+      );
+      lines.push(
         `  hairline   vs tile   ${ratio(surface.hairline, surface.tile).toFixed(2)}  (non-text ≥ 3)`,
       );
       lines.push(
@@ -255,6 +357,9 @@ describe("the measured table", () => {
     // thing the table is for: nothing measurable is silently missing from it.
     for (const theme of THEMES) {
       expect(report, `${theme} is not in the table`).toContain(`[${theme}]`);
+    }
+    for (const row of ["inkMuted   vs tile", "onTblMuted vs table", "edge       vs tile"]) {
+      expect(report, `${row} is not in the table`).toContain(row);
     }
     for (const key of TILE_THEME_KEYS) {
       expect(report, `band ${key} is not in the table`).toContain(`band ${key.padEnd(11)}`);

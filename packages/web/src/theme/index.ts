@@ -82,6 +82,7 @@ export {
   SURFACES,
   TARGET_CSS_VAR,
   THEMES,
+  UA_CANVAS,
   type Surfaces,
   type ThemeName,
 } from "./surfaces";

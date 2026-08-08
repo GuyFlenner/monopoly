@@ -268,7 +268,7 @@ export function AuctionPanel({
             : t("auction.your_turn_to_bid", { name: playerName(bidder) })}
         </h3>
 
-        <p className="mt-1 text-sm opacity-80">
+        <p className="text-ink-muted mt-1 text-sm">
           {t("auction.floor", { amount: frame.min_bid })}
           {ceiling !== null && ` · ${t("auction.ceiling", { amount: ceiling })}`}
         </p>
@@ -375,12 +375,20 @@ function BidderRail({
           const isTurn = frame.turn === id;
           const isHighBidder = highBidder === id;
           return (
+            /*
+              A withdrawn bidder used to be the whole row at `opacity-55`, which composited to
+              2.70:1 on the light felt — the row a player most needs to *read* was the least legible
+              thing in the panel (MON-743). It is quiet in the one channel that can stay legible, and
+              the state itself is carried by the strike-through and the cross glyph below. The seat
+              token is deliberately no longer dimmed with it: recognising who dropped out is the
+              point of the row.
+            */
             <li
               key={id}
               data-bidder={id}
               className={`flex min-w-32 grow items-center gap-2 rounded-xl border-2 p-2 ${
                 isTurn ? "border-on-table bg-on-table/15" : "border-transparent"
-              } ${isWithdrawn ? "opacity-55" : ""}`}
+              } ${isWithdrawn ? "text-on-table-muted" : ""}`}
             >
               {seat !== undefined && <Token seat={seat} size={TOKEN_PX.panel} isCurrent={isTurn} />}
               <div className="min-w-0 grow">
@@ -445,7 +453,7 @@ function CashMeter({
           style={{ inlineSize: `${String(pct)}%` }}
         />
       </div>
-      <p className="mt-1 text-sm tabular-nums opacity-80">
+      <p className="text-ink-muted mt-1 text-sm tabular-nums">
         {t("auction.share_of_cash", { percent: pct, cash })}
       </p>
     </div>

@@ -32,6 +32,20 @@
   --color-ink: #1f1b16; /* ink for text on a card face */
   --color-hairline: #1c1712; /* the keyline drawn around every painted area */
 
+  /* The quiet tier (MON-743).
+   *
+   * A secondary label used to be written `text-ink opacity-60`, which is not a colour: it is a
+   * colour *and a compositing step*, and the compositing step happens in the browser where no test
+   * can see it. The measured result was 4.38:1 on a card face and 2.70:1 on the felt — under the
+   * floor the gate exists to hold, while the gate itself read green because it was measuring the
+   * solid `ink` the markup names rather than the pixels the markup produces.
+   *
+   * So the quiet tier is a solid colour with a name, and `contrast.test.ts` measures it against the
+   * surface it is used on, in both themes, like everything else here. */
+  --color-ink-muted: #6c6861; /* secondary text on a card face */
+  --color-on-table-muted: #e3eee6; /* secondary text on the felt */
+  --color-edge: #918d85; /* a control's own edge: input rims, ghost buttons */
+
   /* The building fills are deliberately *not* here. MON-703 rescued them out of `board.css` into
    * this file so that something could measure them at last; MON-710 then replaced the two coloured
    * blocks with silhouettes and moved the fills to `theme/buildings.css`, where they vary by theme
@@ -55,6 +69,12 @@
     --color-on-table: #e8f2ea;
     --color-tile: #332d26;
     --color-ink: #f6efe2;
+    --color-ink-muted: #b2aba0;
+    /* The dark felt is nearly black, so it has 13.65:1 of headroom for a quiet ink where the light
+     * felt has 5.13:1 in total. See the ladder in surfaces.ts: one quiet tier is all the light felt
+     * can carry, and that is a measurement rather than a preference. */
+    --color-on-table-muted: #a7b5ac;
+    --color-edge: #7d776d;
     /* The keyline inverts: on a dark card, a near-black rim draws nothing. */
     --color-hairline: #b3a692;
   }

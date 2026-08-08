@@ -25,6 +25,28 @@
  * the band from the *surface*, and an edge is visible as long as one of the two regions it
  * divides contrasts with it.
  *
+ * ## The quiet tier is a colour, not an opacity (MON-743)
+ *
+ * `onTableMuted`, `inkMuted` and `edge` exist because the thing they replace — `text-ink
+ * opacity-60` — is not a colour at all. It is a colour plus a compositing step, and the compositing
+ * step happens in the browser, where the gate cannot follow it. Measured against the shipped
+ * palette, the composites were `onTable@0.8` on the felt = 3.94:1, `ink@0.6` on a card = 4.38:1,
+ * `onTable@0.55` = 2.70:1 and `border-current/30` = 1.91:1 — all under their floors, while
+ * `contrast.test.ts` reported green because it was measuring the solid `ink` the markup *names*.
+ * A named solid can be measured; an alpha cannot, so the tier is named solids.
+ *
+ * ## Why there is one quiet tier on the felt and not two
+ *
+ * The obvious design has `muted` and a fainter `faint` below it. The felt cannot carry it. Full
+ * `onTable` on the light felt measures **5.13:1** — that is the whole budget, and 4.5:1 of it is
+ * spent before any quieting begins, so every legible quiet ink on the light felt lands in a band
+ * about a tenth of a ratio point wide. (The dark felt has 13.65:1 and would separate two tiers
+ * comfortably; a token that is two tiers in one theme and one in the other is a token that means
+ * different things in different themes.) So there is one `onTableMuted`, and the auction's
+ * withdrawn bidder — the one place that wanted a fainter third tier — carries its state on the
+ * channels that survive the measurement instead: a strike-through, a cross glyph and the seat
+ * token, which now stays at full strength and is easier to recognise than it was under the dim.
+ *
  * ## The focus ring is a sandwich, and provably sufficient
  *
  * §5.5 asks for a focus ring "contrast-tested against every surface it can sit on". No single
@@ -49,10 +71,22 @@ export interface Surfaces {
   readonly table: string;
   /** Ink for text placed directly on the felt. */
   readonly onTable: string;
+  /** The quiet tier on the felt. Text, so it is gated at 4.5:1 against `table`. */
+  readonly onTableMuted: string;
   /** A card face: tiles, dossiers, panels, buttons. The default reference surface. */
   readonly tile: string;
   /** Ink for text placed on a card face. */
   readonly ink: string;
+  /** The quiet tier on a card face. Text, so it is gated at 4.5:1 against `tile`. */
+  readonly inkMuted: string;
+  /**
+   * A control's own edge — an input rim, a ghost button's outline.
+   *
+   * Non-text, so 3:1. Distinct from `hairline`, which is the near-black keyline a *painted* area is
+   * rimmed with; an edge drawn at keyline strength around every text input turns a form into a
+   * grid. This is the softest line that still measures.
+   */
+  readonly edge: string;
   /** The keyline. See the module docstring. */
   readonly hairline: string;
 }
@@ -61,17 +95,41 @@ export const SURFACES: Readonly<Record<ThemeName, Surfaces>> = {
   light: {
     table: "#33754f",
     onTable: "#f2f8f3",
+    onTableMuted: "#e3eee6",
     tile: "#fbf6ec",
     ink: "#1f1b16",
+    inkMuted: "#6c6861",
+    edge: "#918d85",
     hairline: "#1c1712",
   },
   dark: {
     table: "#10281c",
     onTable: "#e8f2ea",
+    onTableMuted: "#a7b5ac",
     tile: "#332d26",
     ink: "#f6efe2",
+    inkMuted: "#b2aba0",
+    edge: "#7d776d",
     hairline: "#b3a692",
   },
+};
+
+/**
+ * The browser's own page background, which the theme does not own but must survive.
+ *
+ * `:root { color-scheme: light dark }` and no `background-color` anywhere means the setup screen —
+ * the first screen anybody sees — sits on the user agent's `Canvas`, not on `tile`. Naming it here
+ * is the same discipline as naming every other reference surface: a ratio quoted against "the page"
+ * is a ratio quoted against nothing.
+ *
+ * Light is exactly `#ffffff` in every engine. Dark is not standardised: Chrome ships `#121212`,
+ * Firefox `#1c1b22`, Safari `#1e1e1e`. The value below is the *lightest* of the three, which is the
+ * worst case for the light inks that sit on it, and `contrast.test.ts` additionally sweeps the whole
+ * range from black up to it rather than trusting one browser's constant.
+ */
+export const UA_CANVAS: Readonly<Record<ThemeName, string>> = {
+  light: "#ffffff",
+  dark: "#1e1e1e",
 };
 
 /** Both rings, in both themes. Theme-invariant by design — see the module docstring's proof. */
@@ -84,8 +142,11 @@ export const FOCUS_RING = {
 export const SURFACE_CSS_VAR: Readonly<Record<keyof Surfaces, string>> = {
   table: "--color-table",
   onTable: "--color-on-table",
+  onTableMuted: "--color-on-table-muted",
   tile: "--color-tile",
   ink: "--color-ink",
+  inkMuted: "--color-ink-muted",
+  edge: "--color-edge",
   hairline: "--color-hairline",
 };
 
