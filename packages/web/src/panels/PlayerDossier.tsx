@@ -569,7 +569,7 @@ export function PlayerDossier({
       className={[
         "bg-tile text-ink border-hairline flex min-w-0 flex-col rounded-2xl border",
         compact ? "gap-2 p-2" : "gap-3 p-3",
-        "shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]",
+        "shadow-card",
         isCurrent ? "ring-2 ring-current/30" : "",
         player.bankrupt ? "opacity-70 saturate-50" : "",
       ]

@@ -77,6 +77,17 @@ export interface Surfaces {
   readonly tile: string;
   /** Ink for text placed on a card face. */
   readonly ink: string;
+  /**
+   * The raised panel — setup fieldsets, seat rows, the event log (MON-746).
+   *
+   * A second card face, cooler than `tile` in the dark theme and identical to it in the light one,
+   * which is where it came from: `bg-tile dark:bg-[oklch(27%_0.02_255)]`, an arbitrary literal
+   * repeated in three components and visible to no test. A surface is a surface, so it is named
+   * and the inks that sit on it are measured against it.
+   */
+  readonly panel: string;
+  /** Ink for text placed on a raised panel. */
+  readonly onPanel: string;
   /** The quiet tier on a card face. Text, so it is gated at 4.5:1 against `tile`. */
   readonly inkMuted: string;
   /**
@@ -98,6 +109,8 @@ export const SURFACES: Readonly<Record<ThemeName, Surfaces>> = {
     onTableMuted: "#e3eee6",
     tile: "#fbf6ec",
     ink: "#1f1b16",
+    panel: "#fbf6ec",
+    onPanel: "#1f1b16",
     inkMuted: "#6c6861",
     edge: "#918d85",
     hairline: "#1c1712",
@@ -108,10 +121,61 @@ export const SURFACES: Readonly<Record<ThemeName, Surfaces>> = {
     onTableMuted: "#a7b5ac",
     tile: "#332d26",
     ink: "#f6efe2",
+    panel: "#202730",
+    onPanel: "#f0eee9",
     inkMuted: "#b2aba0",
     edge: "#7d776d",
     hairline: "#b3a692",
   },
+};
+
+/**
+ * The one filled button the theme paints itself: "start the game" (MON-746).
+ *
+ * It shipped as `bg-[oklch(45%_0.09_155)] text-[oklch(98%_0.01_95)]` with a matching arbitrary
+ * shadow — a colour nothing could measure, on the first screen anybody sees. The values below are
+ * those three literals converted to `#rrggbb` unchanged, so the button looks exactly as it did and
+ * `contrast.test.ts` can now say so: `ink` on `fill` measures 6.66:1.
+ *
+ * Theme-invariant, as it always was. That costs it an edge in the dark, where the fill reaches only
+ * 2.65:1 against the user agent's canvas — so the button gains the same `hairline` rim every other
+ * painted area in this theme carries, and the rim rather than the fill is what makes it a shape.
+ * See the keyline argument in this file's header: an edge is visible as long as one of the two
+ * regions it divides contrasts with it, and the rim clears the page in both themes.
+ */
+export const CTA = {
+  fill: "#23643f",
+  ink: "#faf8f1",
+  /** The 3px lip under the button. Decorative depth, gated on nothing — it is not an edge. */
+  shadow: "#05381e",
+} as const;
+
+/**
+ * The three edge accents, and why they are not the colours they used to be.
+ *
+ * `oklch(70% 0.18 250)` (a focus edge), `oklch(72% 0.14 70)` ("what changed") and
+ * `oklch(58% 0.19 25)` ("what went wrong") were written out longhand in five components. Measured
+ * for the first time here, the blue reached **2.53:1** and the amber **2.36:1** against a light
+ * card, and the red **2.88:1** against a dark one — under the 3:1 that anything a player must see
+ * is gated on, and each of the three is somebody's only cue that a control has focus or that a
+ * message is a refusal.
+ *
+ * Each value below is the *same hue and chroma* at the lightness that clears the floor, per theme.
+ * Nothing was re-picked; the light theme's accents darken and the dark theme's red lightens, by
+ * about a twentieth of a unit of L each.
+ */
+export interface Accents {
+  /** The focus edge drawn by a control that wraps its own `sr-only` input. */
+  readonly accent: string;
+  /** The rule-set diff's edge: here is what this rule set changes. */
+  readonly notice: string;
+  /** A refusal's edge. */
+  readonly alert: string;
+}
+
+export const ACCENTS: Readonly<Record<ThemeName, Accents>> = {
+  light: { accent: "#0a91f5", notice: "#c47d04", alert: "#d33a3c" },
+  dark: { accent: "#2ca2ff", notice: "#dc932e", alert: "#d94040" },
 };
 
 /**
@@ -145,6 +209,8 @@ export const SURFACE_CSS_VAR: Readonly<Record<keyof Surfaces, string>> = {
   onTableMuted: "--color-on-table-muted",
   tile: "--color-tile",
   ink: "--color-ink",
+  panel: "--color-panel",
+  onPanel: "--color-on-panel",
   inkMuted: "--color-ink-muted",
   edge: "--color-edge",
   hairline: "--color-hairline",
@@ -154,6 +220,27 @@ export const FOCUS_CSS_VAR: Readonly<Record<keyof typeof FOCUS_RING, string>> = 
   inner: "--color-focus-inner",
   outer: "--color-focus-outer",
 };
+
+export const CTA_CSS_VAR: Readonly<Record<keyof typeof CTA, string>> = {
+  fill: "--color-cta",
+  ink: "--color-on-cta",
+  shadow: "--color-cta-shadow",
+};
+
+export const ACCENT_CSS_VAR: Readonly<Record<keyof Accents, string>> = {
+  accent: "--color-accent",
+  notice: "--color-notice",
+  alert: "--color-alert",
+};
+
+/**
+ * The shadows that used to be a forty-character arbitrary value copied into five components.
+ *
+ * Not colours, so they are not drift-checked value-for-value the way `SURFACE_CSS_VAR` is — but
+ * they are the last place an `oklch()` was hiding, so `surfaces.test.ts` holds `index.css` to
+ * declaring all three, and `unmeasured-colour.test.ts` holds the components to using them.
+ */
+export const SHADOW_CSS_VAR = ["--shadow-card", "--shadow-lifted", "--shadow-cta"] as const;
 
 /** Minimum hit target, in CSS pixels. Mirrored by the `.target` utility in `index.css`. */
 export const MIN_TARGET_PX = 44;

@@ -255,7 +255,7 @@ export function ErrorState({
       ref={(node) => {
         node?.focus();
       }}
-      className={`flex flex-col items-start gap-2 rounded-xl border-s-4 border-[oklch(58%_0.19_25)] bg-[oklch(58%_0.19_25)]/10 p-3 text-start ${className}`}
+      className={`flex flex-col items-start gap-2 rounded-xl border-s-4 border-alert bg-alert/10 p-3 text-start ${className}`}
     >
       <strong className="text-sm">{t(headingKey)}</strong>
       <p className="text-sm">{reasonText(error)}</p>

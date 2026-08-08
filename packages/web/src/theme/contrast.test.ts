@@ -11,7 +11,16 @@ import {
   toGrey,
 } from "./contrast";
 import { TILE_THEME, TILE_THEME_KEYS } from "./groups";
-import { FOCUS_RING, SURFACES, THEMES, UA_CANVAS, type ThemeName } from "./surfaces";
+import {
+  ACCENTS,
+  CTA,
+  FOCUS_RING,
+  SURFACES,
+  THEMES,
+  UA_CANVAS,
+  type Accents,
+  type ThemeName,
+} from "./surfaces";
 import { TOKEN_IDENTITY } from "./tokens";
 
 /**
@@ -119,6 +128,13 @@ describe.each([...THEMES])("surfaces — %s theme", (theme: ThemeName) => {
     expect(ratio(surface.inkMuted, surface.tile)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
   });
 
+  it("reads secondary text on a raised panel at ≥ 4.5:1 (inkMuted vs panel)", () => {
+    // `panel` is the second card face MON-746 rescued out of a className. One quiet ink serves both
+    // faces, so it is measured against both — a token that passed on `tile` and was rendered on
+    // `panel` would be the same unverified claim in a new place.
+    expect(ratio(surface.inkMuted, surface.panel)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
   it("reads secondary text on the felt at ≥ 4.5:1 (onTableMuted vs table)", () => {
     // Was `text-on-table opacity-80` → 3.94:1 in the light theme. The felt's whole budget is
     // 5.13:1, which is why there is one quiet tier here and not two — see surfaces.ts.
@@ -145,6 +161,53 @@ describe.each([...THEMES])("surfaces — %s theme", (theme: ThemeName) => {
 
   it("keeps the control edge softer than the keyline, or it is not a second token", () => {
     expect(ratio(surface.edge, surface.tile)).toBeLessThan(ratio(surface.hairline, surface.tile));
+  });
+
+  // --- The raised panel, and the accents that edge it (MON-746) -----------------------------
+
+  it("reads text on a raised panel at ≥ 4.5:1 (onPanel vs panel)", () => {
+    expect(ratio(surface.onPanel, surface.panel)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
+  it("draws the keyline and the control edge on a panel too", () => {
+    // Everything rimmed on a card face is also rimmed on a panel — the setup screen's inputs and
+    // its remove-player button live on one.
+    expect(ratio(surface.hairline, surface.panel), "hairline vs panel").toBeGreaterThanOrEqual(
+      CONTRAST_FLOOR.nonText,
+    );
+    expect(ratio(surface.edge, surface.panel), "edge vs panel").toBeGreaterThanOrEqual(
+      CONTRAST_FLOOR.nonText,
+    );
+  });
+
+  it.each(["accent", "notice", "alert"] as const)(
+    "draws the %s edge at ≥ 3:1 on both card faces",
+    (slot: keyof Accents) => {
+      // As shipped these were 2.53:1, 2.36:1 and 2.88:1 — each of them somebody's only cue that a
+      // control has focus or that a message is a refusal.
+      const color = ACCENTS[theme][slot];
+      expect(ratio(color, surface.tile), `${slot} vs tile`).toBeGreaterThanOrEqual(
+        CONTRAST_FLOOR.nonText,
+      );
+      expect(ratio(color, surface.panel), `${slot} vs panel`).toBeGreaterThanOrEqual(
+        CONTRAST_FLOOR.nonText,
+      );
+    },
+  );
+});
+
+describe("the start button", () => {
+  it("reads its own label at ≥ 4.5:1 (CTA.ink vs CTA.fill)", () => {
+    expect(ratio(CTA.ink, CTA.fill)).toBeGreaterThanOrEqual(CONTRAST_FLOOR.text);
+  });
+
+  it.each([...THEMES])("is rimmed by a keyline that clears the %s page", (theme: ThemeName) => {
+    // The fill cannot carry the button's edge in the dark (2.65:1 against the canvas), which is why
+    // it is rimmed. This asserts the thing that makes the rim work: the keyline contrasts with the
+    // *page*, so the boundary between page and button is visible whatever the fill does.
+    expect(ratio(SURFACES[theme].hairline, UA_CANVAS[theme])).toBeGreaterThanOrEqual(
+      CONTRAST_FLOOR.nonText,
+    );
   });
 });
 
@@ -251,10 +314,13 @@ function everySurfaceTheRingCanSitOn(): ReadonlyArray<readonly [string, string]>
   for (const theme of THEMES) {
     entries.push([`${theme}:tile`, SURFACES[theme].tile]);
     entries.push([`${theme}:table`, SURFACES[theme].table]);
+    entries.push([`${theme}:panel`, SURFACES[theme].panel]);
+    entries.push([`${theme}:canvas`, UA_CANVAS[theme]]);
     for (const tone of ["primary", "neutral", "caution", "danger"] as const) {
       entries.push([`${theme}:button.${tone}`, ACTION_TONE[theme][tone].fill]);
     }
   }
+  entries.push(["cta", CTA.fill]);
   for (const key of TILE_THEME_KEYS) {
     entries.push([`band:${key}`, TILE_THEME[key].color]);
   }
@@ -307,6 +373,12 @@ describe("the measured table", () => {
         `  onTblMuted vs table  ${ratio(surface.onTableMuted, surface.table).toFixed(2)}  (text ≥ 4.5)`,
       );
       lines.push(
+        `  onPanel    vs panel  ${ratio(surface.onPanel, surface.panel).toFixed(2)}  (text ≥ 4.5)`,
+      );
+      lines.push(
+        `  inkMuted   vs panel  ${ratio(surface.inkMuted, surface.panel).toFixed(2)}  (text ≥ 4.5)`,
+      );
+      lines.push(
         `  edge       vs tile   ${ratio(surface.edge, surface.tile).toFixed(2)}  (non-text ≥ 3)`,
       );
       lines.push(
@@ -349,7 +421,17 @@ describe("the measured table", () => {
             `  grey Δface ${String(greyDistance(fill, buildingReferenceSurface(theme))).padStart(3)}`,
         );
       }
+      for (const slot of ["accent", "notice", "alert"] as const) {
+        const color = ACCENTS[theme][slot];
+        lines.push(
+          `  edge ${slot.padEnd(8)} ${color} vs tile ${ratio(color, surface.tile).toFixed(2).padStart(5)}` +
+            `  vs panel ${ratio(color, surface.panel).toFixed(2).padStart(5)} (non-text ≥ 3)`,
+        );
+      }
     }
+    lines.push(
+      `\n[both] cta ${CTA.fill} label ${CTA.ink}  ink/fill ${ratio(CTA.ink, CTA.fill).toFixed(2)}  (text ≥ 4.5)`,
+    );
     const report = lines.join("\n");
     console.info(report);
 
@@ -358,9 +440,18 @@ describe("the measured table", () => {
     for (const theme of THEMES) {
       expect(report, `${theme} is not in the table`).toContain(`[${theme}]`);
     }
-    for (const row of ["inkMuted   vs tile", "onTblMuted vs table", "edge       vs tile"]) {
+    for (const row of [
+      "inkMuted   vs tile",
+      "onTblMuted vs table",
+      "edge       vs tile",
+      "onPanel    vs panel",
+    ]) {
       expect(report, `${row} is not in the table`).toContain(row);
     }
+    for (const slot of ["accent", "notice", "alert"] as const) {
+      expect(report, `edge ${slot} is not in the table`).toContain(`edge ${slot.padEnd(8)}`);
+    }
+    expect(report, "the start button is not in the table").toContain(`cta ${CTA.fill}`);
     for (const key of TILE_THEME_KEYS) {
       expect(report, `band ${key} is not in the table`).toContain(`band ${key.padEnd(11)}`);
     }

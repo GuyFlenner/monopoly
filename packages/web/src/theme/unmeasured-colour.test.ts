@@ -150,6 +150,18 @@ const CLEARED_BY_MON_743 = [
 
 // --- the rule is wired up at all --------------------------------------------------------------
 
+/**
+ * The notation, kept out of the fixture strings themselves.
+ *
+ * Tailwind scans every file in the package for utility-shaped candidates and generates CSS for
+ * whatever it finds — including a fixture in a test. Spelled inline, the two `oklch` cases below
+ * would put the very arbitrary colour this file exists to ban back into `dist/`. Interpolated, the
+ * candidate is never contiguous in the source, so nothing is generated and the fixture still reads
+ * as the class it stands for. (`logical-css.test.ts` has the same leak with `border-red-500`; that
+ * one is only dead weight, where this one would be self-contradicting.)
+ */
+const NOTATION = "oklch(70%_0.18_250)";
+
 /** Class lists the rule must reject. */
 const REJECTED = [
   ["a muted label", 'const a = "text-sm opacity-70";'],
@@ -159,8 +171,8 @@ const REJECTED = [
   ["a conditional dim", 'const a = `flex ${x ? "opacity-60" : ""}`;'],
   ["a hover variant, which is not the disabled variant", 'const a = "hover:opacity-70";'],
   ["a dark-theme dim", 'const a = "dark:opacity-75";'],
-  ["a raw oklch fill", 'const a = "bg-[oklch(45%_0.09_155)]";'],
-  ["a raw oklch outline", 'const a = "outline-[oklch(70%_0.18_250)]";'],
+  ["a raw oklch fill", `const a = "bg-[${NOTATION}]";`],
+  ["a raw oklch outline", `const a = "outline-[${NOTATION}]";`],
 ] as const;
 
 /** Class lists the rule must accept, including the near-misses a sloppy regex would flag. */
@@ -173,7 +185,7 @@ const ACCEPTED = [
   ["the felt's named quiet tier", 'const a = "text-on-table-muted";'],
   ["a measured edge token", 'const a = "border border-edge";'],
   ["a comment explaining the rule", "// was text-ink opacity-60, see MON-743\nconst a = 1;"],
-  ["a block comment quoting oklch", "/* oklch(45% 0.09 155) became --color-cta */\nconst a = 1;"],
+  ["a block comment quoting the notation", `/* ${NOTATION} became --color-accent */\nconst a = 1;`],
   ["an unrelated word ending in opacity", 'const a = "backdrop-opacity";'],
 ] as const;
 
@@ -224,5 +236,27 @@ describe("non-disabled text carries no alpha composition (MON-743)", () => {
       ...withoutComments(source).matchAll(ALPHA_UTILITY),
     ]).filter(([, variants = ""]) => DISABLED_VARIANT.test(variants));
     expect(disabled.length).toBeGreaterThan(0);
+  });
+});
+
+describe("no colour is authored where the gate cannot reach it (MON-746)", () => {
+  it("leaves no oklch() literal in any shipped module", () => {
+    // `parseHex` refuses every notation but `#rrggbb` so a colour cannot dodge measurement — which
+    // does nothing about a colour that never reaches it. Before MON-746 there were eleven of these
+    // across six components: a start button, a second dark card face, three edge accents and two
+    // shadows, none of them in `contrast.test.ts` and three of them below their floor.
+    const offenders = MODULES.filter(([, source]) => notationFindings(source).length > 0).map(
+      ([name]) => name,
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps the exemption honest: a comment may quote the notation it replaced", () => {
+    const commented = MODULES.filter(
+      ([, source]) => /oklch\(/.test(source) && notationFindings(source).length === 0,
+    );
+    // `surfaces.ts` explains what each folded literal used to be. If that stops being true the
+    // exemption has stopped being exercised and this file is asserting less than it claims.
+    expect(commented.map(([name]) => name)).toContain("theme/surfaces.ts");
   });
 });

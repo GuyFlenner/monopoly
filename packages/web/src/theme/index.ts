@@ -72,17 +72,23 @@ export {
 } from "./patterns";
 
 export {
+  ACCENT_CSS_VAR,
+  ACCENTS,
   COMFORT_ATTRIBUTE,
+  CTA,
+  CTA_CSS_VAR,
   FOCUS_CSS_VAR,
   FOCUS_RING,
   KIDS_COMFORT,
   KIDS_TARGET_PX,
   MIN_TARGET_PX,
+  SHADOW_CSS_VAR,
   SURFACE_CSS_VAR,
   SURFACES,
   TARGET_CSS_VAR,
   THEMES,
   UA_CANVAS,
+  type Accents,
   type Surfaces,
   type ThemeName,
 } from "./surfaces";

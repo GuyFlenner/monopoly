@@ -428,7 +428,7 @@ export function SetupScreen({
         </fieldset>
 
         {/* --- The table --- */}
-        <fieldset className="flex flex-col gap-5 rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
+        <fieldset className="flex flex-col gap-5 rounded-2xl bg-panel p-4 text-on-panel shadow-card">
           <legend className="text-ink-muted px-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {t("setup.table")}
           </legend>
@@ -590,7 +590,7 @@ export function SetupScreen({
             cheaper than removing it and much cheaper than explaining it in the main flow.
           */}
           <details className="group flex flex-col gap-1">
-            <summary className="target text-ink-muted hover:text-ink -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium">
+            <summary className="target text-ink-muted hover:text-on-panel -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium">
               <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
               <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
               {t("setup.advanced")}
@@ -622,10 +622,16 @@ export function SetupScreen({
 
         {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
 
+        {/*
+          The one button the theme paints itself, and until MON-746 the one colour nothing could
+          measure: `bg-[oklch(45%_0.09_155)]` on the first screen anybody sees. Same green, named —
+          and now rimmed with the keyline like every other painted area here, because the fill alone
+          reaches 2.65:1 against a dark page and an edge is not something a button may be missing.
+        */}
         <button
           type="submit"
           disabled={!canSubmit}
-          className="min-h-14 rounded-2xl bg-[oklch(45%_0.09_155)] px-6 text-lg font-bold text-[oklch(98%_0.01_95)] shadow-[0_3px_0_0_oklch(30%_0.07_155)] disabled:opacity-50 disabled:shadow-none"
+          className="border-hairline bg-cta text-on-cta shadow-cta min-h-14 rounded-2xl border px-6 text-lg font-bold disabled:opacity-50 disabled:shadow-none"
         >
           {isSubmitting ? t("setup.starting") : t("setup.start")}
         </button>
@@ -663,7 +669,7 @@ function SeatCard({
   const seatLabel = t("setup.seat", { number: index + 1 });
 
   return (
-    <li className="rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
+    <li className="rounded-2xl bg-panel p-4 text-on-panel shadow-card">
       <fieldset className="flex flex-col gap-3">
         <legend className="sr-only">{seatLabel}</legend>
 
@@ -799,7 +805,7 @@ function Choice({
         {options.map((option) => (
           <label
             key={option.value}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-edge px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-[oklch(70%_0.18_250)]"
+            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-edge px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
           >
             <input
               type="radio"
@@ -872,7 +878,7 @@ function RuleDiff({
     return <p className="text-ink-muted text-sm">{t("setup.kids_no_changes")}</p>;
   }
   return (
-    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-[oklch(72%_0.14_70)] bg-current/5 p-3">
+    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-notice bg-current/5 p-3">
       <h3 className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
         {t("setup.kids_changes")}
       </h3>

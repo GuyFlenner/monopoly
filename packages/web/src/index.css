@@ -46,6 +46,40 @@
   --color-on-table-muted: #e3eee6; /* secondary text on the felt */
   --color-edge: #918d85; /* a control's own edge: input rims, ghost buttons */
 
+  /* The raised panel, and the second dark card that used to hide inside a className (MON-746).
+   *
+   * The setup screen's fieldsets, its seat rows and the event log all shipped
+   * `bg-tile dark:bg-[oklch(27%_0.02_255)]` — a *second* dark card face, cooler than `tile`, that
+   * existed only as an arbitrary literal in three components and was therefore invisible to
+   * `contrast.test.ts` and to anybody reading this file. It is a surface, so it is named like one,
+   * and every ink that sits on it is now measured against it. Light is `tile`'s own value, because
+   * the override only ever applied in the dark. */
+  --color-panel: #fbf6ec;
+  --color-on-panel: #1f1b16;
+
+  /* Start the game. Theme-invariant, and rimmed with the keyline like every other painted area —
+   * on a dark page the fill alone reaches only 2.65:1 against the canvas, so the edge has to be
+   * carried by the rim rather than by the fill, exactly as the colour bands' edges are. */
+  --color-cta: #23643f;
+  --color-on-cta: #faf8f1;
+  --color-cta-shadow: #05381e;
+
+  /* Three edge accents, previously `oklch(70% 0.18 250)`, `oklch(72% 0.14 70)` and
+   * `oklch(58% 0.19 25)` spelled out in five components. Measuring them was the point: as shipped,
+   * the blue reached 2.53:1 and the amber 2.36:1 on a light card, and the red 2.88:1 on a dark
+   * one — all under the 3:1 an edge a player must *see* is gated on. Each is the same hue at the
+   * lightness that clears the floor. */
+  --color-accent: #0a91f5; /* the focus edge on a control that wraps its own input */
+  --color-notice: #c47d04; /* "here is what changed" */
+  --color-alert: #d33a3c; /* "here is what went wrong" */
+
+  /* The two card shadows, which were the same forty-character arbitrary value copied into five
+   * components. Authored as `rgb()` rather than `oklch()` for the reason at the top of this file:
+   * one notation, no conversion step to be subtly wrong in. */
+  --shadow-card: 0 2px 0 0 rgb(0 0 0 / 0.1), 0 10px 24px -12px rgb(0 0 0 / 0.45);
+  --shadow-lifted: 0 18px 40px -16px rgb(0 0 0 / 0.6);
+  --shadow-cta: 0 3px 0 0 var(--color-cta-shadow);
+
   /* The building fills are deliberately *not* here. MON-703 rescued them out of `board.css` into
    * this file so that something could measure them at last; MON-710 then replaced the two coloured
    * blocks with silhouettes and moved the fills to `theme/buildings.css`, where they vary by theme
@@ -75,6 +109,12 @@
      * can carry, and that is a measurement rather than a preference. */
     --color-on-table-muted: #a7b5ac;
     --color-edge: #7d776d;
+    /* The cool slate the three components used to spell out for themselves. */
+    --color-panel: #202730;
+    --color-on-panel: #f0eee9;
+    --color-accent: #2ca2ff;
+    --color-notice: #dc932e;
+    --color-alert: #d94040;
     /* The keyline inverts: on a dark card, a near-black rim draws nothing. */
     --color-hairline: #b3a692;
   }
