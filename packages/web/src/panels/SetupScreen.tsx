@@ -326,7 +326,7 @@ export function SetupScreen({
           >
             {t("setup.title")}
           </h1>
-          <p className="text-sm opacity-70">{t("app.tagline")}</p>
+          <p className="text-ink-muted text-sm">{t("app.tagline")}</p>
         </header>
 
         {/*
@@ -358,7 +358,7 @@ export function SetupScreen({
               service and produces a link the player then has to send, and both are surprises worth
               having in advance rather than discovering.
             */}
-            <p data-testid="setup-where-note" className="text-xs opacity-70">
+            <p data-testid="setup-where-note" className="text-ink-muted text-xs">
               {transport === "online"
                 ? t("setup.where_elsewhere_note")
                 : t("setup.where_here_note")}
@@ -368,7 +368,7 @@ export function SetupScreen({
 
         {/* --- Seats --- */}
         <fieldset className="flex flex-col gap-3">
-          <legend className="pb-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+          <legend className="text-ink-muted pb-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {t("setup.seats")}
           </legend>
           {/* `data-testid` so the e2e helper can find a seat row without reading a translated label:
@@ -396,7 +396,7 @@ export function SetupScreen({
                 setSeats((current) => [...current, seatDraft(nextSeatId, locale)]);
                 setNextSeatId((current) => current + 1);
               }}
-              className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
+              className="min-h-11 self-start rounded-xl border-2 border-dashed border-edge px-5 text-sm font-semibold"
             >
               + {t("setup.add_player")}
             </button>
@@ -404,8 +404,8 @@ export function SetupScreen({
         </fieldset>
 
         {/* --- The table --- */}
-        <fieldset className="flex flex-col gap-5 rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
-          <legend className="px-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+        <fieldset className="flex flex-col gap-5 rounded-2xl bg-panel p-4 text-on-panel shadow-card">
+          <legend className="text-ink-muted px-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {t("setup.table")}
           </legend>
 
@@ -455,7 +455,7 @@ export function SetupScreen({
           */}
           <fieldset className="flex flex-col gap-2">
             <legend className="pb-1 text-sm font-medium">{t("setup.house_rules")}</legend>
-            <p className="text-xs opacity-70">{t("setup.house_rules_note")}</p>
+            <p className="text-ink-muted text-xs">{t("setup.house_rules_note")}</p>
 
             <Choice
               name={`${formId}-auctions`}
@@ -529,9 +529,9 @@ export function SetupScreen({
                 }
               }}
               aria-describedby={`${formId}-card-seconds-hint`}
-              className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+              className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3 tabular-nums"
             />
-            <p id={`${formId}-card-seconds-hint`} className="text-xs opacity-70">
+            <p id={`${formId}-card-seconds-hint`} className="text-ink-muted text-xs">
               {t("setup.card_seconds_hint", {
                 min: MIN_CARD_SECONDS,
                 max: MAX_CARD_SECONDS,
@@ -566,7 +566,7 @@ export function SetupScreen({
             cheaper than removing it and much cheaper than explaining it in the main flow.
           */}
           <details className="group flex flex-col gap-1">
-            <summary className="target -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium opacity-75 hover:opacity-100">
+            <summary className="target text-ink-muted hover:text-on-panel -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium">
               <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
               <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
               {t("setup.advanced")}
@@ -587,9 +587,9 @@ export function SetupScreen({
                   setSeed(event.target.value);
                 }}
                 aria-describedby={`${formId}-seed-hint`}
-                className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+                className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3 tabular-nums"
               />
-              <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
+              <p id={`${formId}-seed-hint`} className="text-ink-muted text-xs">
                 {t("setup.seed_hint")}
               </p>
             </div>
@@ -598,10 +598,16 @@ export function SetupScreen({
 
         {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
 
+        {/*
+          The one button the theme paints itself, and until MON-746 the one colour nothing could
+          measure: `bg-[oklch(45%_0.09_155)]` on the first screen anybody sees. Same green, named —
+          and now rimmed with the keyline like every other painted area here, because the fill alone
+          reaches 2.65:1 against a dark page and an edge is not something a button may be missing.
+        */}
         <button
           type="submit"
           disabled={!canSubmit}
-          className="min-h-14 rounded-2xl bg-[oklch(45%_0.09_155)] px-6 text-lg font-bold text-[oklch(98%_0.01_95)] shadow-[0_3px_0_0_oklch(30%_0.07_155)] disabled:opacity-50 disabled:shadow-none"
+          className="border-hairline bg-cta text-on-cta shadow-cta min-h-14 rounded-2xl border px-6 text-lg font-bold disabled:opacity-50 disabled:shadow-none"
         >
           {isSubmitting ? t("setup.starting") : t("setup.start")}
         </button>
@@ -643,14 +649,14 @@ function SeatCard({
   const seatLabel = t("setup.seat", { number: index + 1 });
 
   return (
-    <li className="rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
+    <li className="rounded-2xl bg-panel p-4 text-on-panel shadow-card">
       <fieldset className="flex flex-col gap-3">
         <legend className="sr-only">{seatLabel}</legend>
 
         <div className="flex flex-wrap items-center gap-3">
           {seatNumber !== undefined && <Token seat={seatNumber} size={TOKEN_PX.inline} />}
           <div className="flex flex-col">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] opacity-60">
+            <span className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
               {seatLabel}
             </span>
             {identity !== undefined && (
@@ -661,7 +667,7 @@ function SeatCard({
             <button
               type="button"
               onClick={onRemove}
-              className="ms-auto min-h-11 min-w-11 rounded-xl border border-current/30 px-4 text-sm"
+              className="ms-auto min-h-11 min-w-11 rounded-xl border border-edge px-4 text-sm"
             >
               {t("setup.remove_player")}
               <span className="sr-only"> — {seatLabel}</span>
@@ -681,7 +687,7 @@ function SeatCard({
             onChange={(event) => {
               onChange({ name: event.target.value });
             }}
-            className="min-h-11 rounded-xl border border-current/30 bg-transparent px-3"
+            className="min-h-11 rounded-xl border border-edge bg-transparent px-3"
           />
         </div>
 
@@ -758,7 +764,7 @@ function Choice({
         {options.map((option) => (
           <label
             key={option.value}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-current/25 px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-[oklch(70%_0.18_250)]"
+            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-edge px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
           >
             <input
               type="radio"
@@ -772,7 +778,7 @@ function Choice({
             />
             <span>{option.label}</span>
             {option.hint !== undefined && (
-              <span dir="ltr" className="tabular-nums text-xs opacity-60">
+              <span dir="ltr" className="text-ink-muted text-xs tabular-nums">
                 {option.hint}
               </span>
             )}
@@ -808,7 +814,7 @@ function Picker({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3"
+        className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
@@ -828,11 +834,11 @@ function RuleDiff({
 }): React.JSX.Element {
   const { t } = useTranslation();
   if (differences.length === 0) {
-    return <p className="text-sm opacity-70">{t("setup.kids_no_changes")}</p>;
+    return <p className="text-ink-muted text-sm">{t("setup.kids_no_changes")}</p>;
   }
   return (
-    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-[oklch(72%_0.14_70)] bg-current/5 p-3">
-      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-notice bg-current/5 p-3">
+      <h3 className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
         {t("setup.kids_changes")}
       </h3>
       <ul className="flex flex-col gap-1.5">
@@ -844,7 +850,7 @@ function RuleDiff({
               "Full rules: N" rather than "was N → now M": an arrow is a direction, and a
               direction is the one thing that does not survive `dir="rtl"`.
             */}
-            <span className="text-xs opacity-60">
+            <span className="text-ink-muted text-xs">
               {t("ruleset.previous", { value: renderValue(flag.universal_value, t) })}
             </span>
           </li>

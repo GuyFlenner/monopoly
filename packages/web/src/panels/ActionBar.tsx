@@ -720,7 +720,7 @@ function ConfirmStep({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="bg-tile text-ink border-hairline flex w-full max-w-sm flex-col gap-4 rounded-2xl border p-5 shadow-[0_18px_40px_-16px_oklch(0%_0_0/0.6)]"
+        className="bg-tile text-ink border-hairline flex w-full max-w-sm flex-col gap-4 rounded-2xl border p-5 shadow-lifted"
       >
         <h2 id={titleId} className="text-lg font-bold">
           {t("confirm.title")}
@@ -1005,7 +1005,7 @@ export function ActionBar({
           held.current = false;
         }
       }}
-      className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]"
+      className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-card"
     >
       <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">
         {copy("actionbar.label")}

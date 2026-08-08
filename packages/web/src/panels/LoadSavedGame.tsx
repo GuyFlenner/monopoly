@@ -154,7 +154,7 @@ export function LoadSavedGame({ onLoad }: LoadSavedGameProps): React.JSX.Element
       </h2>
       <label
         htmlFor={fieldId}
-        className="target flex min-h-11 w-fit cursor-pointer items-center gap-2 rounded-xl border-2 border-dashed border-current/40 px-5 py-2 text-sm font-semibold has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-[oklch(70%_0.18_250)]"
+        className="target flex min-h-11 w-fit cursor-pointer items-center gap-2 rounded-xl border-2 border-dashed border-current/40 px-5 py-2 text-sm font-semibold has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
       >
         <input
           id={fieldId}
@@ -194,7 +194,7 @@ export function LoadSavedGame({ onLoad }: LoadSavedGameProps): React.JSX.Element
       {contested !== null && (
         <div
           data-testid="load-save-conflict"
-          className="flex flex-col items-start gap-2 rounded-xl border-s-4 border-[oklch(70%_0.18_250)] bg-[oklch(70%_0.18_250)]/10 p-3 text-start"
+          className="flex flex-col items-start gap-2 rounded-xl border-s-4 border-accent bg-accent/10 p-3 text-start"
         >
           <p className="text-sm">{t("save.conflict.question")}</p>
           <div className="flex flex-wrap gap-2">
