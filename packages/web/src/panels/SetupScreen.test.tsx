@@ -24,6 +24,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api";
 import type { BoardSummary, NewGameRequest, RulesetView } from "@/api";
 import type { Locale } from "@/i18n";
+import { TOKEN_IDENTITY, TOKEN_SHAPE_PATH } from "@/theme";
 
 import {
   KIDS_VIEW,
@@ -113,10 +114,16 @@ describe("the seats", () => {
   it("opens with two, and each carries an identity a pre-reader can tell apart", () => {
     setup();
     expect(screen.getAllByLabelText(i18next.t("setup.player_name"))).toHaveLength(2);
-    // Shape and colour live in an `aria-hidden` SVG; the piece's *name* is the text channel, so
-    // the identity is never colour-only (GAP A2/G-51).
-    expect(screen.getByText(i18next.t("token.kite"))).toBeInTheDocument();
-    expect(screen.getByText(i18next.t("token.drum"))).toBeInTheDocument();
+    // Shape lives in an `aria-hidden` SVG — the same `TOKEN_IDENTITY` the board, dossier and turn
+    // indicator draw for seats 1 and 2 — so the two opening seats are never told apart by colour
+    // alone (GAP A2/G-51). The name beside it (MON-748) is the text channel on top of that.
+    const firstShape = seatCard(0).querySelector("svg path")?.getAttribute("d");
+    const secondShape = seatCard(1).querySelector("svg path")?.getAttribute("d");
+    expect(firstShape).toBe(TOKEN_SHAPE_PATH[TOKEN_IDENTITY[0].shape]);
+    expect(secondShape).toBe(TOKEN_SHAPE_PATH[TOKEN_IDENTITY[1].shape]);
+    expect(firstShape).not.toBe(secondShape);
+    expect(screen.getByText(i18next.t(`token.${TOKEN_IDENTITY[0].icon}`))).toBeInTheDocument();
+    expect(screen.getByText(i18next.t(`token.${TOKEN_IDENTITY[1].icon}`))).toBeInTheDocument();
   });
 
   it("adds seats up to six and then stops offering", async () => {
@@ -453,14 +460,15 @@ describe("what reaches the wire", () => {
       // Explicit `null`, not omitted: the schema keeps `is_bot` on the wire so a bot with no
       // level is a 422 rather than a silently seated human.
       bot_level: null,
-      token: "kite",
+      // The seat's own `TOKEN_IDENTITY` icon, not a literal — the same value `SeatCard` shows.
+      token: `token.${TOKEN_IDENTITY[0].icon}`,
       grammatical_gender: "n",
     });
     expect(request.seats[1]).toEqual({
       name: "Dan",
       is_bot: true,
       bot_level: "hard",
-      token: "drum",
+      token: `token.${TOKEN_IDENTITY[1].icon}`,
       grammatical_gender: "f",
     });
     expect(request.board_id).toBe("classic"); // the only board this fixture offers

@@ -19,11 +19,11 @@ export function RuleDiff({
 }): React.JSX.Element {
   const { t } = useTranslation();
   if (differences.length === 0) {
-    return <p className="text-sm opacity-70">{t("setup.kids_no_changes")}</p>;
+    return <p className="text-ink-muted text-sm">{t("setup.kids_no_changes")}</p>;
   }
   return (
-    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-[oklch(72%_0.14_70)] bg-current/5 p-3">
-      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] opacity-70">
+    <div className="flex flex-col gap-2 rounded-xl border-s-4 border-notice bg-current/5 p-3">
+      <h3 className="text-ink-muted text-xs font-semibold uppercase tracking-[0.14em]">
         {t("setup.kids_changes")}
       </h3>
       <ul className="flex flex-col gap-1.5">
@@ -35,7 +35,7 @@ export function RuleDiff({
               "Full rules: N" rather than "was N → now M": an arrow is a direction, and a
               direction is the one thing that does not survive `dir="rtl"`.
             */}
-            <span className="text-xs opacity-60">
+            <span className="text-ink-muted text-xs">
               {t("ruleset.previous", { value: renderValue(flag.universal_value, t) })}
             </span>
           </li>

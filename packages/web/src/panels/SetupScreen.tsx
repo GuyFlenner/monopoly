@@ -48,11 +48,11 @@ import {
 } from "@/animation";
 import { LOCALE_LABEL, LOCALES, type Locale } from "@/i18n";
 import type { Transport } from "@/local/mode";
-import { Icon } from "@/theme";
+import { Icon, tokenForSeat } from "@/theme";
 
 import { LoadSavedGame } from "./LoadSavedGame";
 import { RuleDiff } from "./RuleDiff";
-import { MAX_SEAT_ROWS, SeatCard, seatDraft, TOKEN_IDENTITIES, type SeatDraft } from "./SeatCard";
+import { MAX_SEAT_ROWS, SeatCard, seatDraft, type SeatDraft } from "./SeatCard";
 import { Choice } from "./SetupFields";
 import { ErrorState } from "./States";
 
@@ -254,7 +254,7 @@ export function SetupScreen({
           >
             {t("setup.title")}
           </h1>
-          <p className="text-sm opacity-70">{t("app.tagline")}</p>
+          <p className="text-ink-muted text-sm">{t("app.tagline")}</p>
         </header>
 
         {/*
@@ -286,7 +286,7 @@ export function SetupScreen({
               service and produces a link the player then has to send, and both are surprises worth
               having in advance rather than discovering.
             */}
-            <p data-testid="setup-where-note" className="text-xs opacity-70">
+            <p data-testid="setup-where-note" className="text-ink-muted text-xs">
               {transport === "online"
                 ? t("setup.where_elsewhere_note")
                 : t("setup.where_here_note")}
@@ -296,7 +296,7 @@ export function SetupScreen({
 
         {/* --- Seats --- */}
         <fieldset className="flex flex-col gap-3">
-          <legend className="pb-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+          <legend className="text-ink-muted pb-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {t("setup.seats")}
           </legend>
           {/* `data-testid` so the e2e helper can find a seat row without reading a translated label:
@@ -324,7 +324,7 @@ export function SetupScreen({
                 setSeats((current) => [...current, seatDraft(nextSeatId, locale)]);
                 setNextSeatId((current) => current + 1);
               }}
-              className="min-h-11 self-start rounded-xl border-2 border-dashed border-current/40 px-5 text-sm font-semibold"
+              className="min-h-11 self-start rounded-xl border-2 border-dashed border-edge px-5 text-sm font-semibold"
             >
               + {t("setup.add_player")}
             </button>
@@ -332,8 +332,8 @@ export function SetupScreen({
         </fieldset>
 
         {/* --- The table --- */}
-        <fieldset className="flex flex-col gap-5 rounded-2xl bg-tile p-4 text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]">
-          <legend className="px-2 text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+        <fieldset className="flex flex-col gap-5 rounded-2xl bg-panel p-4 text-on-panel shadow-card">
+          <legend className="text-ink-muted px-2 text-xs font-semibold uppercase tracking-[0.16em]">
             {t("setup.table")}
           </legend>
 
@@ -383,7 +383,7 @@ export function SetupScreen({
           */}
           <fieldset className="flex flex-col gap-2">
             <legend className="pb-1 text-sm font-medium">{t("setup.house_rules")}</legend>
-            <p className="text-xs opacity-70">{t("setup.house_rules_note")}</p>
+            <p className="text-ink-muted text-xs">{t("setup.house_rules_note")}</p>
 
             <Choice
               name={`${formId}-auctions`}
@@ -457,9 +457,9 @@ export function SetupScreen({
                 }
               }}
               aria-describedby={`${formId}-card-seconds-hint`}
-              className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+              className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3 tabular-nums"
             />
-            <p id={`${formId}-card-seconds-hint`} className="text-xs opacity-70">
+            <p id={`${formId}-card-seconds-hint`} className="text-ink-muted text-xs">
               {t("setup.card_seconds_hint", {
                 min: MIN_CARD_SECONDS,
                 max: MAX_CARD_SECONDS,
@@ -494,7 +494,7 @@ export function SetupScreen({
             cheaper than removing it and much cheaper than explaining it in the main flow.
           */}
           <details className="group flex flex-col gap-1">
-            <summary className="target -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium opacity-75 hover:opacity-100">
+            <summary className="target text-ink-muted hover:text-on-panel -mx-1 flex w-fit cursor-pointer items-center gap-2 rounded-lg px-1 text-sm font-medium">
               <Icon name="plus" size={12} className="shrink-0 group-open:hidden" />
               <Icon name="minus" size={12} className="hidden shrink-0 group-open:block" />
               {t("setup.advanced")}
@@ -515,9 +515,9 @@ export function SetupScreen({
                   setSeed(event.target.value);
                 }}
                 aria-describedby={`${formId}-seed-hint`}
-                className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3 tabular-nums"
+                className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3 tabular-nums"
               />
-              <p id={`${formId}-seed-hint`} className="text-xs opacity-70">
+              <p id={`${formId}-seed-hint`} className="text-ink-muted text-xs">
                 {t("setup.seed_hint")}
               </p>
             </div>
@@ -526,10 +526,16 @@ export function SetupScreen({
 
         {rejection !== null && <ErrorState error={rejection} headingKey="setup.cannot_start" />}
 
+        {/*
+          The one button the theme paints itself, and until MON-746 the one colour nothing could
+          measure: `bg-[oklch(45%_0.09_155)]` on the first screen anybody sees. Same green, named —
+          and now rimmed with the keyline like every other painted area here, because the fill alone
+          reaches 2.65:1 against a dark page and an edge is not something a button may be missing.
+        */}
         <button
           type="submit"
           disabled={!canSubmit}
-          className="min-h-14 rounded-2xl bg-[oklch(45%_0.09_155)] px-6 text-lg font-bold text-[oklch(98%_0.01_95)] shadow-[0_3px_0_0_oklch(30%_0.07_155)] disabled:opacity-50 disabled:shadow-none"
+          className="border-hairline bg-cta text-on-cta shadow-cta min-h-14 rounded-2xl border px-6 text-lg font-bold disabled:opacity-50 disabled:shadow-none"
         >
           {isSubmitting ? t("setup.starting") : t("setup.start")}
         </button>
@@ -552,7 +558,9 @@ export function SetupScreen({
  * The pieces that used to be under this line are siblings as of MON-747: `SeatCard.tsx` (the seat
  * row and the model behind it), `SetupFields.tsx` (the radio group and the select they share) and
  * `RuleDiff.tsx` (what the chosen rule set changes). The move was a move — same bodies, same
- * docstrings, and an `export` in front of each name this file still calls.
+ * docstrings, and an `export` in front of each name this file still calls. It was taken a second
+ * time, against the merged file, so that MON-748's shared identities and MON-743/746's measured
+ * tokens are what travelled rather than the bytes they replaced.
  */
 
 /*
@@ -600,7 +608,9 @@ function buildRequest(
       name: seat.name.trim(),
       is_bot: seat.isBot,
       bot_level: seat.isBot ? seat.botLevel : null,
-      token: TOKEN_IDENTITIES[index % TOKEN_IDENTITIES.length]?.token ?? String(index),
+      // The seat's own icon name, read from the same `TOKEN_IDENTITY` the badge above draws —
+      // not a second literal that could name a different piece than the one shown.
+      token: `token.${tokenForSeat(index + 1).icon}`,
       grammatical_gender: seat.gender,
     })),
     board_id: boardId,

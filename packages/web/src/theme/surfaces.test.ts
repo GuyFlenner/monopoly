@@ -4,12 +4,17 @@ import { URL as NodeURL, fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  ACCENT_CSS_VAR,
+  ACCENTS,
   COMFORT_ATTRIBUTE,
+  CTA,
+  CTA_CSS_VAR,
   FOCUS_CSS_VAR,
   FOCUS_RING,
   KIDS_COMFORT,
   KIDS_TARGET_PX,
   MIN_TARGET_PX,
+  SHADOW_CSS_VAR,
   SURFACE_CSS_VAR,
   SURFACES,
   TARGET_CSS_VAR,
@@ -85,11 +90,49 @@ describe("index.css and surfaces.ts agree", () => {
     }
   });
 
+  it("ships the accents, and varies them by theme (MON-746)", () => {
+    // Both directions, because the accents are the one set whose *point* is that they differ per
+    // theme: the light values darken to clear a cream card, the dark red lightens to clear a slate
+    // one. A missing dark override would silently ship the light value into the dark theme.
+    for (const [slot, property] of Object.entries(ACCENT_CSS_VAR)) {
+      expect(declaredValue(themeBlock(), property), `${property} is not declared in @theme`).toBe(
+        ACCENTS.light[slot as keyof typeof ACCENTS.light],
+      );
+      expect(declaredValue(darkBlock(), property), `${property} has no dark override`).toBe(
+        ACCENTS.dark[slot as keyof typeof ACCENTS.dark],
+      );
+    }
+  });
+
+  it("ships the start button, and does not vary it by theme (MON-746)", () => {
+    for (const [slot, property] of Object.entries(CTA_CSS_VAR)) {
+      expect(declaredValue(themeBlock(), property)).toBe(CTA[slot as keyof typeof CTA]);
+      // Theme-invariant by design — the rim, not the fill, is what carries its edge on both pages.
+      expect(declaredValue(darkBlock(), property), `${property} must not vary by theme`).toBeNull();
+    }
+  });
+
+  it("ships every shadow as a token rather than five copies of an arbitrary value", () => {
+    for (const property of SHADOW_CSS_VAR) {
+      const declared = declaredValue(themeBlock(), property);
+      expect(declared, `${property} is not declared in @theme`).not.toBeNull();
+      expect(declared?.length ?? 0).toBeGreaterThan(0);
+    }
+  });
+
   it("authors every surface as #rrggbb, in both files", () => {
     for (const surfaces of Object.values(SURFACES)) {
       for (const value of Object.values(surfaces)) {
         expect(value).toMatch(/^#[0-9a-f]{6}$/);
       }
+    }
+    for (const accents of Object.values(ACCENTS)) {
+      for (const value of Object.values(accents)) {
+        expect(value).toMatch(/^#[0-9a-f]{6}$/);
+      }
+    }
+    for (const value of Object.values(CTA)) {
+      expect(value).toMatch(/^#[0-9a-f]{6}$/);
     }
     // oklch() in the stylesheet would be a value the contrast test cannot parse — and the old
     // stylesheet used it, which is part of why nothing was ever measured.

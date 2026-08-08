@@ -10,14 +10,14 @@
  *   slice, no `disabled`, nothing reordered. A button still exists because the engine offered the
  *   command, which is the ADR-005 line and the thing in this file worth reverting a release over.
  *
- *   The filter is `movesAtThisScreen`, added by MON-726, and it is worth reading in full before
- *   touching: it drops the **estate** moves of **bot** seats and nothing else. `legal_commands`
- *   answers for every seat that may act rather than for the seat being waited on (MON-204), so it
- *   carries the builds and mortgages of every solvent player — and a bot's estate is played by
- *   `bots.py`, so offering it here was three rows of trap on one shared screen. Turn flow is never
- *   filtered, whoever it belongs to, so no value of `players` can hide the move the game is waiting
- *   on. The narrowing is an owner decision (2026-08-06) and is stated and tested in
- *   `seatedCommands.ts`; what is left over is labelled with the seat it acts for rather than hidden.
+ *   The filter is `movesAtThisScreen` (MON-726, narrowed by MON-753), and it is worth reading in full
+ *   before touching: it drops every **estate** move that is not the **seat-in-play's own**, and
+ *   nothing else. `legal_commands` answers for every seat that may act rather than for the seat being
+ *   waited on (MON-204), so it carries the builds and mortgages of every solvent player — which on
+ *   one shared screen put two players' streets side by side as rows nothing told apart. Turn flow is
+ *   never filtered, whoever it belongs to, so no value of `players` or `currentPlayerId` can hide the
+ *   move the game is waiting on. The narrowing is an owner decision (2026-08-06, tightened
+ *   2026-08-07); `seatedCommands.ts` states it, says what it gives up, and tests both.
  * - Which panel is up comes from `state.interrupts` and nothing else. The top of the interrupt
  *   stack is the live frame (`state.py`'s `top_interrupt`), so an auction frame shows the auction
  *   and a trade frame shows the trade panel. This file never infers "an auction is probably
@@ -195,20 +195,21 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
 
   /**
    * The moves belonging to the people at this screen, and the resolver naming whose each one is
-   * (MON-726).
+   * (MON-726, narrowed by MON-753).
    *
    * `legal_commands` answers for every seat that *may* act rather than for the seat being waited on
-   * (MON-204), so it carries the estate moves of every solvent player — including the bots, whose
-   * estates `bots.py` already plays. `movesAtThisScreen` drops those and nothing else; `actingFor`
-   * marks what is left with the seat it acts for. The reasoning, and the bound that keeps turn flow
-   * out of it, are in `seatedCommands.ts`.
+   * (MON-204), so it carries the estate moves of every solvent player. `movesAtThisScreen` keeps only
+   * the seat-in-play's, and `actingFor` marks what is left with the seat it acts for — which after
+   * the narrowing means the interrupt phases, where a bidder, a debtor or a trade recipient is being
+   * waited on without it being their turn. The reasoning, what it gives up, and the bound that keeps
+   * turn flow out of it are all in `seatedCommands.ts`.
    *
    * Both feed the bar **and** the hint, deliberately: a hint pointing at a move the bar does not
    * offer is worse than no hint, and "build on Dan's street" was never advice worth giving.
    */
   const seatedCommands = useMemo(
-    () => movesAtThisScreen(legalCommands, state?.players ?? []),
-    [legalCommands, state?.players],
+    () => movesAtThisScreen(legalCommands, state?.players ?? [], state?.current_player_id ?? -1),
+    [legalCommands, state?.players, state?.current_player_id],
   );
   const actingForSeat = useMemo(
     () => actingFor(state?.players ?? [], state?.current_player_id ?? -1),

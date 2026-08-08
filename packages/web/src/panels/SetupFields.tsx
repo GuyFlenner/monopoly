@@ -41,7 +41,7 @@ export function Choice({
         {options.map((option) => (
           <label
             key={option.value}
-            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-current/25 px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-[oklch(70%_0.18_250)]"
+            className="flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border-2 border-edge px-4 py-2 text-sm font-medium has-checked:border-current has-checked:bg-current/10 has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-accent"
           >
             <input
               type="radio"
@@ -55,7 +55,7 @@ export function Choice({
             />
             <span>{option.label}</span>
             {option.hint !== undefined && (
-              <span dir="ltr" className="tabular-nums text-xs opacity-60">
+              <span dir="ltr" className="text-ink-muted text-xs tabular-nums">
                 {option.hint}
               </span>
             )}
@@ -91,7 +91,7 @@ export function Picker({
         onChange={(event) => {
           onChange(event.target.value);
         }}
-        className="min-h-11 max-w-56 rounded-xl border border-current/30 bg-transparent px-3"
+        className="min-h-11 max-w-56 rounded-xl border border-edge bg-transparent px-3"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

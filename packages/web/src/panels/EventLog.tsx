@@ -104,7 +104,7 @@ export function EventLog({
   return (
     <section
       aria-labelledby={headingId}
-      className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-tile text-ink shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)] dark:bg-[oklch(27%_0.02_255)] dark:text-[oklch(95%_0.008_95)]"
+      className="flex min-h-0 flex-col overflow-hidden rounded-2xl bg-panel text-on-panel shadow-card"
     >
       <h2
         id={headingId}

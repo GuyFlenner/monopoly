@@ -720,7 +720,7 @@ function ConfirmStep({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={bodyId}
-        className="bg-tile text-ink border-hairline flex w-full max-w-sm flex-col gap-4 rounded-2xl border p-5 shadow-[0_18px_40px_-16px_oklch(0%_0_0/0.6)]"
+        className="bg-tile text-ink border-hairline flex w-full max-w-sm flex-col gap-4 rounded-2xl border p-5 shadow-lifted"
       >
         <h2 id={titleId} className="text-lg font-bold">
           {t("confirm.title")}
@@ -794,10 +794,30 @@ export function ActionBar({
    * focus is now on `<body>`. Removing an element fires no `blur`, which is what makes those two
    * conditions together mean "the thing that had focus is gone" rather than "the player clicked
    * elsewhere" — a click on the page background fires `focusout` and clears `held` first.
+   *
+   * ## `preventScroll`, and the defect it fixes (MON-752)
+   *
+   * **`focus()` scrolls the focused element into view.** That default is right for a focus move a
+   * player *asked* for and wrong for this one, which is a repair they did not ask for and should not
+   * be able to see. The bar lives in the aside column, which on a narrow screen sits below the board
+   * — so every press scrolled the page down to it, reported as: *"every time we see a card the game
+   * scrolls down, and we have to scroll back up."*
+   *
+   * It happened on **every** press, not only on cards. What made a card the thing people noticed is
+   * that a card is the one thing that appears *on the board* and stays there for several seconds
+   * (`cardMs`, MON-719): the player looks up to read it, and the browser has already taken them
+   * somewhere else. Every other press moves the eye to the bar anyway, where the scroll is invisible.
+   *
+   * So the focus move stays — it is the whole point, and dropping it would put the keyboard back in
+   * the void — and only the scrolling is suppressed.
+   *
+   * `preventScroll` degrades safely where it is not implemented: an engine that does not know the
+   * option ignores it and focuses as before, which is today's behaviour rather than a broken one. So
+   * there is nothing to feature-detect and no fallback to keep in step.
    */
   useEffect(() => {
     if (held.current && document.activeElement === document.body) {
-      region.current?.focus();
+      region.current?.focus({ preventScroll: true });
     }
   }, [commands]);
 
@@ -985,7 +1005,7 @@ export function ActionBar({
           held.current = false;
         }
       }}
-      className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-[0_2px_0_0_oklch(0%_0_0/0.10),0_10px_24px_-12px_oklch(0%_0_0/0.45)]"
+      className="bg-tile text-ink border-hairline flex flex-col gap-2 rounded-2xl border p-3 shadow-card"
     >
       <h2 id={headingId} className="text-xs font-semibold tracking-[0.16em] uppercase opacity-70">
         {copy("actionbar.label")}

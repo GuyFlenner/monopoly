@@ -25,6 +25,28 @@
  * the band from the *surface*, and an edge is visible as long as one of the two regions it
  * divides contrasts with it.
  *
+ * ## The quiet tier is a colour, not an opacity (MON-743)
+ *
+ * `onTableMuted`, `inkMuted` and `edge` exist because the thing they replace — `text-ink
+ * opacity-60` — is not a colour at all. It is a colour plus a compositing step, and the compositing
+ * step happens in the browser, where the gate cannot follow it. Measured against the shipped
+ * palette, the composites were `onTable@0.8` on the felt = 3.94:1, `ink@0.6` on a card = 4.38:1,
+ * `onTable@0.55` = 2.70:1 and `border-current/30` = 1.91:1 — all under their floors, while
+ * `contrast.test.ts` reported green because it was measuring the solid `ink` the markup *names*.
+ * A named solid can be measured; an alpha cannot, so the tier is named solids.
+ *
+ * ## Why there is one quiet tier on the felt and not two
+ *
+ * The obvious design has `muted` and a fainter `faint` below it. The felt cannot carry it. Full
+ * `onTable` on the light felt measures **5.13:1** — that is the whole budget, and 4.5:1 of it is
+ * spent before any quieting begins, so every legible quiet ink on the light felt lands in a band
+ * about a tenth of a ratio point wide. (The dark felt has 13.65:1 and would separate two tiers
+ * comfortably; a token that is two tiers in one theme and one in the other is a token that means
+ * different things in different themes.) So there is one `onTableMuted`, and the auction's
+ * withdrawn bidder — the one place that wanted a fainter third tier — carries its state on the
+ * channels that survive the measurement instead: a strike-through, a cross glyph and the seat
+ * token, which now stays at full strength and is easier to recognise than it was under the dim.
+ *
  * ## The focus ring is a sandwich, and provably sufficient
  *
  * §5.5 asks for a focus ring "contrast-tested against every surface it can sit on". No single
@@ -49,10 +71,33 @@ export interface Surfaces {
   readonly table: string;
   /** Ink for text placed directly on the felt. */
   readonly onTable: string;
+  /** The quiet tier on the felt. Text, so it is gated at 4.5:1 against `table`. */
+  readonly onTableMuted: string;
   /** A card face: tiles, dossiers, panels, buttons. The default reference surface. */
   readonly tile: string;
   /** Ink for text placed on a card face. */
   readonly ink: string;
+  /**
+   * The raised panel — setup fieldsets, seat rows, the event log (MON-746).
+   *
+   * A second card face, cooler than `tile` in the dark theme and identical to it in the light one,
+   * which is where it came from: `bg-tile dark:bg-[oklch(27%_0.02_255)]`, an arbitrary literal
+   * repeated in three components and visible to no test. A surface is a surface, so it is named
+   * and the inks that sit on it are measured against it.
+   */
+  readonly panel: string;
+  /** Ink for text placed on a raised panel. */
+  readonly onPanel: string;
+  /** The quiet tier on a card face. Text, so it is gated at 4.5:1 against `tile`. */
+  readonly inkMuted: string;
+  /**
+   * A control's own edge — an input rim, a ghost button's outline.
+   *
+   * Non-text, so 3:1. Distinct from `hairline`, which is the near-black keyline a *painted* area is
+   * rimmed with; an edge drawn at keyline strength around every text input turns a form into a
+   * grid. This is the softest line that still measures.
+   */
+  readonly edge: string;
   /** The keyline. See the module docstring. */
   readonly hairline: string;
 }
@@ -61,17 +106,94 @@ export const SURFACES: Readonly<Record<ThemeName, Surfaces>> = {
   light: {
     table: "#33754f",
     onTable: "#f2f8f3",
+    onTableMuted: "#e3eee6",
     tile: "#fbf6ec",
     ink: "#1f1b16",
+    panel: "#fbf6ec",
+    onPanel: "#1f1b16",
+    inkMuted: "#6c6861",
+    edge: "#918d85",
     hairline: "#1c1712",
   },
   dark: {
     table: "#10281c",
     onTable: "#e8f2ea",
+    onTableMuted: "#a7b5ac",
     tile: "#332d26",
     ink: "#f6efe2",
+    panel: "#202730",
+    onPanel: "#f0eee9",
+    inkMuted: "#b2aba0",
+    edge: "#7d776d",
     hairline: "#b3a692",
   },
+};
+
+/**
+ * The one filled button the theme paints itself: "start the game" (MON-746).
+ *
+ * It shipped as `bg-[oklch(45%_0.09_155)] text-[oklch(98%_0.01_95)]` with a matching arbitrary
+ * shadow — a colour nothing could measure, on the first screen anybody sees. The values below are
+ * those three literals converted to `#rrggbb` unchanged, so the button looks exactly as it did and
+ * `contrast.test.ts` can now say so: `ink` on `fill` measures 6.66:1.
+ *
+ * Theme-invariant, as it always was. That costs it an edge in the dark, where the fill reaches only
+ * 2.65:1 against the user agent's canvas — so the button gains the same `hairline` rim every other
+ * painted area in this theme carries, and the rim rather than the fill is what makes it a shape.
+ * See the keyline argument in this file's header: an edge is visible as long as one of the two
+ * regions it divides contrasts with it, and the rim clears the page in both themes.
+ */
+export const CTA = {
+  fill: "#23643f",
+  ink: "#faf8f1",
+  /** The 3px lip under the button. Decorative depth, gated on nothing — it is not an edge. */
+  shadow: "#05381e",
+} as const;
+
+/**
+ * The three edge accents, and why they are not the colours they used to be.
+ *
+ * `oklch(70% 0.18 250)` (a focus edge), `oklch(72% 0.14 70)` ("what changed") and
+ * `oklch(58% 0.19 25)` ("what went wrong") were written out longhand in five components. Measured
+ * for the first time here, the blue reached **2.53:1** and the amber **2.36:1** against a light
+ * card, and the red **2.88:1** against a dark one — under the 3:1 that anything a player must see
+ * is gated on, and each of the three is somebody's only cue that a control has focus or that a
+ * message is a refusal.
+ *
+ * Each value below is the *same hue and chroma* at the lightness that clears the floor, per theme.
+ * Nothing was re-picked; the light theme's accents darken and the dark theme's red lightens, by
+ * about a twentieth of a unit of L each.
+ */
+export interface Accents {
+  /** The focus edge drawn by a control that wraps its own `sr-only` input. */
+  readonly accent: string;
+  /** The rule-set diff's edge: here is what this rule set changes. */
+  readonly notice: string;
+  /** A refusal's edge. */
+  readonly alert: string;
+}
+
+export const ACCENTS: Readonly<Record<ThemeName, Accents>> = {
+  light: { accent: "#0a91f5", notice: "#c47d04", alert: "#d33a3c" },
+  dark: { accent: "#2ca2ff", notice: "#dc932e", alert: "#d94040" },
+};
+
+/**
+ * The browser's own page background, which the theme does not own but must survive.
+ *
+ * `:root { color-scheme: light dark }` and no `background-color` anywhere means the setup screen —
+ * the first screen anybody sees — sits on the user agent's `Canvas`, not on `tile`. Naming it here
+ * is the same discipline as naming every other reference surface: a ratio quoted against "the page"
+ * is a ratio quoted against nothing.
+ *
+ * Light is exactly `#ffffff` in every engine. Dark is not standardised: Chrome ships `#121212`,
+ * Firefox `#1c1b22`, Safari `#1e1e1e`. The value below is the *lightest* of the three, which is the
+ * worst case for the light inks that sit on it, and `contrast.test.ts` additionally sweeps the whole
+ * range from black up to it rather than trusting one browser's constant.
+ */
+export const UA_CANVAS: Readonly<Record<ThemeName, string>> = {
+  light: "#ffffff",
+  dark: "#1e1e1e",
 };
 
 /** Both rings, in both themes. Theme-invariant by design — see the module docstring's proof. */
@@ -84,8 +206,13 @@ export const FOCUS_RING = {
 export const SURFACE_CSS_VAR: Readonly<Record<keyof Surfaces, string>> = {
   table: "--color-table",
   onTable: "--color-on-table",
+  onTableMuted: "--color-on-table-muted",
   tile: "--color-tile",
   ink: "--color-ink",
+  panel: "--color-panel",
+  onPanel: "--color-on-panel",
+  inkMuted: "--color-ink-muted",
+  edge: "--color-edge",
   hairline: "--color-hairline",
 };
 
@@ -93,6 +220,27 @@ export const FOCUS_CSS_VAR: Readonly<Record<keyof typeof FOCUS_RING, string>> = 
   inner: "--color-focus-inner",
   outer: "--color-focus-outer",
 };
+
+export const CTA_CSS_VAR: Readonly<Record<keyof typeof CTA, string>> = {
+  fill: "--color-cta",
+  ink: "--color-on-cta",
+  shadow: "--color-cta-shadow",
+};
+
+export const ACCENT_CSS_VAR: Readonly<Record<keyof Accents, string>> = {
+  accent: "--color-accent",
+  notice: "--color-notice",
+  alert: "--color-alert",
+};
+
+/**
+ * The shadows that used to be a forty-character arbitrary value copied into five components.
+ *
+ * Not colours, so they are not drift-checked value-for-value the way `SURFACE_CSS_VAR` is — but
+ * they are the last place an `oklch()` was hiding, so `surfaces.test.ts` holds `index.css` to
+ * declaring all three, and `unmeasured-colour.test.ts` holds the components to using them.
+ */
+export const SHADOW_CSS_VAR = ["--shadow-card", "--shadow-lifted", "--shadow-cta"] as const;
 
 /** Minimum hit target, in CSS pixels. Mirrored by the `.target` utility in `index.css`. */
 export const MIN_TARGET_PX = 44;

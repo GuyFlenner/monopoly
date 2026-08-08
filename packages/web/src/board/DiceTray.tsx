@@ -209,7 +209,7 @@ export function DiceTray({
       </h2>
 
       {dice === null || dice === undefined ? (
-        <p className="text-on-table text-sm opacity-80">{t("dice.not_rolled")}</p>
+        <p className="text-on-table-muted text-sm">{t("dice.not_rolled")}</p>
       ) : (
         <>
           <span className="flex items-center gap-3">
@@ -222,7 +222,9 @@ export function DiceTray({
             <span dir="ltr" className="font-bold tabular-nums" data-testid="dice-total">
               {t("dice.total", { total: dice.total })}
             </span>
-            <span className="opacity-80">{t(`dice.purpose.${dice.purpose}`)}</span>
+            {/* The quiet tier is a token, not `opacity-80`: composited on the light felt that
+                measured 3.94:1, under the text floor this product gates on (MON-743). */}
+            <span className="text-on-table-muted">{t(`dice.purpose.${dice.purpose}`)}</span>
             {dice.is_doubles && (
               <span
                 data-testid="dice-doubles"
