@@ -886,6 +886,39 @@ describe("App — the game screen", () => {
     expect(screen.getByRole("button", { name: /Roll the dice/ })).toBeInTheDocument();
   });
 
+  /**
+   * MON-908 — a refusal says which refusal it was.
+   *
+   * All three of these used to render "Not connected to the table. What you see may be out of
+   * date." — the same sentence a flaky wifi gets, for three situations a player can actually do
+   * something about. The assertion is on the *sentence* rather than on the key, because a key that
+   * reaches the screen and resolves to nothing is exactly the defect the catalogue test in
+   * `eventSocket.test.ts` guards the other end of.
+   *
+   * Only terminal codes appear here on purpose: 4409 and 4413 both reconnect, so what the player is
+   * owed while that happens is "Reconnecting", which the test above already pins.
+   */
+  it.each([
+    [4404, "That game no longer exists."],
+    [4429, "Too many people are watching this game already."],
+    [4422, "This page asked to watch the game"],
+  ])("says which refusal closed the socket, for close code %i", async (code, sentence) => {
+    openGameUrl("g1");
+    renderApp(gameEdge(gameView({}, [ROLL])));
+    await screen.findByTestId("board-grid");
+
+    const socket = sockets[0];
+    expect(socket).toBeDefined();
+    act(() => {
+      socket?.onopen?.({});
+      socket?.onclose?.({ code, reason: "", wasClean: false });
+    });
+
+    expect(await screen.findByTestId("connection-note")).toHaveTextContent(sentence);
+    // The generic line is *gone*, not merely accompanied — the point is the collapse, not the text.
+    expect(screen.getByTestId("connection-note")).not.toHaveTextContent("Not connected");
+  });
+
   it("reaches any player's dossier, including on somebody else's turn", async () => {
     openGameUrl("g1");
     renderApp(gameEdge(gameView({ current_player_id: 0 }, [ROLL])));

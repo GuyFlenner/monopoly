@@ -22,10 +22,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from kesef_engine.events import TurnStarted
 from kesef_server.api import (
+    WS_CURSOR_RESET,
     WS_GAME_NOT_FOUND,
     WS_MALFORMED_REQUEST,
     WS_TOO_MANY_WATCHERS,
     WS_WATCHER_TOO_SLOW,
+    StreamEnd,
     app,
     get_settings,
     next_entry,
@@ -232,7 +234,107 @@ async def test_the_overflow_flag_wins_a_tie_with_a_waiting_event() -> None:
         subscriber.offer(LoggedEvent(seq=2, event=TurnStarted(player=1, turn_number=2)))
         assert subscriber.queue.qsize() == 1 and subscriber.overflowed.is_set()
 
-        assert await next_entry(subscriber) is None
+        assert await next_entry(subscriber) is StreamEnd.OVERFLOWED
+
+
+# --- A save that takes this id over (MON-907) -------------------------------
+
+
+def test_a_load_that_takes_the_id_over_closes_the_watcher_with_the_cursor_reset_code(
+    client: TestClient,
+) -> None:
+    """The whole product path, end to end: somebody loads a save over the game being watched.
+
+    Driven through ``POST /games/load?if_exists=replace`` rather than by calling ``store.replace``
+    from the test thread, for a reason that is not stylistic: the detachment flag is an
+    ``asyncio.Event``, and setting one from outside the loop the socket is waiting on is not a thing
+    that reliably wakes anybody. The route is the only caller in the product anyway.
+
+    ``since`` is the current cursor so there is no backlog to drain — the *next* thing this socket
+    receives is therefore the close, and nothing else can be mistaken for it.
+    """
+    game_id = _create(client)
+    client.post(f"/games/{game_id}/commands", json=ROLL)
+    save = client.get(f"/games/{game_id}/save").json()
+    cursor = client.get(f"/games/{game_id}").json()["event_cursor"]
+    assert cursor > 0, "the save has to carry a log, or 'the numbering restarts' is not a claim"
+
+    with client.websocket_connect(f"/games/{game_id}/ws?since={cursor}") as socket:
+        taken_over = client.post("/games/load?if_exists=replace", json=save)
+        assert taken_over.status_code == status.HTTP_201_CREATED, taken_over.text
+        with pytest.raises(WebSocketDisconnect) as raised:
+            socket.receive_json()
+
+    assert raised.value.code == WS_CURSOR_RESET
+    assert raised.value.reason == "error.session_replaced"
+
+
+async def test_a_replaced_session_closes_every_one_of_its_watchers() -> None:
+    """Two mailboxes, one takeover, and the game underneath is a different session afterwards.
+
+    Through the helper rather than a test client for the same reason the overflow test is: this
+    asserts what ``stream_events`` does with a flag, and the flag is set by the store rather than by
+    anything a socket can see.
+    """
+    store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
+    store.create(minimal_state())
+    session = store.update(store.get("g"), minimal_state(), (TurnStarted(player=0, turn_number=1),))
+    first, second = _FakeSocket(), _FakeSocket()
+
+    with (
+        session.subscribe(max_subscribers=2, queue_size=8) as one,
+        session.subscribe(max_subscribers=2, queue_size=8) as two,
+    ):
+        pumps = [
+            asyncio.create_task(stream_events(cast(WebSocket, first), session, one, since=1)),
+            asyncio.create_task(stream_events(cast(WebSocket, second), session, two, since=1)),
+        ]
+        store.replace(minimal_state())
+        await asyncio.wait_for(asyncio.gather(*pumps), timeout=2.0)
+
+    assert first.closed == (WS_CURSOR_RESET, "error.session_replaced")
+    assert second.closed == (WS_CURSOR_RESET, "error.session_replaced")
+    # Neither socket was sent anything: the point of the close code is that there was nothing left
+    # to send them, because the log they were reading is not the one under this id any more.
+    assert first.sent == second.sent == []
+    assert store.get("g").log == []
+
+
+async def test_a_mailbox_opened_after_the_takeover_is_told_at_once() -> None:
+    """The window between ``replace`` popping a session and a socket subscribing to it.
+
+    ``game_event_stream`` resolves the game, *then* subscribes, and a load can land between the two.
+    A per-mailbox flag set by ``detach`` would miss that subscriber entirely and leave it waiting on
+    a log nothing will ever append to — the exact silent socket this item exists to remove. Sharing
+    the session's own event is what makes the late subscriber's answer immediate; the ``wait_for``
+    is what turns "immediate" into an assertion rather than a hang.
+    """
+    store = SessionStore(max_sessions=2, ttl_seconds=SESSION_TTL_SECONDS)
+    store.create(minimal_state())
+    orphaned = store.get("g")
+    store.replace(minimal_state())
+
+    with orphaned.subscribe(max_subscribers=1, queue_size=8) as late:
+        assert await asyncio.wait_for(next_entry(late), timeout=2.0) is StreamEnd.DETACHED
+
+
+async def test_the_takeover_wins_a_tie_with_an_event_still_in_the_mailbox() -> None:
+    """Detachment outranks a queued event, and outranks an overflow.
+
+    Both losers are events of a game that no longer holds this id, and the client is about to throw
+    its cursor away and replay the replacement from ``seq`` 1 — so delivering them would put the old
+    game's tail on screen for the moment before it is discarded. Asserted directly because a tie in
+    one loop turn is not reachable from a test client.
+    """
+    store = SessionStore(max_sessions=1, ttl_seconds=SESSION_TTL_SECONDS)
+    session = store.create(minimal_state())
+    with session.subscribe(max_subscribers=1, queue_size=1) as subscriber:
+        subscriber.offer(LoggedEvent(seq=1, event=TurnStarted(player=0, turn_number=1)))
+        subscriber.offer(LoggedEvent(seq=2, event=TurnStarted(player=1, turn_number=2)))
+        session.detach()
+        assert subscriber.queue.qsize() == 1 and subscriber.overflowed.is_set()
+
+        assert await next_entry(subscriber) is StreamEnd.DETACHED
 
 
 # --- The de-duplication rule ------------------------------------------------

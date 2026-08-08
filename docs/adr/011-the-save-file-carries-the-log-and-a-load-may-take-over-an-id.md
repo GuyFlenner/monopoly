@@ -125,6 +125,22 @@ stores whatever `save_game` returned.
   That machinery is what ADR-006 says waits for networked play, and it belongs there: a second tab
   watching a hotseat game is a development affordance, not a product feature. **Revisit trigger:
   MON-901.** Until then the honest position is a stated limitation rather than a half-built resync.
+
+  **The trigger fired, and MON-907 closed the gap on 2026-08-07.** MON-901 put the API on a public
+  URL and made a game reachable from a shared link, so the watcher whose id gets taken over is no
+  longer a second tab belonging to the person doing the taking — the analysis above is unchanged,
+  but the "second tab is a development affordance" ground it rested on is gone. The fix is the one
+  this entry said would be needed and refused to half-build: `SessionStore.replace` marks the old
+  session detached, every one of its watchers is closed with `WS_CURSOR_RESET` (4409) and the reason
+  `error.session_replaced`, and the client treats that code as *neither* terminal *nor* an ordinary
+  retry — it clears the event queue (`EventQueue.reset`, which had existed for this since MON-303
+  and had no caller until now), invalidates the cached view whose `event_cursor` belongs to the
+  replaced game, and reconnects at `since=0`. So the protocol change and the queue's public surface
+  both arrived together, which is what the paragraph above says the honest version costs.
+
+  Two things are still true as written. A watcher of a **deleted** game still receives nothing —
+  `DELETE` closes nothing, and giving it a code is `MON-906`'s to decide along with who may call it
+  at all. And the published build still has no cross-tab socket, so none of this reaches it.
 - **After a `copy`, the game that was left is no longer the one `localStorage` insures** in the
   published build: the next mutation snapshots the copy. Both games are live in the tab; only one has
   reload insurance.
