@@ -60,12 +60,18 @@ export interface LocalFetchOptions {
   /**
    * Asked when a plain `GET /games/{id}` answers 404, before the caller is told.
    *
-   * Returning `true` means "the game is there now, ask again" — which is how the local build
-   * survives a reload without anything above this directory learning that its session lives in a
-   * heap that a refresh discards (ADR-010). Absent, a 404 is a 404, which is what the server build
-   * wants and what every existing test of this file expects.
+   * Returns the **host secret of the restored session**, or `null` when nothing was put back — which
+   * is how the local build survives a reload without anything above this directory learning that its
+   * session lives in a heap that a refresh discards (ADR-010). Absent, a 404 is a 404, which is what
+   * the server build wants and what every existing test of this file expects.
+   *
+   * The secret is returned rather than a bare `true` (MON-906 review, finding 6) because a restored
+   * game is a *new session with a new authority*: the secret this request arrived carrying — in its
+   * `Authorization` header, captured into the route closure below — named the session the reload
+   * discarded, and re-running the closure with it resolves the host to a **spectator of their own
+   * restored game**. The retry is re-matched with this fresh secret instead.
    */
-  readonly onMissingGame?: (gameId: string) => Promise<boolean>;
+  readonly onMissingGame?: (gameId: string) => Promise<string | null>;
 }
 
 /** One matched route: the facade call to make, and the game it concerns. */
@@ -125,9 +131,15 @@ export function createLocalFetch(bridge: PyBridge, options: LocalFetchOptions = 
     const missing = options.onMissingGame;
     if (envelope.status === NOT_FOUND && missing !== undefined) {
       const gameId = gameIdOfPlainGet(method, path);
-      if (gameId !== null && (await missing(gameId))) {
+      const restoredSecret = gameId === null ? null : await missing(gameId);
+      if (restoredSecret !== null) {
         throwIfAborted(signal);
-        envelope = parseEnvelope(await route.answer());
+        // Re-matched with the *restored* session's secret rather than re-running `route.answer`,
+        // whose closure captured the pre-reload secret that no longer names any session (finding 6).
+        // A GET always re-matches (its `answer` is a fresh `getGame`); the `?? route` fallback cannot
+        // fire on this path but keeps the types honest.
+        const retry = match(bridge, method, path, url, body, restoredSecret) ?? route;
+        envelope = parseEnvelope(await retry.answer());
         throwIfAborted(signal);
       }
     }
@@ -281,14 +293,14 @@ function respond(envelope: Envelope): Response {
 /**
  * The game a creation or a load answered with. `undefined` when the body is not one of those.
  *
- * Reads through the `GameCreated` envelope since ADR-012: `POST /games` and `POST /games/load`
- * answer `{host_secret, view}` rather than a bare view. The *secret* is deliberately not touched
- * here — `api/client.ts` stores it, and a transport that also handled credentials would be a second
- * place for one to leak from.
+ * Read from the **top level**, because `GameCreated` is a `GameView` flattened with `host_secret`
+ * (MON-906 review, finding 1) — so `state.game_id` sits exactly where a plain view's does, and this
+ * one read serves the create response, the load response and a command response alike. The *secret*
+ * is deliberately not touched here — `api/client.ts` stores it, and a transport that also handled
+ * credentials would be a second place for one to leak from.
  */
 function gameIdIn(body: unknown): string | undefined {
-  const envelope = body as { view?: { state?: { game_id?: unknown } } } | null;
-  const state = envelope?.view?.state;
+  const state = (body as { state?: { game_id?: unknown } } | null)?.state;
   return typeof state?.game_id === "string" ? state.game_id : undefined;
 }
 

@@ -87,11 +87,13 @@ EXPECTED_SCHEMAS: Final = {
     "CommandRequest",
     "LegalityView",
     "ErrorResponse",
-    # Seat authority (ADR-012). `GameCreated` is the shape change: `POST /games` and
-    # `POST /games/load` answer the view *and* the one host secret each session ever hands out.
+    # Seat authority (ADR-012). `GameCreated` is a `GameView` flattened with `host_secret` (the
+    # deploy-skew fix, MON-906 review finding 1); `SpeakerView` is `GameView.speaker`, who this
+    # connection speaks for.
     "GameCreated",
     "SeatClaimed",
     "SeatClaimView",
+    "SpeakerView",
     "BoardSummary",
     # The ruleset projection (MON-417, G-36): `/rulesets` no longer returns raw flags, so the
     # setup screen's client-side diff and its `ruleset.<field>` label map both deleted.
@@ -464,7 +466,7 @@ def test_rulesets_endpoint_exposes_what_kids_mode_changes(client: TestClient) ->
 
 def test_a_table_can_turn_auctions_off_for_its_own_game(client: TestClient) -> None:
     payload = new_game_payload(house_rules={"auctions_enabled": False})
-    view = client.post("/games", json=payload).json()["view"]
+    view = client.post("/games", json=payload).json()
     assert view["state"]["ruleset"]["auctions_enabled"] is False
     # And it is still the universal rule set: turning one thing off is not switching to Kids Mode.
     assert view["state"]["ruleset"]["name"] == "universal"
@@ -473,14 +475,14 @@ def test_a_table_can_turn_auctions_off_for_its_own_game(client: TestClient) -> N
 
 def test_a_table_can_give_the_auction_a_floor(client: TestClient) -> None:
     payload = new_game_payload(house_rules={"auction_minimum": "list_price"})
-    view = client.post("/games", json=payload).json()["view"]
+    view = client.post("/games", json=payload).json()
     assert view["state"]["ruleset"]["auction_minimum"] == "list_price"
     assert view["state"]["ruleset"]["auctions_enabled"] is True, "a floor is not an off switch"
 
 
 def test_a_game_with_no_house_rules_is_the_named_rule_set_exactly(client: TestClient) -> None:
     """The default has to stay the printed rules, or the goldens record a variant."""
-    view = client.post("/games", json=new_game_payload()).json()["view"]
+    view = client.post("/games", json=new_game_payload()).json()
     assert view["state"]["ruleset"] == Ruleset.universal().model_dump(mode="json")
 
 
@@ -491,7 +493,7 @@ def test_house_rules_amend_kids_mode_without_replacing_it(client: TestClient) ->
     them off — an amendment that rebuilt the rule set from its own fields would turn them back on.
     """
     payload = new_game_payload(ruleset="kids", house_rules={"auction_minimum": "list_price"})
-    ruleset = client.post("/games", json=payload).json()["view"]["state"]["ruleset"]
+    ruleset = client.post("/games", json=payload).json()["state"]["ruleset"]
     assert ruleset["auctions_enabled"] is False, "the kids setting survived the amendment"
     assert ruleset["auction_minimum"] == "list_price"
     assert ruleset["starting_cash"] == 2000, "and so did everything else Kids Mode changes"
@@ -580,7 +582,7 @@ def test_creating_a_game_returns_the_opening_view(client: TestClient) -> None:
     assert response.status_code == status.HTTP_201_CREATED
     created = response.json()
     assert len(created["host_secret"]) == 32, "the creator is handed the one host secret (ADR-012)"
-    view = created["view"]
+    view = created
     assert view["state"]["turn_number"] == 1
     assert view["state"]["phase"] == "awaiting_roll"
     assert [player["name"] for player in view["state"]["players"]] == ["Ann", "Ben"]
@@ -624,12 +626,12 @@ def test_a_seed_may_be_omitted_and_the_game_still_reports_one(client: TestClient
     """The save file must be enough to replay, so the server's own seed has to come back."""
     first = client.post("/games", json=new_game_payload(seed=None))
     assert first.status_code == status.HTTP_201_CREATED
-    saved = client.get(f"/games/{first.json()['view']['state']['game_id']}/save").json()
+    saved = client.get(f"/games/{first.json()['state']['game_id']}/save").json()
     assert isinstance(saved["state"]["rng"]["seed"], int)
 
 
 def test_a_client_may_name_its_game(client: TestClient) -> None:
-    view = client.post("/games", json=new_game_payload(game_id="kitchen-table")).json()["view"]
+    view = client.post("/games", json=new_game_payload(game_id="kitchen-table")).json()
     assert view["state"]["game_id"] == "kitchen-table"
 
 
@@ -809,7 +811,7 @@ def test_a_human_seat_with_a_bot_level_is_rejected(client: TestClient) -> None:
 
 def test_a_bot_seat_is_seated_as_a_bot(client: TestClient) -> None:
     seats = [seat("Human"), seat("Bot", is_bot=True, bot_level="hard")]
-    view = client.post("/games", json=new_game_payload(seats=seats)).json()["view"]
+    view = client.post("/games", json=new_game_payload(seats=seats)).json()
     assert [player["is_bot"] for player in view["state"]["players"]] == [False, True]
     assert view["state"]["players"][1]["kind"] == {"bot_level": "hard"}
 
@@ -817,7 +819,7 @@ def test_a_bot_seat_is_seated_as_a_bot(client: TestClient) -> None:
 def test_a_seats_grammatical_gender_reaches_the_state(client: TestClient) -> None:
     """Owner decision 5 / G-42: Hebrew conjugates by the subject's gender."""
     seats = [seat("Ann", grammatical_gender="f"), seat("Ben", grammatical_gender="m")]
-    view = client.post("/games", json=new_game_payload(seats=seats)).json()["view"]
+    view = client.post("/games", json=new_game_payload(seats=seats)).json()
     assert [player["grammatical_gender"] for player in view["state"]["players"]] == ["f", "m"]
 
 
@@ -1033,7 +1035,7 @@ def test_a_saved_game_round_trips_through_load(client: TestClient) -> None:
 
     response = client.post("/games/load", json=saved)
     assert response.status_code == status.HTTP_201_CREATED
-    restored = response.json()["view"]
+    restored = response.json()
     assert restored["state"]["game_id"] == game_id
     assert restored["state"]["phase"] == saved["state"]["phase"]
     assert restored["state"]["players"][0]["position"] == saved["state"]["players"][0]["position"]
@@ -1064,7 +1066,7 @@ def test_a_load_may_replace_the_live_game_when_the_player_says_so(client: TestCl
 
     response = client.post("/games/load?if_exists=replace", json=saved)
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.json()["view"]["state"]["game_id"] == game_id, "a replace keeps the id it took over"
+    assert response.json()["state"]["game_id"] == game_id, "a replace keeps the id it took over"
     assert client.get(f"/games/{game_id}").json()["state"]["phase"] == saved["state"]["phase"]
     assert len(store) == 1, "a replace left two sessions behind"
 
@@ -1076,7 +1078,7 @@ def test_a_load_may_be_seated_beside_the_live_game_as_a_copy(client: TestClient,
 
     response = client.post("/games/load?if_exists=copy", json=saved)
     assert response.status_code == status.HTTP_201_CREATED
-    copied = response.json()["view"]["state"]["game_id"]
+    copied = response.json()["state"]["game_id"]
     assert copied != game_id
     assert is_addressable_game_id(copied), f"a minted id no route can address: {copied!r}"
     assert client.get(f"/games/{game_id}").status_code == status.HTTP_200_OK
@@ -1092,7 +1094,7 @@ def test_a_conflict_policy_only_matters_on_a_conflict(client: TestClient) -> Non
 
     restored = client.post("/games/load?if_exists=copy", json=saved)
     assert restored.status_code == status.HTTP_201_CREATED
-    assert restored.json()["view"]["state"]["game_id"] == game_id, "an unconflicted load minted a new id"
+    assert restored.json()["state"]["game_id"] == game_id, "an unconflicted load minted a new id"
 
 
 def test_an_unknown_conflict_policy_is_a_keyed_422(client: TestClient) -> None:
@@ -1120,7 +1122,7 @@ def test_the_save_carries_the_session_log_and_a_load_puts_it_back(client: TestCl
     assert "seq" not in saved["events"][0], "seq belongs to a session, not to a file"
 
     client.delete(f"/games/{game_id}")
-    restored = client.post("/games/load", json=saved).json()["view"]
+    restored = client.post("/games/load", json=saved).json()
     assert restored["event_cursor"] == len(played)
     replayed = client.get(f"/games/{game_id}?since=0").json()["events"]
     assert [entry["event"] for entry in replayed] == played
@@ -1136,8 +1138,8 @@ def test_a_save_written_before_the_envelope_still_loads(client: TestClient) -> N
 
     response = client.post("/games/load", json=legacy)
     assert response.status_code == status.HTTP_201_CREATED
-    assert response.json()["view"]["state"]["game_id"] == game_id
-    assert response.json()["view"]["event_cursor"] == 0, "a file with no log cannot restore one"
+    assert response.json()["state"]["game_id"] == game_id
+    assert response.json()["event_cursor"] == 0, "a file with no log cannot restore one"
 
 
 def test_a_deeply_nested_save_is_a_keyed_422_and_not_a_traceback(client: TestClient) -> None:
@@ -1406,7 +1408,7 @@ def _create(client: TestClient, **overrides: object) -> dict[str, Any]:
     """
     response = client.post("/games", json=new_game_payload(**overrides))
     assert response.status_code == status.HTTP_201_CREATED, response.text
-    body: dict[str, Any] = response.json()["view"]
+    body: dict[str, Any] = response.json()
     return body
 
 

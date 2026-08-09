@@ -152,6 +152,10 @@ export function makeView(overrides: Partial<GameView> = {}): GameView {
     // Nobody has claimed a seat in a fixture, which is also the shape a game has the moment it is
     // created (ADR-012). A test about the seat picker supplies its own.
     claims: [],
+    // A fixture renders as a normal player, so the default speaker is the host (MON-906): a
+    // spectator default would make every game screen a test renders sprout a seat picker. A test
+    // about a spectator or a claimed seat supplies its own.
+    speaker: { kind: "host" },
     ...overrides,
   };
 }

@@ -66,12 +66,13 @@ describe("a reload of the tab the engine lives in", () => {
   /** A bridge that answers from a store a test can empty, which is what a new heap is. */
   function forgetfulBridge(): PyBridge & { forget: () => void } {
     const held = new Map<string, unknown>();
-    const view = (gameId: string): unknown => ({
+    const view = (gameId: string): Record<string, unknown> => ({
       state: { game_id: gameId, turn_number: 3 },
       board: { id: "classic", tiles: [] },
       legal_commands: [],
       events: [],
       event_cursor: 0,
+      speaker: { kind: "host" },
     });
     const bridge = {
       forget: () => {
@@ -79,17 +80,17 @@ describe("a reload of the tab the engine lives in", () => {
       },
       listBoards: () => Promise.resolve(envelope(200, [{ id: "classic" }])),
       listRulesets: () => Promise.resolve(envelope(200, [{ name: "universal" }])),
-      // Both seating routes answer a `GameCreated` envelope since ADR-012: the view, and the one
-      // host secret this session hands out. The client keeps the secret and returns the view.
+      // Both seating routes answer a `GameCreated` since ADR-012 — a `GameView` *flattened* with
+      // `host_secret` at the top (finding 1). The client splits the secret off and keeps the view.
       createGame: () => {
         held.set("g1", { game_id: "g1", turn_number: 3 });
-        return Promise.resolve(envelope(201, { host_secret: "local-host", view: view("g1") }));
+        return Promise.resolve(envelope(201, { ...view("g1"), host_secret: "local-host" }));
       },
       loadGame: (stateJson: string) => {
         const state = JSON.parse(stateJson) as { game_id: string };
         held.set(state.game_id, state);
         return Promise.resolve(
-          envelope(201, { host_secret: "local-host-restored", view: view(state.game_id) }),
+          envelope(201, { ...view(state.game_id), host_secret: "local-host-restored" }),
         );
       },
       getGame: (gameId: string) =>
@@ -422,5 +423,130 @@ describe("the loading gate", () => {
     );
     expect(await screen.findByText("ready")).toBeInTheDocument();
     expect(start).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * The seat credential across the local build's own timing seams (MON-906 review, findings 5 & 6).
+ *
+ * The local build runs `seat_authority` off, so `""` works for `/save` today — but the ordering
+ * these pin is what makes it correct the day the flag is enforced, and both are timing bugs that no
+ * single-call test sees. The bridges here **record the secret** each call arrives with, which is the
+ * whole point: `rehydrate.test.ts` passes the secret explicitly and so could never have caught
+ * either the empty snapshot or the stale retry.
+ */
+describe("the seat credential across the local transport's timing seams", () => {
+  /** A slot backed by a plain variable, so a test can read what was written. */
+  function memorySlot(): SaveSlot & { value: string | null } {
+    const slot = {
+      value: null as string | null,
+      read: () => slot.value,
+      write: (payload: string) => {
+        slot.value = payload;
+      },
+      clear: () => {
+        slot.value = null;
+      },
+    };
+    return slot;
+  }
+
+  const flatCreated = (gameId: string, hostSecret: string): unknown => ({
+    state: { game_id: gameId, turn_number: 1 },
+    board: { id: "classic", tiles: [] },
+    legal_commands: [],
+    events: [],
+    event_cursor: 0,
+    claims: [],
+    speaker: { kind: "host" },
+    host_secret: hostSecret,
+  });
+
+  it("snapshots a freshly-created game with the minted secret, not the empty one (finding 5)", async () => {
+    // `onMutation` fires from inside the create `fetch`, before `ApiClient` stores the minted secret.
+    // A captured `secrets.get()` would be `""` here and the host-only `/save` would refuse the
+    // snapshot; reading it at *snapshot* time, after the deferred macrotask, presents the real one.
+    const savedWith: string[] = [];
+    const bridge = {
+      listBoards: () => Promise.resolve(envelope(200, [])),
+      listRulesets: () => Promise.resolve(envelope(200, [])),
+      createGame: () => Promise.resolve(envelope(201, flatCreated("g1", "HOST-MINTED"))),
+      loadGame: () => Promise.resolve(envelope(201, flatCreated("g1", "HOST-MINTED"))),
+      getGame: (gameId: string) => Promise.resolve(envelope(200, flatCreated(gameId, ""))),
+      saveGame: (_gameId: string, secret: string) => {
+        savedWith.push(secret);
+        return Promise.resolve(envelope(200, { state: { game_id: "g1" }, events: [] }));
+      },
+      submitCommand: () => Promise.resolve(envelope(200, flatCreated("g1", ""))),
+      validateCommand: () => Promise.resolve(envelope(200, { legal: true })),
+      deleteGame: () => Promise.resolve(envelope(204, null)),
+      claimSeat: () =>
+        Promise.resolve(envelope(201, { seat_secret: "s", view: flatCreated("g1", "") })),
+      releaseSeat: () => Promise.resolve(envelope(204, null)),
+      eventsSince: () => Promise.resolve(envelope(200, { events: [], event_cursor: 0 })),
+      advanceBotsStep: () => Promise.resolve(envelope(200, { done: true })),
+    } as unknown as PyBridge;
+    const slot = memorySlot();
+
+    await localApiClient(bridge, slot).createGame(NEW_GAME);
+    await waitUntil(() => savedWith.length > 0);
+
+    expect(savedWith.every((secret) => secret === "HOST-MINTED")).toBe(true);
+    expect(savedWith).not.toContain("");
+  });
+
+  it("retries a reload restore with the restored session's secret, not the stale one (finding 6)", async () => {
+    // A restored game is a new session with a new authority. The GET that triggered the restore
+    // captured the pre-reload secret in its route closure; re-running it would resolve the host to a
+    // spectator of their own game. The retry must re-match with the freshly-minted secret.
+    const getWith: string[] = [];
+    const held = new Map<string, unknown>([["g1", flatCreated("g1", "")]]);
+    let restored = false;
+    const bridge = {
+      listBoards: () => Promise.resolve(envelope(200, [])),
+      listRulesets: () => Promise.resolve(envelope(200, [])),
+      createGame: () => Promise.resolve(envelope(201, flatCreated("g1", "HOST-OLD"))),
+      loadGame: (saveJson: string) => {
+        restored = true;
+        const state = JSON.parse(saveJson) as { state?: { game_id?: string }; game_id?: string };
+        held.set(state.state?.game_id ?? state.game_id ?? "g1", flatCreated("g1", "HOST-NEW"));
+        return Promise.resolve(envelope(201, flatCreated("g1", "HOST-NEW")));
+      },
+      getGame: (gameId: string, secret: string) => {
+        getWith.push(secret);
+        return Promise.resolve(
+          held.has(gameId) && restored
+            ? envelope(200, flatCreated(gameId, "HOST-NEW"))
+            : envelope(404, { reason_key: "error.game_not_found", params: {} }),
+        );
+      },
+      saveGame: (gameId: string) =>
+        Promise.resolve(
+          held.has(gameId)
+            ? envelope(200, { state: { game_id: gameId }, events: [] })
+            : envelope(404, { reason_key: "error.game_not_found", params: {} }),
+        ),
+      submitCommand: () => Promise.resolve(envelope(200, flatCreated("g1", ""))),
+      validateCommand: () => Promise.resolve(envelope(200, { legal: true })),
+      deleteGame: () => Promise.resolve(envelope(204, null)),
+      claimSeat: () =>
+        Promise.resolve(envelope(201, { seat_secret: "s", view: flatCreated("g1", "") })),
+      releaseSeat: () => Promise.resolve(envelope(204, null)),
+      eventsSince: () => Promise.resolve(envelope(200, { events: [], event_cursor: 0 })),
+      advanceBotsStep: () => Promise.resolve(envelope(200, { done: true })),
+    } as unknown as PyBridge;
+
+    // The slot is seeded with a save for g1 (what a snapshot before the reload wrote), and the store
+    // has forgotten g1 (the new heap). `restored` starts false, so the first GET 404s and triggers
+    // the restore; the retry GET must carry HOST-NEW.
+    const slot = memorySlot();
+    slot.value = JSON.stringify({ state: { game_id: "g1" } });
+
+    const view = await localApiClient(bridge, slot).getGame("g1");
+
+    expect(view.state.game_id).toBe("g1");
+    // The pre-restore GET carried no live secret; the retry carried the freshly-minted one.
+    expect(getWith.at(-1)).toBe("HOST-NEW");
+    expect(getWith).toContain("HOST-NEW");
   });
 });

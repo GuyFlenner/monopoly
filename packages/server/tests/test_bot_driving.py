@@ -132,7 +132,7 @@ class TestABotSeatDoesNotStallTheGame:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("Robo"), seat("Ruti")]))
         assert response.status_code == 201
-        created = response.json()["view"]
+        created = response.json()
         assert _seat_of(created, 0)["is_bot"] is True
 
         # The creation response is the game as created — the bot's turn is not waited for. What matters
@@ -143,7 +143,7 @@ class TestABotSeatDoesNotStallTheGame:
 
     def test_ending_a_human_turn_hands_over_and_comes_back(self, client: TestClient) -> None:
         """The round trip a hotseat game is made of."""
-        created = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), _bot("Robo")])).json()["view"]
+        created = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), _bot("Robo")])).json()
         game_id = created["state"]["game_id"]
         assert _current(created) == 0, "a human in seat one should be asked first"
 
@@ -165,7 +165,7 @@ class TestABotSeatDoesNotStallTheGame:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("A"), _bot("B")]))
         assert response.status_code == 201
-        view = _refetch(client, response.json()["view"]["state"]["game_id"])
+        view = _refetch(client, response.json()["state"]["game_id"])
 
         # An all-bot game has no human to hand back to, so the background task runs to
         # `bot_max_steps_per_call`
@@ -183,7 +183,7 @@ class TestItOnlyMovesForBots:
         # The regression that would be worst: the driver playing a human's turn for them. A game with
         # no bots must come back exactly as it did before MON-304.
         response = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), seat("Dan")]))
-        game_id = response.json()["view"]["state"]["game_id"]
+        game_id = response.json()["state"]["game_id"]
         view = _refetch(client, game_id)
         assert view["events"] == []
         assert _current(view) == 0
@@ -200,7 +200,7 @@ class TestItOnlyMovesForBots:
         driver that looped over `legal_commands` without filtering by seat would happily play the
         human's turn, and every other test in this file would still pass.
         """
-        created = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), _bot("Robo")])).json()["view"]
+        created = client.post("/games", json=new_game_payload(seats=[seat("Ruti"), _bot("Robo")])).json()
         game_id = created["state"]["game_id"]
 
         # Hand over, then read *only* what happened afterwards. Refetching from zero would include the
@@ -261,7 +261,7 @@ class TestEveryLevelIsDriven:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="hard"), seat("Ruti")]))
         assert response.status_code == 201
-        view = _refetch(client, response.json()["view"]["state"]["game_id"])
+        view = _refetch(client, response.json()["state"]["game_id"])
         assert _current(view) == 1, "the hard bot never took its opening turn"
         assert view["events"], "the hard bot's opening turn produced no events at all"
 
@@ -274,7 +274,7 @@ class TestEveryLevelIsDriven:
         """
         response = client.post("/games", json=new_game_payload(seats=[_bot("Brainy", level="normal"), seat("Ruti")]))
         assert response.status_code == 201
-        view = _refetch(client, response.json()["view"]["state"]["game_id"])
+        view = _refetch(client, response.json()["state"]["game_id"])
         assert _current(view) == 1, "the normal bot never took its opening turn"
         assert view["events"], "the normal bot's opening turn produced no events at all"
 

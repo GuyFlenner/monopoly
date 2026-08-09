@@ -90,14 +90,12 @@ from kesef_server.log import configure_logging, get_logger
 from kesef_server.schemas import (
     CommandRequest,
     ErrorResponse,
-    GameCreated,
     IfExists,
     LegalityView,
     NewGameRequest,
     SaveFile,
-    SeatClaimed,
 )
-from kesef_server.sessions import Session, SessionStore, UnknownGameError
+from kesef_server.sessions import SessionStore, UnknownGameError
 
 configure_logging()
 log = get_logger()
@@ -289,7 +287,7 @@ class BrowserHost:
         # before anybody had touched anything. The budget is opened here for the same reason
         # `api.create_game` queues `_advance_bots`: the pump has something to spend.
         self._open_budget(state.game_id)
-        return Reply(CREATED, self._created(session))
+        return Reply(CREATED, _dumped(transport.created(session, enforcing=self._enforcing)))
 
     def load_game(self, save_json: str, secret: str = "", if_exists: str | None = None) -> str:
         """``POST /games/load?if_exists=``. The body is exactly what :meth:`save_game` returned.
@@ -314,11 +312,9 @@ class BrowserHost:
             # `ValueError`, an unknown board raises `BoardDataError`. From the player's side the
             # file does not load, and that is the whole of what there is to say.
             raise errors.save_schema_mismatch() from None
-        session = transport.load(
-            self.store, save, policy, secret=_secret(secret), enforcing=self.config.enforcing_seats
-        )
+        session = transport.load(self.store, save, policy, secret=_secret(secret), enforcing=self._enforcing)
         self._open_budget(session.state.game_id)
-        return Reply(CREATED, self._created(session))
+        return Reply(CREATED, _dumped(transport.created(session, enforcing=self._enforcing)))
 
     def get_game(self, game_id: str, secret: str = "", since: str | int | None = None) -> str:
         """``GET /games/{id}?since=``. Safe to poll, and the reload path for the page.
@@ -332,7 +328,7 @@ class BrowserHost:
         cursor = _since(since)
         session = transport.session(self.store, game_id)
         events = session.events_since(cursor) if cursor is not None else ()
-        return Reply(OK, _dumped(transport.view(session, events, speaker=self._speaker(session, secret))))
+        return Reply(OK, _dumped(transport.viewed(session, _secret(secret), events, enforcing=self._enforcing)))
 
     def save_game(self, game_id: str, secret: str = "") -> str:
         """``GET /games/{id}/save`` — the only answer carrying hidden information (ADR-008 §2).
@@ -349,7 +345,7 @@ class BrowserHost:
 
     def _save_game(self, game_id: str, secret: str) -> Reply:
         session = transport.session(self.store, game_id)
-        transport.require_host(session, _secret(secret), enforcing=self.config.enforcing_seats)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
         return Reply(OK, _dumped(transport.save_file(session)))
 
     def submit_command(self, game_id: str, request_json: str, secret: str = "") -> str:
@@ -361,17 +357,15 @@ class BrowserHost:
         session = transport.session(self.store, game_id)
         # Before `apply`, exactly as in `api.submit_command`: a refusal issued afterwards would be a
         # refusal of a move that had already been made (ADR-012).
-        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self.config.enforcing_seats)
+        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self._enforcing)
         state, events = apply(session.state, transport.stamped(self.store, session, request.command))
         updated = self.store.update(session, state, events)
         # The human's command may have handed the table to a computer — by ending a turn, by
         # declining a purchase into an auction a bot is eligible for, or by proposing a trade a bot
         # must answer. The budget says the pump may run; the page is what runs it.
         self._open_budget(game_id)
-        return Reply(
-            OK,
-            _dumped(transport.view(updated, transport.logged(session, events), speaker=self._speaker(updated, secret))),
-        )
+        tail = transport.logged(session, events)
+        return Reply(OK, _dumped(transport.viewed(updated, _secret(secret), tail, enforcing=self._enforcing)))
 
     def validate_command(self, game_id: str, request_json: str, secret: str = "") -> str:
         """``POST /games/{id}/validate``: would this be accepted? Changes nothing (G-32)."""
@@ -381,7 +375,7 @@ class BrowserHost:
         request = self._command(request_json)
         session = transport.session(self.store, game_id)
         # Scoped like `commands`, so a draft the trade builder calls valid is one that can be sent.
-        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self.config.enforcing_seats)
+        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self._enforcing)
         result = is_legal(session.state, transport.stamped(self.store, session, request.command))
         view = LegalityView(legal=result.legal, reason_key=result.reason_key, params=result.params)
         return Reply(OK, _dumped(view))
@@ -392,7 +386,7 @@ class BrowserHost:
 
     def _delete_game(self, game_id: str, secret: str) -> Reply:
         session = transport.session(self.store, game_id)
-        transport.require_host(session, _secret(secret), enforcing=self.config.enforcing_seats)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
         self.store.delete(game_id)
         self._budget.pop(game_id, None)
         return Reply(NO_CONTENT)
@@ -405,9 +399,7 @@ class BrowserHost:
 
     def _claim_seat(self, game_id: str, player: int) -> Reply:
         session = transport.session(self.store, game_id)
-        secret = transport.claim_seat(session, player)
-        view = transport.view(session, speaker=transport.Seat(player) if self.config.enforcing_seats else None)
-        return Reply(CREATED, _dumped(SeatClaimed(seat_secret=secret, view=view)))
+        return Reply(CREATED, _dumped(transport.claimed(session, player, enforcing=self._enforcing)))
 
     def release_seat(self, game_id: str, player: int, secret: str = "") -> str:
         """``DELETE /games/{id}/seats/{player}/claim``. **Host only**, and idempotent."""
@@ -417,7 +409,7 @@ class BrowserHost:
 
     def _release_seat(self, game_id: str, player: int, secret: str) -> Reply:
         session = transport.session(self.store, game_id)
-        transport.require_host(session, _secret(secret), enforcing=self.config.enforcing_seats)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
         transport.release_seat(session, player)
         return Reply(NO_CONTENT)
 
@@ -482,17 +474,15 @@ class BrowserHost:
 
     # --- Plumbing -----------------------------------------------------------
 
-    def _speaker(self, session: Session, secret: str) -> transport.Speaker | None:
-        """Who this call speaks for, or ``None`` while ``seat_authority`` is off (ADR-012).
+    @property
+    def _enforcing(self) -> bool:
+        """Whether seat authority is in force for this host (ADR-012).
 
-        The mirror of ``api._speaker``, and the reason there are two rather than one: reading the
-        *flag* is a transport's job, and `transport.py` deliberately holds no configuration."""
-        return transport.speaker_for(session, _secret(secret)) if self.config.enforcing_seats else None
-
-    def _created(self, session: Session) -> dict[str, Any]:
-        """A newly seated game and its host secret — ``api._created``'s answer, byte for byte."""
-        view = transport.view(session, speaker=transport.HOST if self.config.enforcing_seats else None)
-        return _dumped(GameCreated(host_secret=session.authority.host_secret, view=view))
+        Read once here rather than spelled ``self.config.enforcing_seats`` at each site, so the flag
+        this build passes to the shared ``transport`` helpers is the same reading everywhere — the
+        mirror of ``api``'s ``config.enforcing_seats`` dependency. `transport.py` holds no
+        configuration, which is why the flag is read in the transport module rather than inside it."""
+        return self.config.enforcing_seats
 
     def _command(self, request_json: str) -> CommandRequest:
         try:

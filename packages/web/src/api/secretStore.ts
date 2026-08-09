@@ -37,6 +37,16 @@ export interface SecretStore {
 }
 
 /**
+ * The `localStorage` namespace every key this app writes shares (MON-906 review, finding 10).
+ *
+ * Renamed from a one-off `kesef.secret.` before this ever shipped: the reload slot is
+ * `kesef-street:local-save` (`local/mode.ts`), the preferences are `kesef-street:*`, and a
+ * credential under a *different* prefix would be a stranded key no cleanup ever swept — orphaned the
+ * day the naming convention was next tidied.
+ */
+export const SECRET_KEY_PREFIX = "kesef-street:secret:";
+
+/**
  * The storage key for one game.
  *
  * Namespaced like every other key this app writes, and **per game** rather than one shared slot:
@@ -45,7 +55,7 @@ export interface SecretStore {
  * like "the server forgot me".
  */
 export function secretKey(gameId: string): string {
-  return `kesef.secret.${gameId}`;
+  return `${SECRET_KEY_PREFIX}${gameId}`;
 }
 
 /** Just enough of `Storage` to be substitutable in a test. */

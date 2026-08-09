@@ -9,7 +9,13 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { browserSecretStore, memorySecretStore, secretKey, type StorageLike } from "./secretStore";
+import {
+  browserSecretStore,
+  memorySecretStore,
+  SECRET_KEY_PREFIX,
+  secretKey,
+  type StorageLike,
+} from "./secretStore";
 
 /** A `Storage` whose every method throws — private mode, as a browser actually behaves. */
 function hostileStorage(): StorageLike {
@@ -34,6 +40,14 @@ function fakeStorage(): StorageLike & { readonly held: Map<string, string> } {
 }
 
 describe("the secret store", () => {
+  it("namespaces its keys under the app's shared prefix (finding 10)", () => {
+    // Every key this app writes is `kesef-street:*` (the reload slot, the preferences). A credential
+    // under a *different* prefix would be a stranded key no cleanup ever swept — orphaned the day the
+    // naming convention was next tidied. Asserted on the literal so a rename that re-strands them fails.
+    expect(SECRET_KEY_PREFIX).toBe("kesef-street:secret:");
+    expect(secretKey("g1")).toBe("kesef-street:secret:g1");
+  });
+
   it("keeps one slot per game, so two games cannot share a credential", () => {
     // A single shared slot would hand the second game's request the first game's secret, which
     // resolves to Spectator and looks exactly like "the server forgot me".

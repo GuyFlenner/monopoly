@@ -81,20 +81,26 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
 
     listBoards: () => record("listBoards", [], () => envelope(200, [{ id: "classic" }])),
     listRulesets: () => record("listRulesets", [], () => envelope(200, [{ name: "universal" }])),
-    // A `GameCreated` envelope since ADR-012: the view, and the one host secret a session hands
-    // out. `HOST_SECRET` is a fixed string so a test can assert the client stored *this* one.
+    // A `GameCreated` since ADR-012 — a `GameView` *flattened* with `host_secret` at the top level
+    // (finding 1). `HOST_SECRET` is a fixed string so a test can assert the client stored *this* one.
     createGame: (requestJson) =>
       record("createGame", [requestJson], () =>
         envelope(201, {
+          state: { game_id: "g1" },
+          event_cursor: 0,
+          claims: [],
+          speaker: { kind: "host" },
           host_secret: HOST_SECRET,
-          view: { state: { game_id: "g1" }, event_cursor: 0, claims: [] },
         }),
       ),
     loadGame: (saveJson, secret, ifExists) =>
       record("loadGame", [saveJson, secret, ifExists], () =>
         envelope(201, {
+          state: { game_id: "g1" },
+          event_cursor: 0,
+          claims: [],
+          speaker: { kind: "host" },
           host_secret: HOST_SECRET,
-          view: { state: { game_id: "g1" }, event_cursor: 0, claims: [] },
         }),
       ),
     getGame: (gameId, secret, since) =>

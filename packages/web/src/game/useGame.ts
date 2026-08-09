@@ -73,10 +73,18 @@ export interface UseGameResult {
    */
   readonly claims: readonly SeatClaimView[];
   /**
-   * Whether this browser already speaks for a seat in this game.
+   * Whether this connection already speaks for a seat in this game (ADR-012, MON-906).
    *
-   * A boolean rather than the credential, deliberately: the seat picker needs to know whether to
-   * offer itself, and a secret that reached a component would sooner or later reach a prop.
+   * Read from `view.speaker` — the server's projection of who this connection is — **not** from
+   * whether a secret sits in `localStorage`. That is the root-cause fix (MON-906 review): a stale,
+   * voided or replaced secret resolves to `spectator` on the server, so it surfaces here as
+   * `seated === false` in the very next view and the seat picker reappears, rather than leaving the
+   * holder stranded believing they hold a seat the server has forgotten. A missing `speaker` (an
+   * old server across a deploy skew) is treated as seated, since that server has no picker concept
+   * and enforces nothing.
+   *
+   * A boolean rather than the speaker object, so a component still cannot reach for a credential —
+   * there is none to reach for now, but the shape keeps it that way.
    */
   readonly seated: boolean;
   /** Take a free seat. Resolves with the view filtered to it; rejects with an `ApiError`. */
@@ -144,6 +152,26 @@ export function useGame(): UseGameResult {
     () => queue.log,
   );
 
+  // Who the server says this connection is (MON-906 review root-cause fix). `undefined` both before
+  // the first view arrives and — at runtime, though the required type does not admit it — when an
+  // old server across a deploy skew omits the field. The intermediate name is what lets the
+  // `=== undefined` guard read the runtime absence without eslint proving it impossible from the type.
+  const speaker = view.data?.speaker;
+
+  // Sweep a *confirmed-dead* credential (ADR-012, MON-906 review, finding 10). If the server resolves
+  // this connection to a spectator, any secret this browser still holds for the game is one the
+  // server no longer recognises — voided by a release, or lost to a restart — so it is dropped rather
+  // than left to accrue as an orphan. This is the right place to forget, not "on leave": a host who
+  // leaves and comes back, or loads a save of their own still-live game, needs the secret kept, and
+  // only the server can say it is dead. `forgetSeat` is idempotent, so a spectator who never held one
+  // is a no-op.
+  const isSpectator = speaker !== undefined && speaker.kind === "spectator";
+  useEffect(() => {
+    if (isSpectator) {
+      client.forgetSeat(gameId);
+    }
+  }, [isSpectator, client, gameId]);
+
   const send = useCallback((command: Command) => commands.mutateAsync(command), [commands]);
   /**
    * Take a seat, and render from the view the claim answered with (ADR-012).
@@ -177,7 +205,7 @@ export function useGame(): UseGameResult {
     validate,
     events,
     claims: view.data?.claims ?? NO_CLAIMS,
-    seated: client.holdsSeat(gameId),
+    seated: speaker === undefined || speaker.kind !== "spectator",
     claimSeat,
     refetch,
     status: {

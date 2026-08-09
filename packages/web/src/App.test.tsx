@@ -359,26 +359,38 @@ describe("App — starting a game for people elsewhere", () => {
  * holds a seat rather than because a component remembered it had been pressed.
  */
 describe("App — following a link into somebody else's game", () => {
+  // The guest arrives as a spectator — the *server's* answer to "who are you", read off
+  // `view.speaker` rather than from storage (MON-906 review root-cause fix). That is what puts the
+  // picker on screen; a host-speaker view would suppress it.
   const SPECTATING = gameView({}, []);
-  const SEATED = gameView({}, [ROLL]);
+  const asSpectator = (claims: { player: number; claimed: boolean }[]) => ({
+    ...SPECTATING,
+    claims,
+    speaker: { kind: "spectator" as const },
+  });
+  // The claim answers with the seat's own view: speaker is now this seat, so the picker hides.
+  const CLAIMED_VIEW = {
+    ...gameView({}, [ROLL]),
+    claims: [],
+    speaker: { kind: "seat" as const, player: 1 },
+  };
 
-  function joinEdge(claimed: unknown) {
+  function joinEdge(claimResponse: unknown) {
     return makeEdge({
       "GET /api/boards": ok(BOARDS),
       "GET /api/rulesets": ok(RULESETS),
-      "GET /api/games/g1": ok({
-        ...SPECTATING,
-        claims: [
+      "GET /api/games/g1": ok(
+        asSpectator([
           { player: 0, claimed: true },
           { player: 1, claimed: false },
-        ],
-      }),
-      "POST /api/games/g1/seats/1/claim": { status: 201, body: claimed },
+        ]),
+      ),
+      "POST /api/games/g1/seats/1/claim": { status: 201, body: claimResponse },
     });
   }
 
   it("offers the free seat, takes it, and plays from the view the claim answered with", async () => {
-    const edge = joinEdge({ seat_secret: "seat-1-secret", view: { ...SEATED, claims: [] } });
+    const edge = joinEdge({ seat_secret: "seat-1-secret", view: CLAIMED_VIEW });
     openGameUrl("g1");
     renderApp(edge);
 
@@ -399,7 +411,7 @@ describe("App — following a link into somebody else's game", () => {
 
   it("never offers a seat somebody else is already in", async () => {
     openGameUrl("g1");
-    renderApp(joinEdge({ seat_secret: "s", view: SEATED }));
+    renderApp(joinEdge({ seat_secret: "s", view: CLAIMED_VIEW }));
 
     await screen.findByTestId("seat-claim");
     expect(screen.queryByTestId("claim-seat-0")).not.toBeInTheDocument();
@@ -412,7 +424,7 @@ describe("App — following a link into somebody else's game", () => {
     const edge = makeEdge({
       "GET /api/boards": ok(BOARDS),
       "GET /api/rulesets": ok(RULESETS),
-      "GET /api/games/g1": ok({ ...SPECTATING, claims: [{ player: 1, claimed: false }] }),
+      "GET /api/games/g1": ok(asSpectator([{ player: 1, claimed: false }])),
       "POST /api/games/g1/seats/1/claim": refusal(409, "error.seat_taken", { player: 1 }),
     });
     openGameUrl("g1");

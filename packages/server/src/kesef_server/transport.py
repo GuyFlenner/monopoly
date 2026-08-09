@@ -50,13 +50,16 @@ from kesef_server.bots import drive, seats_that_proposed_this_turn
 from kesef_server.schemas import (
     BoardSummary,
     BoardView,
+    GameCreated,
     GameStateView,
     GameView,
     IfExists,
     LoggedEvent,
     RulesetView,
     SaveFile,
+    SeatClaimed,
     SeatClaimView,
+    SpeakerView,
     is_addressable_game_id,
 )
 from kesef_server.sessions import (
@@ -113,9 +116,9 @@ def load(
     save: SaveFile,
     if_exists: IfExists,
     *,
+    enforcing: bool,
     client_id: str | None = None,
     secret: str | None = None,
-    enforcing: bool = False,
 ) -> Session:
     """Seat a restored game, answering the conflict the player was asked about (ADR-011).
 
@@ -229,16 +232,35 @@ def speaker_for(held: Session, secret: str | None) -> Speaker:
     path. Every comparison is :func:`secrets.compare_digest`, and the loop over claimed seats does
     not stop early on a mismatch for the same reason — a resolver that returned as soon as a byte
     differed would leak which prefix was right, one request at a time.
+
+    **Under the authority's lock** (MON-906 review, finding 3). This runs on a threadpool worker for
+    every sync route, so iterating ``seat_secrets`` here while :func:`claim_seat` inserts into it on
+    another thread is a ``dictionary changed size during iteration`` 500 without the lock — a read
+    path made to crash by a concurrent write. A snapshot copy under the lock would do as well; the
+    lock is simpler and the loop is over at most six entries.
     """
     if secret is None or secret == "":
         return SPECTATOR
     if _same_secret(secret, held.authority.host_secret):
         return HOST
     found: Speaker = SPECTATOR
-    for player, seat_secret in held.authority.seat_secrets.items():
-        if _same_secret(secret, seat_secret):
-            found = Seat(player)
+    with held.authority.lock:
+        for player, seat_secret in held.authority.seat_secrets.items():
+            if _same_secret(secret, seat_secret):
+                found = Seat(player)
     return found
+
+
+def speaker_view(speaker: Speaker) -> SpeakerView:
+    """The wire projection of a resolved speaker (ADR-012, MON-906).
+
+    The one place :class:`Speaker` becomes :class:`~kesef_server.schemas.SpeakerView`, so the client
+    can read who it speaks for rather than infer it from ``localStorage``. Carries the seat number
+    only for a :class:`Seat`: a host speaks for many and a spectator for none.
+    """
+    if isinstance(speaker, Seat):
+        return SpeakerView(kind="seat", player=speaker.player)
+    return SpeakerView(kind="host" if isinstance(speaker, Host) else "spectator")
 
 
 def _human_seats(held: Session) -> tuple[PlayerState, ...]:
@@ -275,8 +297,10 @@ def require_seat(held: Session, secret: str | None, player: int, *, enforcing: b
     test asserts the cursor is unmoved, which is what makes the ordering checkable.
 
     ``enforcing`` is the rollout flag (``Settings.enforcing_seats``), read by the caller and passed
-    in so this module stays free of configuration the way its bot functions do. Off, this returns
-    without looking at anything at all.
+    in so this module stays free of configuration the way its bot functions do. It has **no default**
+    (MON-906 review, finding 8): a security guard that fails open when a caller forgets a keyword is
+    the one default worth refusing to provide, so an omission is a ``TypeError`` at import-adjacent
+    call time rather than a silent no-op in production. Off, this returns without looking at anything.
     """
     if not enforcing:
         return
@@ -285,7 +309,11 @@ def require_seat(held: Session, secret: str | None, player: int, *, enforcing: b
 
 
 def require_host(held: Session, secret: str | None, *, enforcing: bool) -> None:
-    """The guard on ``/save``, ``DELETE`` and ``if_exists=replace``. See :func:`errors.host_only`."""
+    """The guard on ``/save``, ``DELETE`` and ``if_exists=replace``. See :func:`errors.host_only`.
+
+    ``enforcing`` has no default, for the reason :func:`require_seat` gives: a fail-open security
+    guard is not a thing to make convenient to reach by accident.
+    """
     if not enforcing:
         return
     if not isinstance(speaker_for(held, secret), Host):
@@ -295,10 +323,17 @@ def require_host(held: Session, secret: str | None, *, enforcing: bool) -> None:
 def claim_seat(held: Session, player: int) -> str:
     """Take one unclaimed human seat, first come first served, and mint its secret.
 
-    Deliberately **not** guarded: anybody holding the game id may claim, because the id *is* the
-    invitation — "the link is how you join" is the product, and a second credential to get a seat
-    would be a lobby nobody asked for (ADR-012 §Open questions 1, answered "one link" by default).
-    The bound on that openness is the id itself, which is unguessable and shared on purpose.
+    Deliberately **not** authority-guarded: anybody holding the game id may claim, because the id
+    *is* the invitation — "the link is how you join" is the product, and a second credential to get a
+    seat would be a lobby nobody asked for (ADR-012 §Open questions 1, answered "one link" by
+    default). The bound on that openness is the id itself, which is unguessable and shared on purpose.
+
+    But it **is** taken under the authority's lock (MON-906 review, finding 3), and the whole
+    check-then-mint-then-set is one critical section rather than three statements. On the threadpool
+    two requests for one seat otherwise both pass the "is it free" test before either writes, and the
+    second silently overwrites the first's secret — measured at 93 double-claims in 2000 concurrent
+    attempts. Inside the lock the second finds the seat already in ``seat_secrets`` and is refused,
+    so exactly one caller wins.
 
     Two refusals, both keyed: a seat that is not a seat at this table, and a seat somebody
     (or something) already occupies.
@@ -306,10 +341,11 @@ def claim_seat(held: Session, player: int) -> str:
     seated = next((seat for seat in held.state.players if seat.id == player), None)
     if seated is None:
         raise errors.unknown_player(player)
-    if seated.kind.is_bot or player in held.authority.seat_secrets:
-        raise errors.seat_taken(player)
-    secret = mint_secret()
-    held.authority.seat_secrets[player] = secret
+    with held.authority.lock:
+        if seated.kind.is_bot or player in held.authority.seat_secrets:
+            raise errors.seat_taken(player)
+        secret = mint_secret()
+        held.authority.seat_secrets[player] = secret
     return secret
 
 
@@ -322,8 +358,12 @@ def release_seat(held: Session, player: int) -> None:
     and the two would want different preconditions.
 
     Idempotent: releasing an unclaimed seat is not an error, it is the state the caller asked for.
+
+    Under the authority's lock (MON-906 review, finding 3), so a release racing a claim or a speaker
+    resolution cannot mutate the dict mid-read on another thread.
     """
-    held.authority.seat_secrets.pop(player, None)
+    with held.authority.lock:
+        held.authority.seat_secrets.pop(player, None)
 
 
 def claims(held: Session) -> tuple[SeatClaimView, ...]:
@@ -332,10 +372,14 @@ def claims(held: Session) -> tuple[SeatClaimView, ...]:
     Derived from the authority on every projection rather than tracked beside it, for the reason
     ``SessionStore.held_by`` gives about counting rather than tallying: a derived answer cannot
     disagree with the thing it describes.
+
+    The set of taken seats is snapshotted under the authority's lock, so a projection built while a
+    claim is landing on another thread reads a consistent picture rather than a dict mid-insert
+    (MON-906 review, finding 3).
     """
-    return tuple(
-        SeatClaimView(player=seat.id, claimed=seat.id in held.authority.seat_secrets) for seat in _human_seats(held)
-    )
+    with held.authority.lock:
+        taken = frozenset(held.authority.seat_secrets)
+    return tuple(SeatClaimView(player=seat.id, claimed=seat.id in taken) for seat in _human_seats(held))
 
 
 # --- Projections ------------------------------------------------------------
@@ -372,22 +416,29 @@ def rulesets() -> list[RulesetView]:
     return [RulesetView.from_ruleset(Ruleset.by_name(name), universal) for name in RulesetName]
 
 
-def view(held: Session, events: tuple[LoggedEvent, ...] = (), *, speaker: Speaker | None = None) -> GameView:
+def view(held: Session, events: tuple[LoggedEvent, ...] = (), *, speaker: Speaker, enforcing: bool) -> GameView:
     """The projection. Every field is a copy or an engine call (ADR-008).
 
-    ``speaker`` narrows ``legal_commands`` to the seats this connection may act for (ADR-012). Note
-    where the narrowing is and is not: ``legal_commands(state)`` is still asked of the state alone,
-    so ADR-005's soundness and completeness properties — stated over the state — are untouched, and
-    what changes is which of its answers this *caller* is shown. That distinction is the reason
-    ADR-012 rejected putting a credential on the ``GameState``: there, ``legal_commands`` itself
-    would have become caller-dependent and the property suite would have quietly stopped meaning
-    anything.
+    Two independent things ``speaker`` does, and keeping them independent is the MON-906 review's
+    root-cause fix:
 
-    ``None`` is "authority is not in force" — the ``seat_authority=off`` rollout position — and
-    yields the unfiltered list this function has always returned.
+    * It is **always** reported, as ``GameView.speaker``, so the client reads who it speaks for
+      rather than inferring it from ``localStorage``. A voided or replaced secret resolves to
+      ``spectator`` here, so the seat picker reappears in the very next view — the self-heal.
+    * It narrows ``legal_commands`` **only when ``enforcing``**. ``legal_commands(state)`` is still
+      asked of the state alone, so ADR-005's soundness and completeness properties — stated over the
+      state — are untouched, and what changes is which of its answers this *caller* is shown. That
+      distinction is the reason ADR-012 rejected putting a credential on the ``GameState``: there,
+      ``legal_commands`` itself would become caller-dependent and the property suite would quietly
+      stop meaning anything.
+
+    ``enforcing`` off is the ``seat_authority=off`` rollout position: the list is unfiltered, exactly
+    what this function returned before MON-906 — but the ``speaker`` field is still the true speaker,
+    which is what lets the client start reading it *before* the flag flips. Required, no default, for
+    the reason :func:`require_seat` gives about a projection that must not silently stop filtering.
     """
     offered = legal_commands(held.state)
-    mine = offered if speaker is None else tuple(one for one in offered if speaks_for(held, speaker, one.player))
+    mine = tuple(one for one in offered if speaks_for(held, speaker, one.player)) if enforcing else offered
     return GameView(
         board=BoardView.from_board(held.state.board),
         state=GameStateView.from_state(held.state),
@@ -395,7 +446,44 @@ def view(held: Session, events: tuple[LoggedEvent, ...] = (), *, speaker: Speake
         events=events,
         event_cursor=held.cursor,
         claims=claims(held),
+        speaker=speaker_view(speaker),
     )
+
+
+def viewed(held: Session, secret: str | None, events: tuple[LoggedEvent, ...] = (), *, enforcing: bool) -> GameView:
+    """The read path both transports share: resolve the speaker from the secret, then project.
+
+    One function so ``api.py`` and ``browser.py`` stop each spelling "resolve the speaker, decide
+    whether to filter by the flag, build the view" (MON-906 review, finding 9). It also resolves the
+    speaker *once* — the previous shape resolved it in the route and again inside the projection.
+    """
+    return view(held, events, speaker=speaker_for(held, secret), enforcing=enforcing)
+
+
+def created(held: Session, *, enforcing: bool) -> GameCreated:
+    """A newly seated game and the one host secret for it (ADR-012).
+
+    Both ``POST /games`` and ``POST /games/load`` answer this, through one function, because "the
+    creator is handed the host secret" is a property of *seating a session* rather than of either
+    route — and a second spelling is how a load ends up returning a game its own client cannot play.
+    The view is the host's, since that is who is reading it: a bot seat's moves are already absent
+    from the first frame rather than offered for one render.
+
+    A :class:`GameCreated` is a :class:`GameView` plus ``host_secret`` (finding 1), so the view's
+    fields are copied up verbatim — an old cached client still reads ``state.game_id`` off the top.
+    """
+    v = view(held, speaker=HOST, enforcing=enforcing)
+    return GameCreated(host_secret=held.authority.host_secret, **dict(v))
+
+
+def claimed(held: Session, player: int, *, enforcing: bool) -> SeatClaimed:
+    """Take one seat under the authority lock, then project the view as that seat (ADR-012).
+
+    The speaker is ``Seat(player)`` rather than the secret just minted, because this response *is*
+    the answer to this claim and resolving would ask the session a question already answered.
+    """
+    secret = claim_seat(held, player)
+    return SeatClaimed(seat_secret=secret, view=view(held, speaker=Seat(player), enforcing=enforcing))
 
 
 def save_file(held: Session) -> SaveFile:

@@ -193,9 +193,9 @@ class Pair:
     def create(self, **overrides: Any) -> Answer:
         """``POST /games``, with the two host secrets remembered and masked out of the comparison.
 
-        The answer handed back is the ``GameCreated`` envelope with ``host_secret`` masked, so a test
-        still reads ``[1]["view"]`` for the opening view and cannot accidentally assert on a value
-        that is random by design.
+        The answer handed back is the ``GameCreated`` — a ``GameView`` flattened with ``host_secret``
+        (finding 1) — with ``host_secret`` masked, so a test reads the view fields off the top level
+        and cannot accidentally assert on a value that is random by design.
         """
         payload = _payload(**overrides)
         over_http = _response(self.http.post("/games", json=payload))
@@ -274,11 +274,9 @@ class Pair:
         """
         over_http = _response(self.http.post("/games/load?if_exists=copy", json=save))
         locally = _envelope(self.facade.load_game(json.dumps(save), "", "copy"))
-        ids = (over_http[1]["view"]["state"]["game_id"], locally[1]["view"]["state"]["game_id"])
-        masked = [
-            (status, _mask(body, "host_secret") | {"view": _with_game_id(body["view"], MASKED)})
-            for status, body in (over_http, locally)
-        ]
+        ids = (over_http[1]["state"]["game_id"], locally[1]["state"]["game_id"])
+        # Flat `GameCreated` (finding 1): mask both the random host secret and the minted top-level id.
+        masked = [(status, _with_game_id(_mask(body, "host_secret"), MASKED)) for status, body in (over_http, locally)]
         return self.same("POST /games/load?if_exists=copy", masked[0], masked[1]), ids
 
     def get(self, game_id: str, since: int | str | None = None, who: Held | None = None) -> Answer:
@@ -419,7 +417,7 @@ def test_the_ruleset_list_matches(pair: PairFactory) -> None:
 
 def test_creating_a_game_matches(pair: PairFactory) -> None:
     status, created = pair().create()
-    view = created["view"]
+    view = created  # flat GameCreated (finding 1): the view fields are on it directly
     assert status == 201
     assert view["state"]["game_id"] == GAME_ID
     assert view["legal_commands"] == [{"kind": "roll_dice", "player": 0}]
@@ -535,8 +533,8 @@ def test_a_saved_game_loads_the_same_way(pair: PairFactory) -> None:
 
     status, restored = both.load(saved)
     assert status == 201
-    assert restored["view"]["state"]["game_id"] == GAME_ID
-    assert restored["view"]["state"]["phase"] == both.get(GAME_ID)[1]["state"]["phase"]
+    assert restored["state"]["game_id"] == GAME_ID
+    assert restored["state"]["phase"] == both.get(GAME_ID)[1]["state"]["phase"]
 
 
 def test_a_save_that_is_not_a_game_is_the_same_refusal(pair: PairFactory) -> None:
@@ -573,7 +571,7 @@ def test_the_save_carries_the_log_and_the_log_comes_back_with_it(pair: PairFacto
     status, restored = both.load(saved)
     assert status == 201
     assert [entry["event"]["type"] for entry in both.get(GAME_ID, 0)[1]["events"]] == played
-    assert restored["view"]["event_cursor"] == len(played), "the restored log was not sequenced 1..N"
+    assert restored["event_cursor"] == len(played), "the restored log was not sequenced 1..N"
 
 
 def test_a_bare_gamestate_still_loads_on_both_transports(pair: PairFactory) -> None:
@@ -586,8 +584,8 @@ def test_a_bare_gamestate_still_loads_on_both_transports(pair: PairFactory) -> N
 
     status, restored = both.load(legacy)
     assert status == 201
-    assert restored["view"]["state"]["game_id"] == GAME_ID
-    assert restored["view"]["event_cursor"] == 0, "a file with no log cannot restore one"
+    assert restored["state"]["game_id"] == GAME_ID
+    assert restored["event_cursor"] == 0, "a file with no log cannot restore one"
 
 
 def test_the_three_conflict_policies_answer_the_same_way(pair: PairFactory) -> None:
@@ -607,7 +605,7 @@ def test_the_three_conflict_policies_answer_the_same_way(pair: PairFactory) -> N
     assert status == 201
     for minted in (http_id, local_id):
         assert minted.startswith("game-") and minted != GAME_ID
-    assert copied["view"]["state"]["game_id"] == MASKED  # masked; the ids themselves are above
+    assert copied["state"]["game_id"] == MASKED  # masked; the ids themselves are above
     assert both.get(GAME_ID)[0] == 200, "the copy ended the game it was supposed to leave alone"
 
 
@@ -944,7 +942,7 @@ def test_the_host_secret_is_minted_by_both_and_serialized_by_neither(enforcing: 
     assert created["host_secret"] == MASKED, "masked for the comparison; the real ones are on the Pair"
     for secret in both.host:
         assert len(secret) == 32, "16 bytes of hex — sessions.SECRET_BYTES, on both sides"
-        assert secret not in json.dumps(created["view"])
+        assert secret not in json.dumps(created)
     assert both.host.http != both.host.local, "each transport draws from its own `secrets`"
 
 

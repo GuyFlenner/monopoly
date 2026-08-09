@@ -506,7 +506,7 @@
           "game"
         ],
         "summary": "Claim Seat",
-        "description": "Take one unclaimed human seat and receive the secret that speaks for it (ADR-012).\n\nUnauthenticated on purpose: the game id *is* the invitation, so anybody holding the link may\nclaim a free seat, first come first served. See :func:`transport.claim_seat`.\n\nThe returned view is already filtered to the claimed seat, so the joiner's first frame is the\nframe they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of\n``view``, never a field inside it.",
+        "description": "Take one unclaimed human seat and receive the secret that speaks for it (ADR-012).\n\nUnauthenticated on purpose: the game id *is* the invitation, so anybody holding the link may\nclaim a free seat, first come first served. See :func:`transport.claim_seat`.\n\nThe returned view is already filtered to the claimed seat, so the joiner's first frame is the\nframe they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of\n``view``, never a field inside it. The claim itself is taken under the authority's lock, so two\nrequests for one seat resolve to exactly one winner (finding 3); see :func:`transport.claimed`.",
         "operationId": "claim_seat_games__game_id__seats__player__claim_post",
         "parameters": [
           {
@@ -561,6 +561,16 @@
           },
           "422": {
             "description": "`error.unknown_player` — no such seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
             "content": {
               "application/json": {
                 "schema": {
@@ -624,6 +634,16 @@
           },
           "403": {
             "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2297,21 +2317,135 @@
       },
       "GameCreated": {
         "properties": {
+          "board": {
+            "$ref": "#/components/schemas/BoardView"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GameStateView"
+          },
+          "legal_commands": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RollDice"
+                },
+                {
+                  "$ref": "#/components/schemas/EndTurn"
+                },
+                {
+                  "$ref": "#/components/schemas/BuyProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclinePurchase"
+                },
+                {
+                  "$ref": "#/components/schemas/PlaceBid"
+                },
+                {
+                  "$ref": "#/components/schemas/WithdrawFromAuction"
+                },
+                {
+                  "$ref": "#/components/schemas/BuildHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/SellHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/MortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/UnmortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/ProposeTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/RespondToTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/CancelTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/PayJailFine"
+                },
+                {
+                  "$ref": "#/components/schemas/UseJailCard"
+                },
+                {
+                  "$ref": "#/components/schemas/RollForJail"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclareBankruptcy"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "build_house": "#/components/schemas/BuildHouse",
+                  "buy_property": "#/components/schemas/BuyProperty",
+                  "cancel_trade": "#/components/schemas/CancelTrade",
+                  "declare_bankruptcy": "#/components/schemas/DeclareBankruptcy",
+                  "decline_purchase": "#/components/schemas/DeclinePurchase",
+                  "end_turn": "#/components/schemas/EndTurn",
+                  "mortgage_property": "#/components/schemas/MortgageProperty",
+                  "pay_jail_fine": "#/components/schemas/PayJailFine",
+                  "place_bid": "#/components/schemas/PlaceBid",
+                  "propose_trade": "#/components/schemas/ProposeTrade",
+                  "respond_to_trade": "#/components/schemas/RespondToTrade",
+                  "roll_dice": "#/components/schemas/RollDice",
+                  "roll_for_jail": "#/components/schemas/RollForJail",
+                  "sell_house": "#/components/schemas/SellHouse",
+                  "unmortgage_property": "#/components/schemas/UnmortgageProperty",
+                  "use_jail_card": "#/components/schemas/UseJailCard",
+                  "withdraw_from_auction": "#/components/schemas/WithdrawFromAuction"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Legal Commands"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/LoggedEvent"
+            },
+            "type": "array",
+            "title": "Events",
+            "default": []
+          },
+          "event_cursor": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Cursor",
+            "default": 0
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/SeatClaimView"
+            },
+            "type": "array",
+            "title": "Claims",
+            "default": []
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/SpeakerView",
+            "default": {
+              "kind": "host"
+            }
+          },
           "host_secret": {
             "type": "string",
             "title": "Host Secret"
-          },
-          "view": {
-            "$ref": "#/components/schemas/GameView"
           }
         },
         "type": "object",
         "required": [
-          "host_secret",
-          "view"
+          "board",
+          "state",
+          "legal_commands",
+          "host_secret"
         ],
         "title": "GameCreated",
-        "description": "``POST /games`` and ``POST /games/load``: the new game, and the one credential for it.\n\nThe envelope exists because the host secret has exactly one moment at which it can be handed\nover — the moment the session is minted — and no route will ever return it again (ADR-012).\nThere is no recovery in v1: a lost host secret is the same class of loss as a lost save file,\nand turning it into a recoverable thing is a product feature rather than a patch.\n\nA ``load`` answers this too, which the ADR does not spell out but the alternative makes plain:\na restored game is a *new session* with a new authority, so a loader handed a bare ``GameView``\nwould be locked out of the game they had just restored the instant the flag was flipped.\n\n**This is a shape change.** ``POST /games`` used to answer a bare ``GameView``; a client now\nreads ``created.view``. That is why the contract regenerates in the same commit and why the\nrollout flag is separate from it — the shape lands with a client that understands it, and the\n*enforcement* lands later."
+        "description": "``POST /games`` and ``POST /games/load``: a :class:`GameView`, plus the one credential for it.\n\nThe host secret has exactly one moment at which it can be handed over — the moment the session is\nminted — and no route returns it again (ADR-012). A ``load`` answers this too, which the ADR does\nnot spell out but the alternative makes plain: a restored game is a *new session* with a new\nauthority, so a loader handed a bare ``GameView`` would be locked out of the game it had just\nrestored the instant the flag was flipped.\n\n**A subclass of ``GameView``, deliberately, and that is the deploy-skew fix** (MON-906 review,\nfinding 1). The response carries every ``GameView`` field at the top level *and* ``host_secret``,\nso it is a superset that reads correctly in both skew directions across a non-atomic Pages/Render\ndeploy: an old cached client reads ``state.game_id`` off the top level exactly as it always did,\nand a new client reads ``host_secret``. Nothing the old client depends on was moved or removed,\nso ``config.py``'s \"an old cached client keeps working\" is true at merge *and* across the flip —\nwhich a nested ``{host_secret, view}`` envelope could not promise, since it relocated\n``state.game_id`` under ``view`` and would 404 every pre-deploy client the moment it shipped.\n\n``host_secret`` is the one field of this model that must never appear in a plain ``GameView``; it\nlives here because this response is the single place a credential is *meant* to cross the wire."
       },
       "GameEnded": {
         "properties": {
@@ -2803,6 +2937,12 @@
             "type": "array",
             "title": "Claims",
             "default": []
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/SpeakerView",
+            "default": {
+              "kind": "host"
+            }
           }
         },
         "type": "object",
@@ -4441,7 +4581,7 @@
           "view"
         ],
         "title": "SeatClaimed",
-        "description": "``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.\n\n``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame\nafter claiming is the frame they will play from — one round trip rather than a claim followed\nby a refetch that renders an empty action bar in between."
+        "description": "``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.\n\nA nested envelope rather than a ``GameView`` subclass like :class:`GameCreated`, because this is\na **new** route — no cached client calls it, so there is no old top-level shape to stay\ncompatible with, and ``seat_secret`` reads more honestly as a sibling of the view than as a field\nsmuggled into it.\n\n``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame\nafter claiming is the frame they will play from — one round trip rather than a claim followed\nby a refetch that renders an empty action bar in between."
       },
       "SeatConfig": {
         "properties": {
@@ -4550,6 +4690,36 @@
           "via"
         ],
         "title": "SentToJail"
+      },
+      "SpeakerView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "host",
+              "seat",
+              "spectator"
+            ],
+            "title": "Kind"
+          },
+          "player": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "SpeakerView",
+        "description": "Who **this connection** speaks for, resolved from its secret (ADR-012, MON-906).\n\nThe projection's answer to \"who am I here\", added so the client stops inferring it from what it\nput in ``localStorage`` (MON-906 review, the root-cause fix). Three kinds mirror the transport's\nthree speakers:\n\n* ``host`` — holds the host secret; speaks for every unclaimed human seat.\n* ``seat`` — holds a seat secret; ``player`` names the one seat it is.\n* ``spectator`` — holds nothing this session recognises; the whole board, no buttons.\n\n**This is the self-heal.** A secret that has been voided (the host released the seat), or that\nbelongs to a session a load replaced, resolves to ``spectator`` in the very next view — so the\nseat picker reappears and the holder can re-claim, rather than being stranded holding a string\nthe server has forgotten. It is a *projection*, not a credential: it carries no secret, and it\nis computed the same way on both transports (:func:`kesef_server.transport.speaker_for`)."
       },
       "TileKind": {
         "type": "string",

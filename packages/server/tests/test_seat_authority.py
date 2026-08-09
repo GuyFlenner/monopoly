@@ -27,14 +27,17 @@ checked. Four things it is arranged to keep honest:
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
-from conftest import new_game_payload, seat
+from conftest import minimal_state, new_game_payload, seat
 from fastapi.testclient import TestClient
 
+import kesef_server.transport as transport
 from kesef_server.api import app, get_settings, get_store
 from kesef_server.config import Settings
+from kesef_server.errors import ApiError
 from kesef_server.sessions import SessionStore
 
 TWO_HUMANS: dict[str, Any] = new_game_payload()
@@ -43,12 +46,14 @@ below reads as "two people, one link"."""
 
 
 def gid(created: dict[str, Any]) -> str:
-    """The game id inside a ``GameCreated`` envelope.
+    """The game id inside a ``GameCreated`` response.
 
-    A function rather than a subscript chain repeated fifteen times, and it names the shape change:
-    ``POST /games`` used to answer a bare ``GameView`` and now answers ``{host_secret, view}``.
+    A function rather than a subscript chain repeated fifteen times, and it names the shape (MON-906
+    review, finding 1): ``GameCreated`` is a ``GameView`` *flattened* with ``host_secret`` at the top
+    level, so ``state.game_id`` is where a bare view always had it — which is the whole point, since
+    that is what keeps an old cached client reading across a deploy skew.
     """
-    return str(created["view"]["state"]["game_id"])
+    return str(created["state"]["game_id"])
 
 
 def bearer(secret: str) -> dict[str, str]:
@@ -105,7 +110,7 @@ def test_a_guest_cannot_act_for_a_seat_it_did_not_claim(enforcing: TestClient) -
     assert response.json()["reason_key"] == "error.seat_not_yours"
     assert response.json()["params"]["player"] == 0
     # The whole of "before the engine": a refusal that came after `apply` would have moved this.
-    assert cursor_of(enforcing, gid(created)) == before == created["view"]["event_cursor"]
+    assert cursor_of(enforcing, gid(created)) == before == created["event_cursor"]
 
 
 def test_the_host_still_plays_every_unclaimed_seat(enforcing: TestClient) -> None:
@@ -568,3 +573,192 @@ def test_a_host_secret_from_another_game_does_not_speak_here(enforcing: TestClie
     create(enforcing, game_id="two")
     stolen = enforcing.get("/games/two/save", headers=bearer(first["host_secret"]))
     assert (stolen.status_code, stolen.json()["reason_key"]) == (403, "error.host_only")
+
+
+# --- The review's findings (2026-08-09) -------------------------------------
+
+
+def test_the_creation_response_is_dual_readable_across_a_deploy_skew(client: TestClient) -> None:
+    """``GameCreated`` is a ``GameView`` flattened with ``host_secret`` (finding 1).
+
+    The deploy-skew fix, asserted from both sides. Pages and Render publish independently, so an old
+    cached client and a new one both meet whichever server is up first — and the response has to read
+    correctly for both. ``client`` is ``conftest``'s (flag off), because this is about the *shape*
+    the shipped default answers, not about enforcement.
+
+    An old client reads ``state.game_id`` off the top level, exactly where a bare ``GameView`` always
+    had it; a new client reads ``host_secret``. Nothing the old client depends on was relocated under
+    a ``view`` key — a nested envelope would have 404'd every pre-deploy client the moment it shipped.
+    """
+    created = client.post("/games", json=TWO_HUMANS).json()
+
+    assert created["state"]["game_id"], "an old client reads the id off the top level"
+    assert isinstance(created["host_secret"], str) and len(created["host_secret"]) == 32
+    assert "view" not in created, "a nested envelope would break the old client this superset serves"
+    for field in ("board", "state", "legal_commands", "events", "event_cursor", "claims", "speaker"):
+        assert field in created, f"the flattened response is missing the GameView field {field!r}"
+
+    # A load answers the same shape, and its own host secret (a restored game is a new session).
+    saved = client.get(f"/games/{gid(created)}/save").json()
+    client.delete(f"/games/{gid(created)}")
+    restored = client.post("/games/load", json=saved).json()
+    assert restored["state"]["game_id"] == gid(created)
+    assert isinstance(restored["host_secret"], str)
+    assert "view" not in restored
+
+
+def test_the_view_reports_who_this_connection_speaks_for(enforcing: TestClient) -> None:
+    """``GameView.speaker`` — the projection's own answer to "who am I here" (root-cause fix).
+
+    The client reads this instead of inferring from ``localStorage``. Three kinds, resolved from the
+    presented secret: no secret is a spectator, the host secret is the host, a claimed seat's secret
+    is that seat.
+    """
+    created = create(enforcing)
+
+    spectating = enforcing.get(f"/games/{gid(created)}").json()
+    assert spectating["speaker"] == {"kind": "spectator", "player": None}
+
+    hosting = enforcing.get(f"/games/{gid(created)}", headers=bearer(created["host_secret"])).json()
+    assert hosting["speaker"] == {"kind": "host", "player": None}
+
+    claimed = enforcing.post(f"/games/{gid(created)}/seats/1/claim").json()
+    assert claimed["view"]["speaker"] == {"kind": "seat", "player": 1}
+    seated = enforcing.get(f"/games/{gid(created)}", headers=bearer(claimed["seat_secret"])).json()
+    assert seated["speaker"] == {"kind": "seat", "player": 1}
+
+
+def test_the_speaker_field_is_reported_even_with_the_flag_off(client: TestClient) -> None:
+    """Off means "do not *enforce*", not "do not report" — which is what lets the client start
+    reading ``speaker`` and showing the picker before the flag is ever flipped.
+
+    ``client`` is the shipped default (off). The host secret still resolves to ``host`` and an
+    unknown secret still resolves to ``spectator``; only the ``legal_commands`` filtering is asleep,
+    which is why a spectator here still gets the full unfiltered list.
+    """
+    created = create(client)
+    assert client.get(f"/games/{gid(created)}").json()["speaker"] == {"kind": "spectator", "player": None}
+    hosted = client.get(f"/games/{gid(created)}", headers=bearer(created["host_secret"])).json()
+    assert hosted["speaker"] == {"kind": "host", "player": None}
+    # ...and unfiltered, because the flag is off: a spectator sees every button here.
+    assert client.get(f"/games/{gid(created)}").json()["legal_commands"] != []
+
+
+def test_a_voided_secret_resolves_to_spectator_in_the_next_view(enforcing: TestClient) -> None:
+    """The self-heal the root-cause fix buys (findings 2/5/6/7).
+
+    A secret the host has released names a claim that no longer exists. The very next view resolves
+    it to ``spectator`` — so the client reads ``seated == false``, the seat picker reappears, and the
+    guest can re-claim rather than being stranded holding a string the server has forgotten. No
+    ``localStorage``-clearing dead end, because the client never trusted ``localStorage`` for this.
+    """
+    created = create(enforcing)
+    host = bearer(created["host_secret"])
+    seat_secret = enforcing.post(f"/games/{gid(created)}/seats/1/claim").json()["seat_secret"]
+
+    # Held: the seat, and its own moves.
+    before = enforcing.get(f"/games/{gid(created)}", headers=bearer(seat_secret)).json()
+    assert before["speaker"] == {"kind": "seat", "player": 1}
+
+    enforcing.delete(f"/games/{gid(created)}/seats/1/claim", headers=host)
+
+    after = enforcing.get(f"/games/{gid(created)}", headers=bearer(seat_secret)).json()
+    assert after["speaker"] == {"kind": "spectator", "player": None}, "the voided secret self-heals to spectator"
+    assert after["legal_commands"] == [], "and is offered nothing, so the picker takes over"
+
+
+def test_the_enforcement_guards_refuse_to_default_the_flag(store: SessionStore) -> None:
+    """A fail-open security guard must not be reachable by forgetting a keyword (finding 8).
+
+    ``enforcing`` has no default on any of the guards or the projection, so an omission is a
+    ``TypeError`` at the call — loud, and caught by any test that exercises the path — rather than a
+    silent no-op that ships an unenforced route.
+    """
+    session = store.create(minimal_state(game_id="guards"))
+
+    with pytest.raises(TypeError):
+        transport.require_seat(session, None, 0)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        transport.require_host(session, None)  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        transport.view(session, speaker=transport.HOST)  # type: ignore[call-arg]
+
+
+def test_concurrent_claims_for_one_seat_resolve_to_exactly_one_winner(store: SessionStore) -> None:
+    """The authority is mutated from threadpool workers, so its access is locked (finding 3).
+
+    FastAPI runs a sync route in a threadpool, so two ``POST .../claim`` requests for one seat run
+    ``claim_seat`` on two OS threads against one ``SeatAuthority``. Without the lock the check-then-set
+    is not atomic — both pass "is it free" before either writes, and the second silently overwrites
+    the first's secret (the reviewer measured 93 double-claims in 2000). Under the lock exactly one
+    caller mints a secret and every other is refused ``error.seat_taken``.
+
+    Driven straight at :func:`transport.claim_seat` with real threads rather than through the HTTP
+    client, because that is the function the lock guards and a thread pool is what contends for it.
+    """
+    session = store.create(minimal_state(game_id="race"))
+    attempts = 400
+
+    def attempt(_: int) -> str:
+        try:
+            return transport.claim_seat(session, 1)
+        except ApiError as refused:
+            return refused.reason_key
+
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        results = list(pool.map(attempt, range(attempts)))
+
+    winners = [outcome for outcome in results if outcome != "error.seat_taken"]
+    assert len(winners) == 1, f"expected exactly one winner, got {len(winners)}"
+    assert len(set(winners)) == 1
+    assert session.authority.seat_secrets[1] == winners[0], "the seat holds the one secret that won"
+    assert results.count("error.seat_taken") == attempts - 1
+
+
+def test_speaker_resolution_survives_a_concurrent_claim_flood(store: SessionStore) -> None:
+    """``speaker_for`` iterates ``seat_secrets``; a claim inserting into it on another thread would be
+    a ``dictionary changed size during iteration`` 500 without the lock (finding 3).
+
+    So this reads speakers and projects ``claims`` on a swarm of threads while another swarm claims
+    the six seats, and asserts nothing raised — the crash it guards against is a read path made to
+    fail by a concurrent write, which no single-threaded test can provoke.
+    """
+    session = store.create(minimal_state(game_id="swarm", players=_six_humans()))
+    errors: list[str] = []
+
+    def claim(player: int) -> None:
+        try:
+            transport.claim_seat(session, player)
+        except ApiError:
+            pass  # a double-claim refusal is fine; a *raise* out of the dict is not
+        except Exception as unexpected:  # noqa: BLE001 - the point is to catch the race, whatever it is
+            errors.append(repr(unexpected))
+
+    def read(_: int) -> None:
+        try:
+            transport.speaker_for(session, "nope")
+            transport.claims(session)
+        except Exception as unexpected:  # noqa: BLE001
+            errors.append(repr(unexpected))
+
+    with ThreadPoolExecutor(max_workers=24) as pool:
+        futures = [pool.submit(claim, index % 6) for index in range(120)]
+        futures += [pool.submit(read, index) for index in range(240)]
+        for future in futures:
+            future.result()
+
+    assert not errors, f"a concurrent read raced a claim: {errors[:3]}"
+
+
+def _six_humans() -> Any:
+    """Six human ``PlayerState`` seats for a hand-built state.
+
+    ``minimal_state`` seats two by default; this widens it for the swarm test without teaching that
+    helper about seat counts.
+    """
+    from kesef_engine.state import PlayerKind, PlayerState
+
+    return tuple(
+        PlayerState(id=index, name=f"P{index}", kind=PlayerKind(), token=f"token.{index}", cash=1500)
+        for index in range(6)
+    )

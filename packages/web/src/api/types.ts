@@ -47,8 +47,11 @@ export type LegalityView = Schemas["LegalityView"];
 /**
  * A newly seated game and the one credential for it (ADR-012, MON-906).
  *
- * `POST /games` and `POST /games/load` both answer this. Only `api/client.ts` names the type: the
- * secret is stored there, at the one moment it exists, and every layer above is handed the `view`.
+ * `POST /games` and `POST /games/load` both answer this. It is a **`GameView` plus `host_secret`**
+ * (the server subclasses one), so it is dual-readable across a non-atomic deploy: an old cached
+ * client reads `state.game_id` off the top level, a new client reads `host_secret`. Only
+ * `api/client.ts` names the type — the secret is stripped there and every layer above is handed a
+ * plain `GameView`.
  */
 export type GameCreated = Schemas["GameCreated"];
 /** The answer to a seat claim: that seat's secret, and the view filtered to it. */
@@ -61,6 +64,14 @@ export type SeatClaimed = Schemas["SeatClaimed"];
  * reads that.
  */
 export type SeatClaimView = Schemas["SeatClaimView"];
+/**
+ * Who this connection speaks for — `GameView.speaker` (ADR-012, MON-906).
+ *
+ * The projection's own answer to "who am I here", which the client reads instead of inferring it
+ * from `localStorage`. A voided or replaced secret resolves to `spectator` in the next view, so the
+ * seat picker reappears and the holder can re-claim — the self-heal the root-cause fix buys.
+ */
+export type SpeakerView = Schemas["SpeakerView"];
 
 export type NewGameRequest = Schemas["NewGameRequest"];
 /**

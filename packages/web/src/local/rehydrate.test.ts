@@ -206,7 +206,7 @@ describe("the restore", () => {
     bridge.forget();
     expect(parseEnvelope(await bridge.getGame("g1", "", null)).status).toBe(404);
 
-    expect(await restoreGame(bridge, "g1", slot)).toBe(true);
+    expect(await restoreGame(bridge, "g1", slot)).toBe("restored-host-secret");
     // No conflict policy on the way in (ADR-011): there is nothing live to conflict with, and a
     // `replace` sent from here would end a game on nobody's instruction.
     expect(bridge.policies).toEqual([null]);
@@ -222,7 +222,7 @@ describe("the restore", () => {
     const bridge = bridgeWith({});
     const slot = memorySlot(JSON.stringify({ game_id: "yesterday" }));
 
-    expect(await restoreGame(bridge, "today", slot)).toBe(false);
+    expect(await restoreGame(bridge, "today", slot)).toBeNull();
     expect(bridge.loads).toBe(0);
   });
 
@@ -235,13 +235,13 @@ describe("the restore", () => {
     } as unknown as PyBridge;
     const slot = memorySlot(JSON.stringify({ game_id: "g1" }));
 
-    expect(await restoreGame(refusing, "g1", slot)).toBe(false);
+    expect(await restoreGame(refusing, "g1", slot)).toBeNull();
     expect(slot.value).toBeNull();
   });
 
   it("says no when there is nothing stored at all", async () => {
     const bridge = bridgeWith({});
-    expect(await restoreGame(bridge, "g1", memorySlot())).toBe(false);
+    expect(await restoreGame(bridge, "g1", memorySlot())).toBeNull();
     expect(bridge.loads).toBe(0);
   });
 });
@@ -255,24 +255,19 @@ describe("the restore", () => {
  * host who reloads and finds themself a spectator of their own game the day the flag is flipped.
  */
 describe("the restore and the host secret", () => {
-  it("hands the newly minted host secret to whoever asked for the restore", async () => {
+  it("returns the newly minted host secret on success", async () => {
     const bridge = bridgeWith({ g1: { game_id: "g1", turn_number: 4 } });
     const slot = memorySlot();
     await snapshotGame(bridge, "g1", slot);
     bridge.forget();
 
-    const remembered: string[] = [];
-    expect(await restoreGame(bridge, "g1", slot, (secret) => remembered.push(secret))).toBe(true);
-
-    expect(remembered).toEqual(["restored-host-secret"]);
+    // The secret is what the caller retries with (finding 6): a restored game is a new session with
+    // a new authority, and re-issuing with the pre-reload secret would resolve to a spectator.
+    expect(await restoreGame(bridge, "g1", slot)).toBe("restored-host-secret");
   });
 
-  it("does not call back when there was nothing to restore", async () => {
-    const remembered: string[] = [];
-    expect(
-      await restoreGame(bridgeWith({}), "g1", memorySlot(), (secret) => remembered.push(secret)),
-    ).toBe(false);
-    expect(remembered).toEqual([]);
+  it("returns null when there was nothing to restore", async () => {
+    expect(await restoreGame(bridgeWith({}), "g1", memorySlot())).toBeNull();
   });
 
   it("presents the host secret when taking the snapshot, because /save is host-only", async () => {

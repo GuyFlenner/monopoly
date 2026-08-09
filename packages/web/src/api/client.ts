@@ -137,17 +137,13 @@ export class ApiClient {
   }
 
   /**
-   * Whether this browser holds a credential for `gameId` (ADR-012).
+   * Forget this browser's credential for `gameId`, on leaving the game (ADR-012, MON-906 review).
    *
-   * The one thing above this file may ask about a secret, and it is a boolean rather than the
-   * string: the seat-claim affordance needs to know whether to offer itself, and nothing in the UI
-   * needs — or should be able — to read the credential itself.
+   * Wired into the game screen's "New game" so an orphaned secret does not accrue in `localStorage`
+   * for a game this browser will never open again (finding 10). Not the *source of truth* for who
+   * this connection is — that is `GameView.speaker`, which the server resolves — so forgetting here
+   * only stops the client re-presenting a credential it has no further use for.
    */
-  holdsSeat(gameId: string): boolean {
-    return this.secrets.get(gameId) !== undefined;
-  }
-
-  /** Forget this browser's credential for `gameId`, on leaving the game. */
   forgetSeat(gameId: string): void {
     this.secrets.clear(gameId);
   }
@@ -167,14 +163,18 @@ export class ApiClient {
   /**
    * Start a game, and keep the host secret it answers with (ADR-012).
    *
-   * The answer is a `GameCreated` envelope — the view *and* the one credential this session will
-   * ever hand out — so the secret is stored here, at the only moment it exists, and the caller is
-   * given the view it was going to use anyway.
+   * `GameCreated` is a `GameView` *plus* `host_secret` (the server subclasses one), so the secret is
+   * split off and stored here — at the only moment it exists — and the rest is a plain `GameView`
+   * handed to the caller. Splitting it off rather than returning the whole object is what keeps the
+   * credential out of the query cache and out of every layer above this file.
    */
   async createGame(request: NewGameRequest, signal?: AbortSignal): Promise<GameView> {
-    const created = await this.request<GameCreated>("POST", "/games", { body: request, signal });
-    this.secrets.set(created.view.state.game_id, created.host_secret);
-    return created.view;
+    const { host_secret, ...view } = await this.request<GameCreated>("POST", "/games", {
+      body: request,
+      signal,
+    });
+    this.secrets.set(view.state.game_id, host_secret);
+    return view;
   }
 
   /**
@@ -290,13 +290,17 @@ export class ApiClient {
     // A `GameCreated`, exactly as `createGame` gets: a restored game is a *new* session with a new
     // authority, so its loader is the one who has to be handed the host secret (ADR-012). Without
     // this, loading a save would lock the loader out of the game they had just restored.
-    const restored = await this.request<GameCreated>("POST", `/games/load${query}`, {
-      body: save,
-      signal,
-      secret: held,
-    });
-    this.secrets.set(restored.view.state.game_id, restored.host_secret);
-    return restored.view;
+    const { host_secret, ...view } = await this.request<GameCreated>(
+      "POST",
+      `/games/load${query}`,
+      {
+        body: save,
+        signal,
+        secret: held,
+      },
+    );
+    this.secrets.set(view.state.game_id, host_secret);
+    return view;
   }
 
   async deleteGame(gameId: string, signal?: AbortSignal): Promise<void> {

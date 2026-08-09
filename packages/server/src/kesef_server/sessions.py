@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -158,6 +159,25 @@ class SeatAuthority:
     host_secret: str
     seat_secrets: dict[int, str] = field(default_factory=dict)
     """``PlayerId`` -> that seat's secret. Present only for seats somebody has claimed."""
+    lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+    """Serializes every access to :attr:`seat_secrets` (MON-906 review, finding 3).
+
+    FastAPI runs a *synchronous* route handler in a threadpool, so ``POST .../claim`` and a plain
+    ``GET`` resolving a speaker execute on **different OS threads** against this one object. Without
+    this lock two things go wrong, and both were reproduced: ``claim_seat``'s check-then-set is not
+    atomic, so two requests for one seat both pass the "is it free" check and the second silently
+    overwrites the first's secret (93 double-claims in 2000 concurrent attempts); and
+    ``speaker_for`` iterating the dict while a claim inserts into it raises ``RuntimeError: dictionary
+    changed size during iteration`` — a 500 on a read path.
+
+    ``Session.advance_lock`` does **not** cover this: it is an ``asyncio.Lock`` guarding the bot
+    driver, held on the event loop, and it neither excludes a threadpool worker nor is even
+    acquirable from one without a running loop. A plain ``threading.Lock`` is the tool because it
+    works from any thread and the critical sections are three dict operations — microseconds, so the
+    event loop is never meaningfully blocked when a handler on it takes the lock. Excluded from
+    ``compare``/``repr`` because a lock is identity, not data, and two authorities are not unequal
+    for holding different lock objects.
+    """
 
 
 def mint_secret() -> str:

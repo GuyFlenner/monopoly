@@ -133,21 +133,35 @@ today would have to be widened again by the very next item
 naming a header the server does not yet read."""
 
 METERED_ROUTES: frozenset[tuple[str, str]] = frozenset(
-    {("POST", "/games"), ("POST", "/games/load"), ("DELETE", "/games/{game_id}")}
+    {
+        ("POST", "/games"),
+        ("POST", "/games/load"),
+        ("DELETE", "/games/{game_id}"),
+        # The seat routes (ADR-012, MON-906 review, finding 4). This docstring foresaw them as
+        # "a one-line addition"; they are exactly the kind of route the meter is for — unauthenticated,
+        # session-mutating, and one of them *mints a credential*, so an unmetered `claim` is a flood
+        # that stamps the store with secrets. `release` is host-only so already needs a credential,
+        # but it is charged too: the meter is per client and it is the client, not the route's own
+        # guard, that a flood exhausts.
+        ("POST", "/games/{game_id}/seats/{player}/claim"),
+        ("DELETE", "/games/{game_id}/seats/{player}/claim"),
+    }
 )
-"""The routes ``requests_per_minute`` applies to: the ones that seat or end a game (MON-905).
+"""The routes ``requests_per_minute`` applies to: the ones that seat, claim, release or end a game
+(MON-905, extended by MON-906).
 
 Route **templates**, matched through starlette's own router rather than compared against the
 request's path, because ``/games/load`` and ``/games/{game_id}`` are the same shape to a string
-comparison and the one place a limiter must not disagree with is the router. This is also what makes
-a future ``POST /games/{game_id}/seats/...`` (MON-906) a one-line addition rather than a second
-pattern language.
+comparison and the one place a limiter must not disagree with is the router.
 
 **Playing is not metered, deliberately.** ``POST /games/{id}/commands`` is a dice roll and
 ``/validate`` is called on every keystroke of the trade builder; a bound that could refuse either
 would be a rule about how fast a child may play. Reads and the WebSocket are not metered for the
 same reason plus one more — a reconnect polls ``GET /games/{id}``, so metering it would punish
-exactly the client whose connection is already struggling."""
+exactly the client whose connection is already struggling. Claiming a seat is metered rather than
+played-with because it is a *setup* act like seating a game, not a move: a family joining takes a
+handful over a minute, nowhere near the bound, and the bound is what stops a script minting secrets
+against one id as fast as it can post."""
 
 
 def _metered(request: Request) -> bool:
@@ -559,7 +573,7 @@ async def create_game(
     # anybody had touched anything. Queued, not awaited — otherwise creating such a game is a request
     # that sits for as long as the bot's opening turn takes.
     background.add_task(_advance_bots, store, session.state.game_id, config)
-    return _created(config, session)
+    return transport.created(session, enforcing=config.enforcing_seats)
 
 
 @app.post(
@@ -632,10 +646,8 @@ async def load_game(
     # the constraint ``NewGameRequest.game_id`` does. Unchecked, a save named ``kitchen/table``
     # took a session slot that no route could then reach or free (schemas.GAME_ID_PATTERN).
     # Checked inside `transport.load`, which both transports share.
-    return _created(
-        config,
-        transport.load(store, save, if_exists, client_id=client, secret=secret, enforcing=config.enforcing_seats),
-    )
+    restored = transport.load(store, save, if_exists, client_id=client, secret=secret, enforcing=config.enforcing_seats)
+    return transport.created(restored, enforcing=config.enforcing_seats)
 
 
 @app.get("/games/{game_id}", tags=["game"], responses=ERROR_RESPONSES)
@@ -659,7 +671,7 @@ def get_game(
     """
     session = _session(store, game_id)
     events = session.events_since(since) if since is not None else ()
-    return _view(session, events, speaker=_speaker(config, session, secret))
+    return transport.viewed(session, secret, events, enforcing=config.enforcing_seats)
 
 
 @app.get("/games/{game_id}/save", tags=["game"], responses={**ERROR_RESPONSES, **SEATED_RESPONSE})
@@ -691,6 +703,7 @@ def save_game(game_id: str, store: StoreDep, config: SettingsDep, secret: Secret
             "description": "`error.seat_taken` — somebody, or a computer, is already in that seat.",
         },
         UNPROCESSABLE: {"model": ErrorResponse, "description": "`error.unknown_player` — no such seat."},
+        **METERED_RESPONSE,
         **SERVER_ERROR_RESPONSE,
     },
 )
@@ -702,16 +715,10 @@ def claim_seat(game_id: str, player: int, store: StoreDep, config: SettingsDep) 
 
     The returned view is already filtered to the claimed seat, so the joiner's first frame is the
     frame they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of
-    ``view``, never a field inside it.
+    ``view``, never a field inside it. The claim itself is taken under the authority's lock, so two
+    requests for one seat resolve to exactly one winner (finding 3); see :func:`transport.claimed`.
     """
-    session = _session(store, game_id)
-    secret = transport.claim_seat(session, player)
-    return SeatClaimed(
-        seat_secret=secret,
-        # `Seat(player)` rather than the resolved speaker: this response is the answer to *this*
-        # claim, and resolving would be asking the session a question we have just answered.
-        view=_view(session, speaker=transport.Seat(player) if config.enforcing_seats else None),
-    )
+    return transport.claimed(_session(store, game_id), player, enforcing=config.enforcing_seats)
 
 
 @app.delete(
@@ -721,6 +728,7 @@ def claim_seat(game_id: str, player: int, store: StoreDep, config: SettingsDep) 
     responses={
         status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
         **SEATED_RESPONSE,
+        **METERED_RESPONSE,
         **SERVER_ERROR_RESPONSE,
     },
 )
@@ -810,7 +818,7 @@ async def submit_command(
     # rather than awaited: this response carries the human's move and returns now, and the bot's moves
     # stream in behind it. See `_advance_bots`.
     background.add_task(_advance_bots, store, game_id, config)
-    return _view(updated, _logged(session, events), speaker=_speaker(config, updated, secret))
+    return transport.viewed(updated, secret, _logged(session, events), enforcing=config.enforcing_seats)
 
 
 @app.post("/games/{game_id}/validate", tags=["game"], responses={**ERROR_RESPONSES, **SEATED_RESPONSE})
@@ -1010,37 +1018,14 @@ async def stream_events(
 # every call site below still reads as it did.
 _session = transport.session
 _create = transport.create
-_view = transport.view
 _logged = transport.logged
 _stamped = transport.stamped
 
-
-def _speaker(config: Settings, session: Session, secret: str | None) -> transport.Speaker | None:
-    """Who this request speaks for, or ``None`` while ``seat_authority`` is off (ADR-012).
-
-    The rollout flag is read *here* rather than inside ``transport.view`` so that "off" is
-    structurally the old code path: ``None`` reaches the projection, the projection filters nothing,
-    and the answer is byte-identical to the one this API gave before MON-906. A flag consulted
-    inside the filter would be a filter that runs and then decides not to, which is one refactor
-    away from running and deciding wrongly.
-    """
-    return transport.speaker_for(session, secret) if config.enforcing_seats else None
-
-
-def _created(config: Settings, session: Session) -> GameCreated:
-    """A newly seated game, with the one credential for it (ADR-012).
-
-    Both ``POST /games`` and ``POST /games/load`` answer this, through one function, because "the
-    creator is handed the host secret" is a property of *seating a session* rather than of either
-    route — and a second spelling is how a load ends up returning a game its own client cannot play.
-
-    The view is projected as the host, since that is who is reading it, so the first frame of a new
-    game already excludes a bot seat's moves rather than offering them for one render.
-    """
-    return GameCreated(
-        host_secret=session.authority.host_secret,
-        view=_view(session, speaker=transport.HOST if config.enforcing_seats else None),
-    )
+# The seat-authority projections — `viewed`, `created`, `claimed` — are *not* aliased here and are
+# called as `transport.<name>` at their sites (MON-906 review, finding 9). They each resolve the
+# speaker and read the enforcing flag in one place shared with `browser.py`, which is the whole point
+# of collapsing them: the previous shape had six spellings of "resolve, decide whether to filter,
+# build" across the two transports, and resolved the speaker twice per request.
 
 
 def _retype_validation_errors(document: dict[str, Any]) -> None:

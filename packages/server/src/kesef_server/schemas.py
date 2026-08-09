@@ -687,6 +687,30 @@ class SeatClaimView(BaseModel):
     claimed: bool
 
 
+class SpeakerView(BaseModel):
+    """Who **this connection** speaks for, resolved from its secret (ADR-012, MON-906).
+
+    The projection's answer to "who am I here", added so the client stops inferring it from what it
+    put in ``localStorage`` (MON-906 review, the root-cause fix). Three kinds mirror the transport's
+    three speakers:
+
+    * ``host`` — holds the host secret; speaks for every unclaimed human seat.
+    * ``seat`` — holds a seat secret; ``player`` names the one seat it is.
+    * ``spectator`` — holds nothing this session recognises; the whole board, no buttons.
+
+    **This is the self-heal.** A secret that has been voided (the host released the seat), or that
+    belongs to a session a load replaced, resolves to ``spectator`` in the very next view — so the
+    seat picker reappears and the holder can re-claim, rather than being stranded holding a string
+    the server has forgotten. It is a *projection*, not a credential: it carries no secret, and it
+    is computed the same way on both transports (:func:`kesef_server.transport.speaker_for`).
+    """
+
+    kind: Literal["host", "seat", "spectator"]
+    player: PlayerId | None = None
+    """The seat, when ``kind`` is ``seat``; ``None`` otherwise. A host speaks for *many* seats and a
+    spectator for none, so only the single-seat case has one to name."""
+
+
 class GameView(BaseModel):
     """Everything a client needs to render one frame — a projection, not the state.
 
@@ -713,33 +737,50 @@ class GameView(BaseModel):
     Defaulted to empty rather than required, because a :class:`GameView` is also built by tests and
     by the goldens' tooling, and an empty tuple is the truthful answer for a game nobody has claimed
     a seat in."""
+    speaker: SpeakerView = SpeakerView(kind="host")
+    """Who this connection speaks for (ADR-012, MON-906). See :class:`SpeakerView`.
+
+    Defaulted to ``host`` rather than required, and the default is only ever seen by a hand-built
+    ``GameView`` in a test: the server always sets it explicitly through
+    :func:`kesef_server.transport.view`. ``host`` rather than ``spectator`` for the default because a
+    view built without a connection to speak for is a view nobody is being denied anything in — the
+    hotseat shape — and a spectator default would make every fixture that renders a game sprout a
+    seat picker."""
 
 
-class GameCreated(BaseModel):
-    """``POST /games`` and ``POST /games/load``: the new game, and the one credential for it.
+class GameCreated(GameView):
+    """``POST /games`` and ``POST /games/load``: a :class:`GameView`, plus the one credential for it.
 
-    The envelope exists because the host secret has exactly one moment at which it can be handed
-    over — the moment the session is minted — and no route will ever return it again (ADR-012).
-    There is no recovery in v1: a lost host secret is the same class of loss as a lost save file,
-    and turning it into a recoverable thing is a product feature rather than a patch.
+    The host secret has exactly one moment at which it can be handed over — the moment the session is
+    minted — and no route returns it again (ADR-012). A ``load`` answers this too, which the ADR does
+    not spell out but the alternative makes plain: a restored game is a *new session* with a new
+    authority, so a loader handed a bare ``GameView`` would be locked out of the game it had just
+    restored the instant the flag was flipped.
 
-    A ``load`` answers this too, which the ADR does not spell out but the alternative makes plain:
-    a restored game is a *new session* with a new authority, so a loader handed a bare ``GameView``
-    would be locked out of the game they had just restored the instant the flag was flipped.
+    **A subclass of ``GameView``, deliberately, and that is the deploy-skew fix** (MON-906 review,
+    finding 1). The response carries every ``GameView`` field at the top level *and* ``host_secret``,
+    so it is a superset that reads correctly in both skew directions across a non-atomic Pages/Render
+    deploy: an old cached client reads ``state.game_id`` off the top level exactly as it always did,
+    and a new client reads ``host_secret``. Nothing the old client depends on was moved or removed,
+    so ``config.py``'s "an old cached client keeps working" is true at merge *and* across the flip —
+    which a nested ``{host_secret, view}`` envelope could not promise, since it relocated
+    ``state.game_id`` under ``view`` and would 404 every pre-deploy client the moment it shipped.
 
-    **This is a shape change.** ``POST /games`` used to answer a bare ``GameView``; a client now
-    reads ``created.view``. That is why the contract regenerates in the same commit and why the
-    rollout flag is separate from it — the shape lands with a client that understands it, and the
-    *enforcement* lands later.
+    ``host_secret`` is the one field of this model that must never appear in a plain ``GameView``; it
+    lives here because this response is the single place a credential is *meant* to cross the wire.
     """
 
     host_secret: str
     """Speaks for every unclaimed human seat, and for the host-only routes. Returned once, here."""
-    view: GameView
 
 
 class SeatClaimed(BaseModel):
     """``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.
+
+    A nested envelope rather than a ``GameView`` subclass like :class:`GameCreated`, because this is
+    a **new** route — no cached client calls it, so there is no old top-level shape to stay
+    compatible with, and ``seat_secret`` reads more honestly as a sibling of the view than as a field
+    smuggled into it.
 
     ``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame
     after claiming is the frame they will play from — one round trip rather than a claim followed

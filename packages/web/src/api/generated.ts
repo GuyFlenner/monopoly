@@ -217,7 +217,8 @@ export interface paths {
          *
          *     The returned view is already filtered to the claimed seat, so the joiner's first frame is the
          *     frame they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of
-         *     ``view``, never a field inside it.
+         *     ``view``, never a field inside it. The claim itself is taken under the authority's lock, so two
+         *     requests for one seat resolve to exactly one winner (finding 3); see :func:`transport.claimed`.
          */
         post: operations["claim_seat_games__game_id__seats__player__claim_post"];
         /**
@@ -940,26 +941,54 @@ export interface components {
         };
         /**
          * GameCreated
-         * @description ``POST /games`` and ``POST /games/load``: the new game, and the one credential for it.
+         * @description ``POST /games`` and ``POST /games/load``: a :class:`GameView`, plus the one credential for it.
          *
-         *     The envelope exists because the host secret has exactly one moment at which it can be handed
-         *     over — the moment the session is minted — and no route will ever return it again (ADR-012).
-         *     There is no recovery in v1: a lost host secret is the same class of loss as a lost save file,
-         *     and turning it into a recoverable thing is a product feature rather than a patch.
+         *     The host secret has exactly one moment at which it can be handed over — the moment the session is
+         *     minted — and no route returns it again (ADR-012). A ``load`` answers this too, which the ADR does
+         *     not spell out but the alternative makes plain: a restored game is a *new session* with a new
+         *     authority, so a loader handed a bare ``GameView`` would be locked out of the game it had just
+         *     restored the instant the flag was flipped.
          *
-         *     A ``load`` answers this too, which the ADR does not spell out but the alternative makes plain:
-         *     a restored game is a *new session* with a new authority, so a loader handed a bare ``GameView``
-         *     would be locked out of the game they had just restored the instant the flag was flipped.
+         *     **A subclass of ``GameView``, deliberately, and that is the deploy-skew fix** (MON-906 review,
+         *     finding 1). The response carries every ``GameView`` field at the top level *and* ``host_secret``,
+         *     so it is a superset that reads correctly in both skew directions across a non-atomic Pages/Render
+         *     deploy: an old cached client reads ``state.game_id`` off the top level exactly as it always did,
+         *     and a new client reads ``host_secret``. Nothing the old client depends on was moved or removed,
+         *     so ``config.py``'s "an old cached client keeps working" is true at merge *and* across the flip —
+         *     which a nested ``{host_secret, view}`` envelope could not promise, since it relocated
+         *     ``state.game_id`` under ``view`` and would 404 every pre-deploy client the moment it shipped.
          *
-         *     **This is a shape change.** ``POST /games`` used to answer a bare ``GameView``; a client now
-         *     reads ``created.view``. That is why the contract regenerates in the same commit and why the
-         *     rollout flag is separate from it — the shape lands with a client that understands it, and the
-         *     *enforcement* lands later.
+         *     ``host_secret`` is the one field of this model that must never appear in a plain ``GameView``; it
+         *     lives here because this response is the single place a credential is *meant* to cross the wire.
          */
         GameCreated: {
+            board: components["schemas"]["BoardView"];
+            state: components["schemas"]["GameStateView"];
+            /** Legal Commands */
+            legal_commands: (components["schemas"]["RollDice"] | components["schemas"]["EndTurn"] | components["schemas"]["BuyProperty"] | components["schemas"]["DeclinePurchase"] | components["schemas"]["PlaceBid"] | components["schemas"]["WithdrawFromAuction"] | components["schemas"]["BuildHouse"] | components["schemas"]["SellHouse"] | components["schemas"]["MortgageProperty"] | components["schemas"]["UnmortgageProperty"] | components["schemas"]["ProposeTrade"] | components["schemas"]["RespondToTrade"] | components["schemas"]["CancelTrade"] | components["schemas"]["PayJailFine"] | components["schemas"]["UseJailCard"] | components["schemas"]["RollForJail"] | components["schemas"]["DeclareBankruptcy"])[];
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["LoggedEvent"][];
+            /**
+             * Event Cursor
+             * @default 0
+             */
+            event_cursor: number;
+            /**
+             * Claims
+             * @default []
+             */
+            claims: components["schemas"]["SeatClaimView"][];
+            /**
+             * @default {
+             *       "kind": "host"
+             *     }
+             */
+            speaker: components["schemas"]["SpeakerView"];
             /** Host Secret */
             host_secret: string;
-            view: components["schemas"]["GameView"];
         };
         /** GameEnded */
         GameEnded: {
@@ -1137,6 +1166,12 @@ export interface components {
              * @default []
              */
             claims: components["schemas"]["SeatClaimView"][];
+            /**
+             * @default {
+             *       "kind": "host"
+             *     }
+             */
+            speaker: components["schemas"]["SpeakerView"];
         };
         /**
          * GroupHoldings
@@ -1927,6 +1962,11 @@ export interface components {
          * SeatClaimed
          * @description ``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.
          *
+         *     A nested envelope rather than a ``GameView`` subclass like :class:`GameCreated`, because this is
+         *     a **new** route — no cached client calls it, so there is no old top-level shape to stay
+         *     compatible with, and ``seat_secret`` reads more honestly as a sibling of the view than as a field
+         *     smuggled into it.
+         *
          *     ``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame
          *     after claiming is the frame they will play from — one round trip rather than a claim followed
          *     by a refetch that renders an empty action bar in between.
@@ -2001,6 +2041,33 @@ export interface components {
              * @enum {string}
              */
             via: "tile" | "card" | "three_doubles";
+        };
+        /**
+         * SpeakerView
+         * @description Who **this connection** speaks for, resolved from its secret (ADR-012, MON-906).
+         *
+         *     The projection's answer to "who am I here", added so the client stops inferring it from what it
+         *     put in ``localStorage`` (MON-906 review, the root-cause fix). Three kinds mirror the transport's
+         *     three speakers:
+         *
+         *     * ``host`` — holds the host secret; speaks for every unclaimed human seat.
+         *     * ``seat`` — holds a seat secret; ``player`` names the one seat it is.
+         *     * ``spectator`` — holds nothing this session recognises; the whole board, no buttons.
+         *
+         *     **This is the self-heal.** A secret that has been voided (the host released the seat), or that
+         *     belongs to a session a load replaced, resolves to ``spectator`` in the very next view — so the
+         *     seat picker reappears and the holder can re-claim, rather than being stranded holding a string
+         *     the server has forgotten. It is a *projection*, not a credential: it carries no secret, and it
+         *     is computed the same way on both transports (:func:`kesef_server.transport.speaker_for`).
+         */
+        SpeakerView: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "host" | "seat" | "spectator";
+            /** Player */
+            player?: number | null;
         };
         /**
          * TileKind
@@ -2670,6 +2737,15 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
             500: {
                 headers: {
@@ -2720,6 +2796,15 @@ export interface operations {
             };
             /** @description Validation Error */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

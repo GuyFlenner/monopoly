@@ -97,18 +97,32 @@ export function localApiClient(
 
           Neither is awaited, for the same reason the pump is not: insurance that delayed the game
           it insures would be a poor trade.
+
+          The host secret is read at *call* time rather than captured (MON-906 review, finding 5).
+          `onMutation` fires from inside the `fetch`, before `ApiClient` has stored a freshly-minted
+          credential — for a *create* or *load* the store is still empty here — so a captured value
+          would be `""` and the host-only `/save` would refuse the snapshot. **Both** snapshots are
+          deferred a macrotask (`setTimeout(0)`), because a bot pump can resolve in a microtask and
+          reach its `.then` *before* `ApiClient`'s post-response `.set` — so pinning only the
+          immediate one still let the pump-drain snapshot read `""`. A macrotask runs after the whole
+          microtask queue drains, which is where `.set` lives, so both re-read the real secret.
         */
-        const held = secrets.get(gameId) ?? "";
-        void snapshotGame(bridge, gameId, slot, held);
-        void bus.pump(gameId).then(() => snapshotGame(bridge, gameId, slot, held));
+        const snapshot = (): void => {
+          setTimeout(() => void snapshotGame(bridge, gameId, slot, secrets.get(gameId) ?? ""), 0);
+        };
+        snapshot();
+        void bus.pump(gameId).then(snapshot);
       },
       // The other half: put the game back when a reload has emptied the heap the session lived in.
-      // The restored session mints a *new* authority, so its secret replaces the stale one this
-      // browser was holding — see `restoreGame`.
-      onMissingGame: (gameId) =>
-        restoreGame(bridge, gameId, slot, (hostSecret) => {
+      // The restored session mints a *new* authority; its secret is stored for later requests and
+      // handed back so the in-flight retry re-issues as the host rather than a spectator (finding 6).
+      onMissingGame: async (gameId) => {
+        const hostSecret = await restoreGame(bridge, gameId, slot);
+        if (hostSecret !== null) {
           secrets.set(gameId, hostSecret);
-        }),
+        }
+        return hostSecret;
+      },
     }),
     createSocket: createLocalSocketFactory(bus),
   });

@@ -148,14 +148,13 @@ export const UNNAMED_BOARD: BoardSummary = {
 export const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
 
 /**
- * A `GameCreated` envelope — what `POST /games` and `POST /games/load` answer since ADR-012.
- *
- * The host secret is a fixed string rather than a random one: what a test wants to say is "the
- * client kept *the* secret the server returned", and a value it can name is what makes that
- * assertable. It is never rendered, so its contents do not matter beyond being non-empty.
+ * What `POST /games` and `POST /games/load` answer since ADR-012 (MON-906 review, finding 1): a
+ * `GameView` **flattened** with `host_secret` at the top level, so it stays readable by an old
+ * cached client across a deploy skew. The secret is a fixed string so a test can name the value it
+ * expects the client to have kept; it is never rendered.
  */
 export function gameCreated(view: GameView, hostSecret = "test-host-secret"): unknown {
-  return { host_secret: hostSecret, view };
+  return { ...view, host_secret: hostSecret };
 }
 
 /** A real forty-square ring, so every square name resolves in the catalogue (G-F17). */

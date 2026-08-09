@@ -38,11 +38,17 @@ const EMPTY_VIEW = {
   legal_commands: [],
   claims: [],
   state: { game_id: "g1" },
+  speaker: { kind: "host" },
 } as unknown as GameView;
 
-/** What `POST /games` and `POST /games/load` answer since ADR-012: the view, and one secret. */
+/**
+ * What `POST /games` and `POST /games/load` answer since ADR-012 (MON-906 review, finding 1): a
+ * `GameView` **flattened** with `host_secret` at the top level, not a nested `{host_secret, view}`.
+ * That superset is what stays readable by an old cached client across a deploy skew — it still finds
+ * `state.game_id` where it always was.
+ */
 function created(view: GameView = EMPTY_VIEW, hostSecret = "host-secret"): unknown {
-  return { host_secret: hostSecret, view };
+  return { ...view, host_secret: hostSecret };
 }
 
 describe("ApiClient — the happy paths", () => {
@@ -402,8 +408,9 @@ describe("ApiClient — seat authority", () => {
 
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/games/g1/seats/1/claim");
     expect(view).toEqual(EMPTY_VIEW);
+    // Stored, so the *next* request presents it — the store is the source of what to send, not of
+    // whether this connection is seated (that is `GameView.speaker`, MON-906 review).
     expect(secrets.get("g1")).toBe("seat-1-secret");
-    expect(client.holdsSeat("g1")).toBe(true);
   });
 
   it("sends no Authorization header at all when this browser holds nothing", async () => {
@@ -488,6 +495,21 @@ describe("ApiClient — seat authority", () => {
 
     client.forgetSeat("g1");
 
-    expect(client.holdsSeat("g1")).toBe(false);
+    expect(secrets.get("g1")).toBeUndefined();
+  });
+
+  it("stops presenting a secret once it has been forgotten", async () => {
+    // The observable half of forgetting: the next request carries no credential, so a browser that
+    // left a game does not keep speaking for a seat in it (MON-906 review, finding 10).
+    const secrets = memorySecretStore();
+    secrets.set("g1", "host-abc");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, EMPTY_VIEW));
+    const client = clientWith(fetchImpl, secrets);
+
+    client.forgetSeat("g1");
+    await client.getGame("g1");
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers ?? {}).has("authorization")).toBe(false);
   });
 });

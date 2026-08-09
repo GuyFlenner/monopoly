@@ -44,8 +44,9 @@ BUY = {"command": {"kind": "buy_property", "player": 0}}
 def _create(client: TestClient) -> str:
     response = client.post("/games", json=new_game_payload())
     assert response.status_code == status.HTTP_201_CREATED, response.text
-    # `["view"]`: `POST /games` answers a `GameCreated` envelope since ADR-012.
-    game_id: str = response.json()["view"]["state"]["game_id"]
+    # `POST /games` answers a `GameCreated` — a `GameView` flattened with `host_secret` (finding 1),
+    # so `state.game_id` is at the top level exactly as a bare view had it.
+    game_id: str = response.json()["state"]["game_id"]
     return game_id
 
 
