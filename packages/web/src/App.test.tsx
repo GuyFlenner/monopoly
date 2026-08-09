@@ -40,6 +40,7 @@ import { AUTO_END_TURN_STORAGE_KEY, forgetCachedAutoEndTurn } from "./game/autoE
 import {
   BOARDS,
   type Edge,
+  gameCreated,
   gameEdge,
   gameView,
   makeEdge,
@@ -90,7 +91,7 @@ describe("App — the setup screen", () => {
     const edge = makeEdge({
       "GET /api/boards": ok(BOARDS),
       "GET /api/rulesets": ok(RULESETS),
-      "POST /api/games": ok(created),
+      "POST /api/games": ok(gameCreated(created)),
       "GET /api/games/g1": ok(created),
     });
     renderApp(edge);
@@ -185,7 +186,7 @@ describe("App — the setup screen", () => {
     const edge = makeEdge({
       "GET /api/boards": ok(BOARDS),
       "GET /api/rulesets": ok(RULESETS),
-      "POST /api/games/load": ok(restored),
+      "POST /api/games/load": ok(gameCreated(restored)),
       "GET /api/games/g1": ok(restored),
     });
     renderApp(edge);
@@ -245,7 +246,16 @@ describe("App — starting a game for people elsewhere", () => {
     const online = vi.fn((input: unknown, init?: { method?: string }) => {
       const path = String(input).split("?")[0] ?? "";
       calls.push(`${init?.method ?? "GET"} ${path}`);
-      const body = path.endsWith("/boards") ? BOARDS : path.endsWith("/rulesets") ? RULESETS : view;
+      // `POST /games` answers a `GameCreated` envelope since ADR-012; every other route here
+      // answers a plain view. Branching on the method rather than on the path, because the online
+      // creation and the online *fetch* of the same game share one path.
+      const body = path.endsWith("/boards")
+        ? BOARDS
+        : path.endsWith("/rulesets")
+          ? RULESETS
+          : init?.method === "POST" && path.endsWith("/games")
+            ? gameCreated(view)
+            : view;
       return Promise.resolve({
         ok: true,
         status: 200,
@@ -335,6 +345,86 @@ describe("App — starting a game for people elsewhere", () => {
 });
 
 // --- The game screen --------------------------------------------------------
+
+/**
+ * Joining a game somebody sent you a link to (ADR-012, MON-906).
+ *
+ * The audit's finding, from the guest's side: before this, a second browser on one `?game=` link
+ * could act for either player. Now it arrives as a spectator — the whole board, no buttons — and the
+ * way in is a seat, taken from the picker the server's `claims` projection drives.
+ *
+ * Driven through the real `App`, the real `useGame` and the real `ApiClient`, with the fakes at the
+ * edge, because the interesting claim spans all three: the client stores the credential, the hook
+ * writes the claim's own view into the cache, and the picker disappears because the *client* now
+ * holds a seat rather than because a component remembered it had been pressed.
+ */
+describe("App — following a link into somebody else's game", () => {
+  const SPECTATING = gameView({}, []);
+  const SEATED = gameView({}, [ROLL]);
+
+  function joinEdge(claimed: unknown) {
+    return makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "GET /api/games/g1": ok({
+        ...SPECTATING,
+        claims: [
+          { player: 0, claimed: true },
+          { player: 1, claimed: false },
+        ],
+      }),
+      "POST /api/games/g1/seats/1/claim": { status: 201, body: claimed },
+    });
+  }
+
+  it("offers the free seat, takes it, and plays from the view the claim answered with", async () => {
+    const edge = joinEdge({ seat_secret: "seat-1-secret", view: { ...SEATED, claims: [] } });
+    openGameUrl("g1");
+    renderApp(edge);
+
+    // Arrives as a spectator: the board is there and the action bar is not.
+    await screen.findByTestId("board-grid");
+    expect(screen.queryByTestId('[data-command-kind="roll_dice"]')).not.toBeInTheDocument();
+
+    await userEvent.click(await screen.findByTestId("claim-seat-1"));
+
+    // The picker is gone because the client now holds a credential for this game, and the buttons
+    // are there because the *claim's own view* went into the cache.
+    await waitFor(() => {
+      expect(screen.queryByTestId("seat-claim")).not.toBeInTheDocument();
+    });
+    const claim = edge.calls.find((call) => call.path.endsWith("/seats/1/claim"));
+    expect(claim?.method).toBe("POST");
+  });
+
+  it("never offers a seat somebody else is already in", async () => {
+    openGameUrl("g1");
+    renderApp(joinEdge({ seat_secret: "s", view: SEATED }));
+
+    await screen.findByTestId("seat-claim");
+    expect(screen.queryByTestId("claim-seat-0")).not.toBeInTheDocument();
+    expect(screen.getByTestId("claim-seat-1")).toBeInTheDocument();
+  });
+
+  it("narrates a refused claim with the server's key rather than swallowing it", async () => {
+    // Two people press the same chair; the second is told so, in their own language, and the row of
+    // other seats is still there to press.
+    const edge = makeEdge({
+      "GET /api/boards": ok(BOARDS),
+      "GET /api/rulesets": ok(RULESETS),
+      "GET /api/games/g1": ok({ ...SPECTATING, claims: [{ player: 1, claimed: false }] }),
+      "POST /api/games/g1/seats/1/claim": refusal(409, "error.seat_taken", { player: 1 }),
+    });
+    openGameUrl("g1");
+    renderApp(edge);
+
+    await userEvent.click(await screen.findByTestId("claim-seat-1"));
+
+    expect(await screen.findByTestId("seat-claim-error")).toHaveTextContent(
+      "Somebody is already in that seat. Choose a free one.",
+    );
+  });
+});
 
 describe("App — the game screen", () => {
   describe("the rent a square would charge (MON-420)", () => {

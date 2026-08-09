@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ApiClient, DEFAULT_BASE_URL, defaultBaseUrl } from "./client";
 import { ApiError, isApiError } from "./errors";
+import { memorySecretStore, type SecretStore } from "./secretStore";
 import type { Command, GameView } from "./types";
 
 /**
@@ -19,17 +20,34 @@ function jsonResponse(status: number, body: unknown): Response {
   });
 }
 
-function clientWith(fetchImpl: ReturnType<typeof vi.fn>): ApiClient {
-  return new ApiClient({ fetch: fetchImpl as never, origin: "http://kesef.test/" });
+function clientWith(fetchImpl: ReturnType<typeof vi.fn>, secrets?: SecretStore): ApiClient {
+  return new ApiClient({
+    fetch: fetchImpl as never,
+    origin: "http://kesef.test/",
+    // In memory rather than `localStorage`: this suite is about the wire, and a store shared with
+    // the rest of the run would let one test's credential reach another's request (ADR-012).
+    secrets: secrets ?? memorySecretStore(),
+  });
 }
 
 const ROLL: Command = { kind: "roll_dice", player: 0 };
 
-const EMPTY_VIEW = { event_cursor: 0, events: [], legal_commands: [] } as unknown as GameView;
+const EMPTY_VIEW = {
+  event_cursor: 0,
+  events: [],
+  legal_commands: [],
+  claims: [],
+  state: { game_id: "g1" },
+} as unknown as GameView;
+
+/** What `POST /games` and `POST /games/load` answer since ADR-012: the view, and one secret. */
+function created(view: GameView = EMPTY_VIEW, hostSecret = "host-secret"): unknown {
+  return { host_secret: hostSecret, view };
+}
 
 describe("ApiClient — the happy paths", () => {
   it("posts a new game as JSON to the configured base url", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, EMPTY_VIEW));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created()));
 
     await clientWith(fetchImpl).createGame({
       seats: [
@@ -107,7 +125,7 @@ describe("ApiClient — the happy paths", () => {
     // The body is the `GameState` itself, not `{state: ...}` — `POST /games/load` declares the
     // schema directly (see `api.load_game`'s hand-written `openapi_extra`), so a wrapper here would
     // be a 422 on every load.
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, EMPTY_VIEW));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created()));
     const save = { schema_version: 1, game_id: "kitchen-table", rng: { seed: 7 } };
 
     await clientWith(fetchImpl).loadGame(save);
@@ -335,5 +353,101 @@ describe("defaultBaseUrl — which API a client with no opinion talks to", () =>
     vi.stubEnv("VITE_API_URL", "   ");
     expect(defaultBaseUrl()).toBe(DEFAULT_BASE_URL);
     vi.unstubAllEnvs();
+  });
+});
+
+/**
+ * The seat credential (ADR-012, MON-906).
+ *
+ * Four claims, and each one is a way the design fails silently if it is wrong: a secret that is
+ * never stored leaves every request anonymous; one that is never sent leaves the player a spectator
+ * of their own game; one sent to the *wrong* game hands another table's credential to a stranger's
+ * server; and one that leaks into a URL is written into history and into every access log it passes.
+ */
+describe("ApiClient — seat authority", () => {
+  it("keeps the host secret a creation answered with, and sends it on the next request", async () => {
+    const secrets = memorySecretStore();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(201, created(EMPTY_VIEW, "host-abc")))
+      .mockResolvedValueOnce(jsonResponse(200, EMPTY_VIEW));
+    const client = clientWith(fetchImpl, secrets);
+
+    await client.createGame({} as never);
+    await client.getGame("g1");
+
+    expect(secrets.get("g1")).toBe("host-abc");
+    const init = fetchImpl.mock.calls[1]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer host-abc");
+  });
+
+  it("keeps the secret a load answered with, because a restored game is a new session", async () => {
+    // Without this the flag's enforcing position locks a player out of the game they just restored:
+    // the credential they were holding names a session that no longer exists.
+    const secrets = memorySecretStore();
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created(EMPTY_VIEW, "host-xyz")));
+
+    await clientWith(fetchImpl, secrets).loadGame({ schema_version: 1 });
+
+    expect(secrets.get("g1")).toBe("host-xyz");
+  });
+
+  it("claims a seat, stores that seat's secret, and returns the view it came with", async () => {
+    const secrets = memorySecretStore();
+    const claimed = { seat_secret: "seat-1-secret", view: EMPTY_VIEW };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, claimed));
+    const client = clientWith(fetchImpl, secrets);
+
+    const view = await client.claimSeat("g1", 1);
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/games/g1/seats/1/claim");
+    expect(view).toEqual(EMPTY_VIEW);
+    expect(secrets.get("g1")).toBe("seat-1-secret");
+    expect(client.holdsSeat("g1")).toBe(true);
+  });
+
+  it("sends no Authorization header at all when this browser holds nothing", async () => {
+    // "No credential" is a spectator, and a spectator is a working state — an empty `Bearer ` would
+    // be a different request, and one the server would have to have an opinion about.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, EMPTY_VIEW));
+
+    await clientWith(fetchImpl).getGame("g1");
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers ?? {}).has("authorization")).toBe(false);
+  });
+
+  it("never presents one game's secret to another game", async () => {
+    const secrets = memorySecretStore();
+    secrets.set("g1", "g1-secret");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, EMPTY_VIEW));
+
+    await clientWith(fetchImpl, secrets).getGame("g2");
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers ?? {}).has("authorization")).toBe(false);
+  });
+
+  it("never puts a secret in a URL", async () => {
+    // A URL lands in history, in a `Referer` and in every access log on the way. The header is the
+    // one place a browser will carry a credential and not write it down.
+    const secrets = memorySecretStore();
+    secrets.set("g1", "host-abc");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(200, EMPTY_VIEW));
+
+    await clientWith(fetchImpl, secrets).getGame("g1", 3);
+
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("/api/games/g1?since=3");
+    expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain("host-abc");
+  });
+
+  it("forgets a game's secret on request, so a left game leaves nothing behind", async () => {
+    const secrets = memorySecretStore();
+    secrets.set("g1", "host-abc");
+    const client = clientWith(vi.fn(), secrets);
+
+    client.forgetSeat("g1");
+
+    expect(client.holdsSeat("g1")).toBe(false);
   });
 });

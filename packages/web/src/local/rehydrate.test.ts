@@ -77,7 +77,7 @@ function bridgeWith(games: Record<string, unknown>): PyBridge & {
           : envelope(200, state),
       );
     },
-    loadGame: (saveJson: string, ifExists: string | null) => {
+    loadGame: (saveJson: string, _secret: string, ifExists: string | null) => {
       fake.loads += 1;
       // Asserted rather than ignored: a restore must send no conflict policy (ADR-011). There is
       // nothing to conflict with — the store has just answered a 404 — and a `replace` from here
@@ -85,7 +85,9 @@ function bridgeWith(games: Record<string, unknown>): PyBridge & {
       fake.policies.push(ifExists);
       const save = JSON.parse(saveJson) as { game_id: string };
       held.set(save.game_id, save);
-      return Promise.resolve(envelope(201, save));
+      // A `GameCreated` since ADR-012: a restored game is a new session with a new authority, and
+      // its loader is who has to be handed the secret.
+      return Promise.resolve(envelope(201, { host_secret: "restored-host-secret", view: save }));
     },
     getGame: (gameId: string) =>
       Promise.resolve(
@@ -202,13 +204,13 @@ describe("the restore", () => {
 
     // The reload: a new heap, and a store that has never heard of this game.
     bridge.forget();
-    expect(parseEnvelope(await bridge.getGame("g1", null)).status).toBe(404);
+    expect(parseEnvelope(await bridge.getGame("g1", "", null)).status).toBe(404);
 
     expect(await restoreGame(bridge, "g1", slot)).toBe(true);
     // No conflict policy on the way in (ADR-011): there is nothing live to conflict with, and a
     // `replace` sent from here would end a game on nobody's instruction.
     expect(bridge.policies).toEqual([null]);
-    const answer = parseEnvelope(await bridge.getGame("g1", null));
+    const answer = parseEnvelope(await bridge.getGame("g1", "", null));
     expect(answer.status).toBe(200);
     expect(answer.body).toEqual({ game_id: "g1", turn_number: 9 });
   });
@@ -241,6 +243,54 @@ describe("the restore", () => {
     const bridge = bridgeWith({});
     expect(await restoreGame(bridge, "g1", memorySlot())).toBe(false);
     expect(bridge.loads).toBe(0);
+  });
+});
+
+/**
+ * The credential a restore mints (ADR-012, MON-906).
+ *
+ * A restored game is a *new session* with a *new* authority, so the secret this tab was holding
+ * names a session that no longer exists. Nothing about that is visible today — the local build runs
+ * with `seat_authority` off — which is exactly why it is worth a test: the failure it prevents is a
+ * host who reloads and finds themself a spectator of their own game the day the flag is flipped.
+ */
+describe("the restore and the host secret", () => {
+  it("hands the newly minted host secret to whoever asked for the restore", async () => {
+    const bridge = bridgeWith({ g1: { game_id: "g1", turn_number: 4 } });
+    const slot = memorySlot();
+    await snapshotGame(bridge, "g1", slot);
+    bridge.forget();
+
+    const remembered: string[] = [];
+    expect(await restoreGame(bridge, "g1", slot, (secret) => remembered.push(secret))).toBe(true);
+
+    expect(remembered).toEqual(["restored-host-secret"]);
+  });
+
+  it("does not call back when there was nothing to restore", async () => {
+    const remembered: string[] = [];
+    expect(
+      await restoreGame(bridgeWith({}), "g1", memorySlot(), (secret) => remembered.push(secret)),
+    ).toBe(false);
+    expect(remembered).toEqual([]);
+  });
+
+  it("presents the host secret when taking the snapshot, because /save is host-only", async () => {
+    // Passed through to the facade rather than dropped: with the flag on, insurance without the
+    // credential is a 403 and the reload loses the game exactly as it did before ADR-010.
+    const bridge = bridgeWith({ g1: { game_id: "g1" } });
+    const saved: unknown[][] = [];
+    const spying = {
+      ...bridge,
+      saveGame: (gameId: string, secret: string) => {
+        saved.push([gameId, secret]);
+        return bridge.saveGame(gameId, secret);
+      },
+    };
+
+    await snapshotGame(spying, "g1", memorySlot(), "host-abc");
+
+    expect(saved).toEqual([["g1", "host-abc"]]);
   });
 });
 

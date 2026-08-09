@@ -23,6 +23,7 @@ import { render } from "@testing-library/react";
 import { App } from "@/App";
 import {
   ApiClient,
+  memorySecretStore,
   type BoardSummary,
   type Command,
   type FetchLike,
@@ -114,6 +115,10 @@ export function makeEdge(routes: Routes, options: { readonly hang?: boolean } = 
       fetch: doFetch,
       createSocket: (url) => new FakeSocket(url),
       origin: "http://localhost/",
+      // In memory rather than `localStorage` (ADR-012): a store shared across the run would let one
+      // test's host secret reach another test's request, and the seat picker's visibility is read
+      // off exactly that. Per-edge, so each test starts as a spectator unless it creates a game.
+      secrets: memorySecretStore(),
     }),
   };
 }
@@ -141,6 +146,17 @@ export const UNNAMED_BOARD: BoardSummary = {
 
 /** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
 export const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
+
+/**
+ * A `GameCreated` envelope — what `POST /games` and `POST /games/load` answer since ADR-012.
+ *
+ * The host secret is a fixed string rather than a random one: what a test wants to say is "the
+ * client kept *the* secret the server returned", and a value it can name is what makes that
+ * assertable. It is never rendered, so its contents do not matter beyond being non-empty.
+ */
+export function gameCreated(view: GameView, hostSecret = "test-host-secret"): unknown {
+  return { host_secret: hostSecret, view };
+}
 
 /** A real forty-square ring, so every square name resolves in the catalogue (G-F17). */
 export function gameView(

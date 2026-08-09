@@ -149,6 +149,9 @@ export function makeView(overrides: Partial<GameView> = {}): GameView {
     legal_commands: [],
     events: [],
     event_cursor: 0,
+    // Nobody has claimed a seat in a fixture, which is also the shape a game has the moment it is
+    // created (ADR-012). A test about the seat picker supplies its own.
+    claims: [],
     ...overrides,
   };
 }

@@ -79,14 +79,18 @@ describe("a reload of the tab the engine lives in", () => {
       },
       listBoards: () => Promise.resolve(envelope(200, [{ id: "classic" }])),
       listRulesets: () => Promise.resolve(envelope(200, [{ name: "universal" }])),
+      // Both seating routes answer a `GameCreated` envelope since ADR-012: the view, and the one
+      // host secret this session hands out. The client keeps the secret and returns the view.
       createGame: () => {
         held.set("g1", { game_id: "g1", turn_number: 3 });
-        return Promise.resolve(envelope(201, view("g1")));
+        return Promise.resolve(envelope(201, { host_secret: "local-host", view: view("g1") }));
       },
       loadGame: (stateJson: string) => {
         const state = JSON.parse(stateJson) as { game_id: string };
         held.set(state.game_id, state);
-        return Promise.resolve(envelope(201, view(state.game_id)));
+        return Promise.resolve(
+          envelope(201, { host_secret: "local-host-restored", view: view(state.game_id) }),
+        );
       },
       getGame: (gameId: string) =>
         Promise.resolve(

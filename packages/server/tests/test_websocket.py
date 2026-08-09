@@ -44,7 +44,8 @@ BUY = {"command": {"kind": "buy_property", "player": 0}}
 def _create(client: TestClient) -> str:
     response = client.post("/games", json=new_game_payload())
     assert response.status_code == status.HTTP_201_CREATED, response.text
-    game_id: str = response.json()["state"]["game_id"]
+    # `["view"]`: `POST /games` answers a `GameCreated` envelope since ADR-012.
+    game_id: str = response.json()["view"]["state"]["game_id"]
     return game_id
 
 

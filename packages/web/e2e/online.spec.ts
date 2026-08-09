@@ -15,12 +15,21 @@
  *
  * `App.tsx` routes on `?game=<id>` (`GAME_PARAM`), so "share the link" *is* the join mechanism and no
  * lobby had to be invented for this. The second context navigates to the first's URL and is in the
- * game. What does not exist yet is any notion of **which seat is yours**: the engine offers every
- * legal command to whoever asks, so both contexts can act for either player. That is a real MON-901
- * design question and it is deliberately not smuggled in here — this spec asserts the transport, and
- * says so rather than pretending seat ownership exists.
+ * game.
  *
- * ## Why the assertion is on the *watcher*
+ * ## Which seat is yours — the half that did not exist (MON-906)
+ *
+ * Until ADR-012 there was no notion of it: the engine offers every legal command to whoever asks, so
+ * both contexts could act for either player. The 2026-08-07 audit measured that as its headline
+ * finding, and the second test below **is** that repro, inverted into a requirement — a guest who has
+ * claimed seat 1 is offered nothing for seat 0, and the host keeps playing every unclaimed seat.
+ *
+ * This suite's API server runs with `KESEF_SEAT_AUTHORITY=enforce` (see `playwright.config.ts`), so
+ * every other spec in this directory is simultaneously the evidence that *hotseat is unchanged*
+ * under enforcement, which is the consequence ADR-012 promised and the one that would be expensive
+ * to get wrong.
+ *
+ * ## Why the first assertion is on the *watcher*
  *
  * The interesting direction is the one nothing else covers: context B presses nothing at all. Its log
  * row can only arrive over its own WebSocket, pushed by the server because context A acted. If the
@@ -90,6 +99,59 @@ test.describe("two clients, one game", () => {
       await expect
         .poll(async () => turnNumber(guest), { timeout: 20_000 })
         .toBe(await turnNumber(page));
+    } finally {
+      await guestContext.close();
+    }
+  });
+
+  test("a guest cannot move the host's piece (two contexts, one link)", async ({ page, browser }) => {
+    /*
+      The audit's headline repro, as a requirement (ADR-012, MON-906).
+
+      Before seat authority this move *succeeded*: the guest's action bar offered seat 0's roll,
+      because `legal_commands` answered for the state rather than for the caller. Done means the
+      guest is offered nothing for a seat it does not hold, and that the host is unaffected.
+
+      Asserted on what is **on screen** rather than on a status code, deliberately. A 403 the UI
+      still drew a button for would be a fix nobody could see; the projection filtering by speaker is
+      what makes the refusal a thing a six-year-old never runs into in the first place.
+    */
+    test.slow();
+
+    // --- the host starts a game, and holds the host secret --------------------
+    await startGame(page, { locale: "en" });
+    await skipAnimations(page);
+    const shareUrl = page.url();
+
+    const guestContext = await browser.newContext();
+    const guest = await guestContext.newPage();
+    try {
+      // --- the guest follows the link: a spectator, with a seat to take -------
+      await guest.goto(shareUrl);
+      await skipAnimations(guest);
+      await expect(guest.getByTestId("board-grid")).toBeVisible();
+
+      // Nothing to press yet. A spectator's `legal_commands` is empty by the server's own answer,
+      // which is what puts the picker rather than an action bar in front of a joiner.
+      await expect(guest.locator("#kesef-actions [data-command-kind]")).toHaveCount(0);
+
+      // --- the guest claims seat 1 -------------------------------------------
+      const picker = guest.getByTestId("seat-claim");
+      await expect(picker).toBeVisible();
+      await guest.getByTestId("claim-seat-1").click();
+      await expect(picker).toBeHidden();
+
+      // --- and still cannot act for seat 0 -----------------------------------
+      /*
+        Seat 0 is the seat in play on turn one, so this is the strongest form of the check: the guest
+        is looking at a board that *is* waiting for a roll, and the roll on offer is not theirs to
+        make. Before MON-906 this locator was present and clicking it worked.
+      */
+      await expect(guest.locator('#kesef-actions [data-command-kind="roll_dice"]')).toHaveCount(0);
+
+      // --- while the host still plays every unclaimed seat --------------------
+      await page.locator('#kesef-actions [data-command-kind="roll_dice"]').first().click();
+      await expect(logRows(guest, "log.dice_rolled_move").first()).toBeVisible({ timeout: 20_000 });
     } finally {
       await guestContext.close();
     }
