@@ -100,6 +100,7 @@ import { Chrome } from "./Chrome";
 import { ConnectionNote } from "./ConnectionNote";
 import { presentationFor, type Presentation } from "./presentation";
 import { actingFor, movesAtThisScreen } from "./seatedCommands";
+import { SeatClaim } from "./SeatClaim";
 import { SquareRent } from "./SquareRent";
 import { TurnSummary } from "./TurnSummary";
 import { useUiStore } from "./uiStore";
@@ -124,7 +125,8 @@ const NO_PLAYERS: readonly PlayerView[] = [];
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const money = useMoney();
-  const { state, board, legalCommands, send, validate, events, status, refetch } = useGame();
+  const { state, board, legalCommands, send, validate, events, status, refetch, claims, seated, claimSeat } =
+    useGame();
   // The wire from the event stream to the one `<Announcer>`. Called here because this is the
   // component that renders a live game, and calling it twice would say every roll twice.
   useEventNarration();
@@ -457,6 +459,17 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
             which is why the pair moved into the column rather than the grid moving into a `<main>`.
           */}
           <ConnectionNote connection={status.connection} />
+
+          {/*
+            Taking a seat, for somebody who followed a shared link (ADR-012, MON-906).
+
+            Directly under the connection note because it is the same kind of sentence — about *this
+            connection*, not about the game — and because a joiner's eye is already at the top of the
+            screen looking for what to do. It renders `null` for anybody who already speaks for a
+            seat, which is every host and every guest who has claimed one, so a hotseat game never
+            sees it. Everything it draws comes from `claims`, which is the server's own projection.
+          */}
+          <SeatClaim claims={claims} players={state.players} seated={seated} onClaim={claimSeat} />
 
           {/*
             A failure with the board already on screen gets **no retry**, deliberately. What failed

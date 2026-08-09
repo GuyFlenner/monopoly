@@ -24,4 +24,6 @@ export type {
   ConnectionStatus,
   EventSocketOptions,
 } from "./eventSocket";
+export { browserSecretStore, memorySecretStore, secretKey } from "./secretStore";
+export type { SecretStore, StorageLike } from "./secretStore";
 export type * from "./types";

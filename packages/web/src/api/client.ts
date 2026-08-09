@@ -13,6 +13,23 @@
  *
  * There is no third property, and in particular there is no rule: this file does not know
  * what a command is for, whether one is legal, or what a number on the board means.
+ *
+ * ## And since MON-906, one credential (ADR-012)
+ *
+ * A game is joined by link, so the server has to be told which seat a request speaks for. That is a
+ * secret it minted and handed over once — at creation, or when a seat was claimed — and this client
+ * is where it is kept and re-presented:
+ *
+ * * **Stored on the way in.** `createGame`, `loadGame` and `claimSeat` are the only three answers
+ *   that carry a secret, and each writes it to the {@link SecretStore} before returning. Nothing
+ *   above this file ever handles one, which is the property worth having: a secret that reached a
+ *   component would sooner or later reach a prop, a log line, or a URL.
+ * * **Sent on the way out.** Every `/games/{id}` request carries `Authorization: Bearer <secret>`
+ *   when one is held. A header rather than a query parameter, because a URL lands in history, in a
+ *   `Referer`, and in whatever a parent pastes into a chat window.
+ * * **Absent is a working state.** With no secret the server answers as a spectator: the whole
+ *   board, and an empty `legal_commands`. So a client that has never claimed a seat renders a game
+ *   rather than an error, and the UI's "no buttons" is a fact from the server rather than a guess.
  */
 
 import {
@@ -22,15 +39,18 @@ import {
   toErrorParams,
   TRANSPORT_ERROR_KEY,
 } from "./errors";
+import { browserSecretStore, type SecretStore } from "./secretStore";
 import type {
   BoardSummary,
   Command,
+  GameCreated,
   GameView,
   IfExists,
   LegalityView,
   NewGameRequest,
   RulesetView,
   SaveFile,
+  SeatClaimed,
 } from "./types";
 
 /** Just enough of `fetch` to be substitutable in a test. */
@@ -65,6 +85,13 @@ export interface ApiClientOptions {
   readonly createSocket?: SocketFactory;
   /** Absolute base for resolving the WebSocket URL. Defaults to the document's location. */
   readonly origin?: string;
+  /**
+   * Where this browser keeps its seat credentials (ADR-012). Defaults to `localStorage`.
+   *
+   * Injected for the reason `fetch` is: the failing-storage branch is the one that matters and a
+   * real browser only produces it in private mode.
+   */
+  readonly secrets?: SecretStore;
 }
 
 export const DEFAULT_BASE_URL = "/api";
@@ -99,12 +126,30 @@ export class ApiClient {
   private readonly doFetch: FetchLike;
   private readonly makeSocket: SocketFactory;
   private readonly origin: string | undefined;
+  private readonly secrets: SecretStore;
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? defaultBaseUrl()).replace(/\/$/, "");
     this.doFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
     this.makeSocket = options.createSocket ?? ((url) => new WebSocket(url) as SocketLike);
     this.origin = options.origin;
+    this.secrets = options.secrets ?? browserSecretStore();
+  }
+
+  /**
+   * Whether this browser holds a credential for `gameId` (ADR-012).
+   *
+   * The one thing above this file may ask about a secret, and it is a boolean rather than the
+   * string: the seat-claim affordance needs to know whether to offer itself, and nothing in the UI
+   * needs — or should be able — to read the credential itself.
+   */
+  holdsSeat(gameId: string): boolean {
+    return this.secrets.get(gameId) !== undefined;
+  }
+
+  /** Forget this browser's credential for `gameId`, on leaving the game. */
+  forgetSeat(gameId: string): void {
+    this.secrets.clear(gameId);
   }
 
   // --- Meta ---------------------------------------------------------------
@@ -119,8 +164,43 @@ export class ApiClient {
 
   // --- Games --------------------------------------------------------------
 
-  createGame(request: NewGameRequest, signal?: AbortSignal): Promise<GameView> {
-    return this.request<GameView>("POST", "/games", { body: request, signal });
+  /**
+   * Start a game, and keep the host secret it answers with (ADR-012).
+   *
+   * The answer is a `GameCreated` envelope — the view *and* the one credential this session will
+   * ever hand out — so the secret is stored here, at the only moment it exists, and the caller is
+   * given the view it was going to use anyway.
+   */
+  async createGame(request: NewGameRequest, signal?: AbortSignal): Promise<GameView> {
+    const created = await this.request<GameCreated>("POST", "/games", { body: request, signal });
+    this.secrets.set(created.view.state.game_id, created.host_secret);
+    return created.view;
+  }
+
+  /**
+   * Take a free seat in a game this browser is only watching (ADR-012, MON-906).
+   *
+   * The secret comes back once and is stored here. The view comes back with it, already filtered to
+   * the claimed seat, so the joiner's next render is the one they play from rather than an empty
+   * action bar waiting on a refetch.
+   */
+  async claimSeat(gameId: string, player: number, signal?: AbortSignal): Promise<GameView> {
+    const claimed = await this.request<SeatClaimed>(
+      "POST",
+      `/games/${encodeURIComponent(gameId)}/seats/${String(player)}/claim`,
+      { signal },
+    );
+    this.secrets.set(gameId, claimed.seat_secret);
+    return claimed.view;
+  }
+
+  /** Void a seat's claim so somebody can take it again. Host only, and idempotent. */
+  async releaseSeat(gameId: string, player: number, signal?: AbortSignal): Promise<void> {
+    await this.request<null>(
+      "DELETE",
+      `/games/${encodeURIComponent(gameId)}/seats/${String(player)}/claim`,
+      { signal },
+    );
   }
 
   /**
@@ -193,9 +273,17 @@ export class ApiClient {
    * it is *omitted* on a first attempt: the server's default is `refuse`, and a client that sent
    * `replace` before anybody had been asked would be ending a game on its own initiative.
    */
-  loadGame(save: unknown, ifExists?: IfExists, signal?: AbortSignal): Promise<GameView> {
+  async loadGame(save: unknown, ifExists?: IfExists, signal?: AbortSignal): Promise<GameView> {
     const query = ifExists === undefined ? "" : `?if_exists=${encodeURIComponent(ifExists)}`;
-    return this.request<GameView>("POST", `/games/load${query}`, { body: save, signal });
+    // A `GameCreated`, exactly as `createGame` gets: a restored game is a *new* session with a new
+    // authority, so its loader is the one who has to be handed the host secret (ADR-012). Without
+    // this, loading a save would lock the loader out of the game they had just restored.
+    const restored = await this.request<GameCreated>("POST", `/games/load${query}`, {
+      body: save,
+      signal,
+    });
+    this.secrets.set(restored.view.state.game_id, restored.host_secret);
+    return restored.view;
   }
 
   async deleteGame(gameId: string, signal?: AbortSignal): Promise<void> {
@@ -227,15 +315,41 @@ export class ApiClient {
 
   // --- Transport ----------------------------------------------------------
 
+  /**
+   * The game this path is about, for picking the right credential — or `undefined`.
+   *
+   * Read off the path rather than threaded through every method, so that a route added later cannot
+   * forget to present the secret. `/games/load` is deliberately not a game id: the load's own
+   * authority question is about the game *inside the body*, and the server resolves that from the
+   * `Authorization` header against the session it is replacing. That header is added below by the
+   * dedicated branch, because at this point there is no id to look one up by.
+   */
+  private gameOf(path: string): string | undefined {
+    const found = /^\/games\/([^/?]+)/.exec(path);
+    const id = found?.[1];
+    return id === undefined || id === "load" ? undefined : decodeURIComponent(id);
+  }
+
   private async request<T>(
     method: string,
     path: string,
-    options: { body?: unknown; signal?: AbortSignal | undefined },
+    options: { body?: unknown; signal?: AbortSignal | undefined; secret?: string | undefined },
   ): Promise<T> {
     const init: RequestInit = { method };
+    const headers: Record<string, string> = {};
     if (options.body !== undefined) {
       init.body = JSON.stringify(options.body);
-      init.headers = { "content-type": "application/json" };
+      headers["content-type"] = "application/json";
+    }
+    const gameId = this.gameOf(path);
+    const secret = options.secret ?? (gameId === undefined ? undefined : this.secrets.get(gameId));
+    if (secret !== undefined) {
+      // `Bearer`, and only when one is held: sending an empty credential is not the same request as
+      // sending none, and "none" is what an unclaimed spectator is (ADR-012).
+      headers["authorization"] = `Bearer ${secret}`;
+    }
+    if (Object.keys(headers).length > 0) {
+      init.headers = headers;
     }
     if (options.signal !== undefined) {
       init.signal = options.signal;

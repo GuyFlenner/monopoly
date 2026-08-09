@@ -44,6 +44,24 @@ export type ErrorResponse = Schemas["ErrorResponse"];
 export type ErrorParams = ErrorResponse["params"];
 export type LegalityView = Schemas["LegalityView"];
 
+/**
+ * A newly seated game and the one credential for it (ADR-012, MON-906).
+ *
+ * `POST /games` and `POST /games/load` both answer this. Only `api/client.ts` names the type: the
+ * secret is stored there, at the one moment it exists, and every layer above is handed the `view`.
+ */
+export type GameCreated = Schemas["GameCreated"];
+/** The answer to a seat claim: that seat's secret, and the view filtered to it. */
+export type SeatClaimed = Schemas["SeatClaimed"];
+/**
+ * One human seat and whether it is taken — `GameView.claims` (ADR-012).
+ *
+ * The whole of what a joiner is told about seat authority, and the input to the seat picker. Human
+ * seats only: a bot seat is not a seat anybody can claim, and `PlayerView.is_bot` is where the UI
+ * reads that.
+ */
+export type SeatClaimView = Schemas["SeatClaimView"];
+
 export type NewGameRequest = Schemas["NewGameRequest"];
 /**
  * The per-game amendments a table may make to the named rule set (MON-712).
