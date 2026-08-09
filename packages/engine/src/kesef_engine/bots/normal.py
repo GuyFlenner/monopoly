@@ -512,8 +512,10 @@ class NormalBot:
         gain = value(incoming.tiles) + incoming.cash
         loss = value(outgoing.tiles) + outgoing.cash
         me = state.player(player)
-        if me.cash - outgoing.cash < CASH_BUFFER:
-            # Cannot afford the cash side comfortably, whatever the squares are worth.
+        if me.cash - outgoing.cash < self._buffer(state, player):
+            # Cannot afford the cash side comfortably, whatever the squares are worth. Through
+            # `self._buffer` like every other opinion, so the hard bot's threat-scaled reserve reaches
+            # trade scoring too (MON-751) — the one decision ADR-009 exists to enable.
             return 35.0 if not accept else -20.0
         good = gain > loss
         return (50.0 if good else -20.0) if accept else (-20.0 if good else 50.0)
