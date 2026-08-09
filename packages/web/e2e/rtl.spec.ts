@@ -146,7 +146,7 @@ test.describe("the Hebrew build is actually Hebrew", () => {
     await startGame(page);
     await switchTo(page, "he");
 
-    await page.getByRole("button", { name: "הטל קוביות" }).click();
+    await page.getByRole("button", { name: "להטיל קוביות" }).click();
 
     const log = page.getByRole("region", { name: "מה קרה" });
     await expect(log).toBeVisible();
