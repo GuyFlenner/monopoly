@@ -149,6 +149,7 @@ describe("narrate", () => {
       deck: "chance",
       card_id: "card.chance.advance_to_go",
       square_key: "tile.israel.t00",
+      drawn_from_key: "tile.israel.t07",
     });
 
     // The instruction on the card is the half of the draw a screen-reader user would otherwise
@@ -174,6 +175,7 @@ describe("narrate", () => {
       player: 1,
       deck: "community_chest",
       card_id: "card.chest.bank_error",
+      drawn_from_key: "tile.classic.community_chest_1",
     });
 
     expect(drafts[0]?.politeness).toBe("polite");

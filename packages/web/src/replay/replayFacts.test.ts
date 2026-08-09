@@ -353,6 +353,7 @@ describe("the event types that state nothing", () => {
       player: 0,
       deck: "chance",
       card_id: "advance_to_go",
+      drawn_from_key: "tile.classic.chance_1",
     },
     trade_proposed: {
       type: "trade_proposed",

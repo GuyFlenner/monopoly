@@ -123,7 +123,7 @@ EVENT_SAMPLES: tuple[Event, ...] = (
     BidPlaced(player=1, amount=70),
     BidderWithdrew(player=0),
     AuctionEnded(lot=TileLot(tile=1), winner=1, price=70),
-    CardDrawn(player=0, deck=Deck.CHANCE, card_id="card.chance.advance_to_go"),
+    CardDrawn(player=0, deck=Deck.CHANCE, card_id="card.chance.advance_to_go", drawn_from_key="tile.classic.chance_2"),
     SentToJail(player=0, via="three_doubles"),
     LeftJail(player=0, via="card"),
     BuildingChanged(tile=1, houses=2, delta=1, level="house"),

@@ -282,6 +282,7 @@ describe("a card drawn", () => {
           player: 0,
           deck: "chance",
           card_id: "card.chance.advance_to_go",
+          drawn_from_key: "tile.classic.chance_1",
         }),
       ]),
     ];
@@ -318,6 +319,7 @@ describe("a card drawn", () => {
           player: 0,
           deck: "community_chest",
           card_id: "card.chest.doctors_fee",
+          drawn_from_key: "tile.classic.community_chest_1",
         }),
         moveEvent(3, 0, 3, 7),
       ]),

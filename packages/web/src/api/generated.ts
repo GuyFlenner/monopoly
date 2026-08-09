@@ -641,6 +641,8 @@ export interface components {
             card_id: string;
             /** Square Key */
             square_key?: string | null;
+            /** Drawn From Key */
+            drawn_from_key: string;
         };
         /**
          * CardFrame

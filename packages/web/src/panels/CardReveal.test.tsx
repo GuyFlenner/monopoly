@@ -39,12 +39,19 @@ const CARD: RevealedCard = {
   deck: "chance",
   cardId: "card.chance.advance_to_go",
   squareKey: null,
+  drawnFromKey: "tile.classic.chance_1",
   delta: null,
   balance: null,
 };
 
 /** The classic board's GO, as the screen would have resolved it. */
 const GO = "GO";
+
+/**
+ * The deck's label, as the screen would have resolved it from `card.drawnFromKey` (MON-754). On the
+ * classic board the Chance square is named after the deck, so this is the deck's own word.
+ */
+const DECK = "Chance";
 
 function mount(
   card: Partial<RevealedCard> = {},
@@ -54,6 +61,7 @@ function mount(
     readonly returnFocusRef?: React.RefObject<HTMLElement | null>;
     readonly squareName?: string | null;
     readonly goName?: string;
+    readonly deckName?: string;
   } = {},
 ): void {
   render(
@@ -62,6 +70,7 @@ function mount(
       playerName="Ruti"
       squareName={extras.squareName ?? null}
       goName={extras.goName ?? GO}
+      deckName={extras.deckName ?? DECK}
       kids={extras.kids ?? false}
       onDismiss={extras.onDismiss ?? ((): void => undefined)}
       {...(extras.returnFocusRef === undefined ? {} : { returnFocusRef: extras.returnFocusRef })}
@@ -139,8 +148,11 @@ describe("what the card says", () => {
 
 describe("telling the two decks apart", () => {
   it("names the deck in words, so colour is never the only channel", () => {
-    mount({ deck: "community_chest" });
-    expect(screen.getByTestId("card-reveal-deck").textContent).toBe(i18n.t("deck.community_chest"));
+    // MON-754: the word is the square the card was drawn from, resolved by the screen and handed in.
+    // On the classic board that square is named after the deck, so it is still "Community Chest" — the
+    // property preserved here is that a *word* names the deck, and it is the one the screen supplied.
+    mount({ deck: "community_chest" }, { deckName: "Community Chest" });
+    expect(screen.getByTestId("card-reveal-deck").textContent).toBe("Community Chest");
   });
 
   it("gives each deck its own glyph", () => {
@@ -250,6 +262,7 @@ describe("putting the card down", () => {
         playerName="Ruti"
         squareName={null}
         goName={GO}
+        deckName={DECK}
         kids={false}
         onDismiss={(): void => undefined}
         returnFocusRef={returnFocusRef}
@@ -278,6 +291,7 @@ describe("putting the card down", () => {
         playerName="Ruti"
         squareName={null}
         goName={GO}
+        deckName={DECK}
         kids={false}
         onDismiss={(): void => undefined}
         returnFocusRef={returnFocusRef}
@@ -338,6 +352,37 @@ describe("a Hebrew game", () => {
     );
     expect(body().textContent).not.toContain(i18n.t("tile.classic.go", { ns: "board-classic" }));
     expect(body().textContent).not.toContain("{{");
+  });
+
+  it("labels the deck with the square the Israeli board prints, not the deck's generic name (MON-754)", async () => {
+    /*
+      The owner's second card bug: the reveal announced the deck's board-global name — קלף הזדמנות /
+      קלף קופת קהילה — over a square the Israeli board calls something else. The engine sends the
+      source square's key on `drawn_from_key`; the screen resolves it in `board-israel`'s namespace
+      and hands it in as the deck label. So the chip and the accessible name follow the board, while
+      the glyph and the edge still tell the two decks apart — only the word moves.
+    */
+    await inHebrew();
+    const surprise = i18n.t("tile.israel.t07", { ns: "board-israel" }); // הפתעה — the Chance square
+    const luck = i18n.t("tile.israel.t02", { ns: "board-israel" }); // תיבת המזל — the Community Chest square
+    expect(surprise).toBe("הפתעה");
+    expect(luck).toBe("תיבת המזל");
+
+    mount({ deck: "chance", drawnFromKey: "tile.israel.t07" }, { deckName: surprise });
+    mount({ deck: "community_chest", drawnFromKey: "tile.israel.t02" }, { deckName: luck });
+    const [chance, chest] = screen.getAllByTestId("card-reveal-deck");
+    expect(chance?.textContent).toBe(surprise);
+    expect(chest?.textContent).toBe(luck);
+
+    // Not the deck's board-global name, which is exactly the word the reveal used to show here.
+    expect(chance?.textContent).not.toBe(i18n.t("deck.chance")); // הזדמנות
+    expect(chest?.textContent).not.toBe(i18n.t("deck.community_chest")); // קופת קהילה
+
+    // The accessible name carries the same word, so a screen-reader user meets the board's square too.
+    const [chanceCard, chestCard] = screen.getAllByTestId("card-reveal");
+    expect(chanceCard).toHaveAccessibleName(new RegExp(surprise));
+    expect(chanceCard).not.toHaveAccessibleName(new RegExp(i18n.t("deck.chance")));
+    expect(chestCard).toHaveAccessibleName(new RegExp(luck));
   });
 
   it("declares no language of its own, because the body is now the page's language", async () => {

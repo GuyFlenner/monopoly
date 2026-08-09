@@ -212,6 +212,19 @@ class CardDrawn(_EventBase):
     Still a key, never prose (ADR-003): the engine resolves ``board.tile(t).name_key`` and the
     catalogue interpolates it. ``None`` for every card that names no square, which is most of them.
     """
+    drawn_from_key: str = Field(min_length=1)
+    """The **active board's** name key for the square this card was *drawn from* (MON-754).
+
+    A sibling of ``square_key``, and pointing the other way: ``square_key`` is where the card may
+    *send* the holder, this is the chance/community-chest square they are standing on to draw it. The
+    decks are board-global, so the classic board's tile 7 is "Chance" while the Israeli board calls
+    the same slot ``הפתעה`` and its chest ``תיבת המזל`` — and the reveal used to announce the deck's
+    generic name (``קלף הזדמנות``) over a square the board in play calls something else.
+
+    Always present, unlike ``square_key``: a card is only ever drawn *on* a card tile, so there is
+    always a source square to name. The engine resolves it against the board in play and the web
+    labels the reveal with it — the deck keeps its glyph and colour, only the word follows the board.
+    """
 
 
 class SentToJail(_EventBase):

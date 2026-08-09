@@ -1605,13 +1605,19 @@
               }
             ],
             "title": "Square Key"
+          },
+          "drawn_from_key": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Drawn From Key"
           }
         },
         "type": "object",
         "required": [
           "player",
           "deck",
-          "card_id"
+          "card_id",
+          "drawn_from_key"
         ],
         "title": "CardDrawn"
       },

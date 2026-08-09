@@ -180,6 +180,15 @@ export interface CardRevealStep {
    * square.
    */
   readonly squareKey: string | null;
+  /**
+   * The name key of the square this card was *drawn from*, off `CardDrawn.drawn_from_key` (MON-754).
+   *
+   * A sibling of `squareKey` pointing the other way: the Chance / Community Chest square the holder
+   * is standing on, resolved against the board **in play**. Always present — a card is only dealt on
+   * a card tile — which is what lets the reveal label the deck with the word the board actually
+   * prints there (`הפתעה` / `תיבת המזל`) instead of the deck's board-global name.
+   */
+  readonly drawnFromKey: string;
   /** What the draw moved, off the following `cash_changed.delta`. `null` when it moved nothing. */
   readonly delta: number | null;
   /** The seat's balance afterwards, off the same event. Read, never accumulated. */
@@ -361,6 +370,7 @@ export function stepFor(
         deck: event.deck,
         cardId: event.card_id,
         squareKey: event.square_key ?? null,
+        drawnFromKey: event.drawn_from_key,
         delta: money?.delta ?? null,
         balance: money?.balance ?? null,
         durationMs: durations.cardMs,

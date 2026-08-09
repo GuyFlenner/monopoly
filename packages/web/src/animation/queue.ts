@@ -77,6 +77,11 @@ export interface RevealedCard {
    * `null` (MON-752). A key like `cardId` — the catalogue interpolates it into `{{square}}`.
    */
   readonly squareKey: string | null;
+  /**
+   * The engine's name key for the square the card was *drawn from*, against the board in play
+   * (MON-754). Always present; the reveal's deck label follows the word this board prints there.
+   */
+  readonly drawnFromKey: string;
   /** What the draw moved, or `null` when the events stated no figure. Never derived. */
   readonly delta: number | null;
   readonly balance: number | null;
@@ -371,6 +376,7 @@ function revealedFrom(step: CardRevealStep, nonce: number): RevealedCard {
     deck: step.deck,
     cardId: step.cardId,
     squareKey: step.squareKey,
+    drawnFromKey: step.drawnFromKey,
     delta: step.delta,
     balance: step.balance,
   };
