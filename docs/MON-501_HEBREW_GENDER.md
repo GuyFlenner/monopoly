@@ -69,6 +69,38 @@ here than it would in prose.
    nothing supplies puts literal braces on screen. Enforced by
    `test_no_translation_names_a_placeholder_nobody_supplies`.
 
+## Action and control labels use the infinitive (MON-755)
+
+The technique above covers a *sentence about a player*. A **button** is the other place gender
+leaks in, and it takes a different, simpler fix. A command label written as a masculine-singular
+imperative — `בנה בית`, `קנה את המשבצת`, `שלם ערבות`, `הטל קוביות`, and the first-person
+`אני נפרש` — is spelled for a male reader; its feminine form is a different word (`בנה`/`בני`,
+`קנה`/`קני`, `צא`/`צאי`), so a woman sees the game written as if she were male. This is the same
+defect the sentence rules avoid, on a control instead of a log line.
+
+**The register decision: action and control labels are Hebrew infinitives** (`לבנות בית`,
+`לקנות`, `לשלם ערבות`, `להטיל קוביות`, `לפרוש מהמשחק`). The infinitive carries no gender in
+Hebrew and is the standard register for UI buttons — "to build", "to buy". This covers
+`action.*` and the scattered command labels beside them (`board.open_tile`,
+`board.skip_to_actions`, `panel.close`, `setup.add_player`, `setup.remove_player`,
+`setup.start`, `trade.add_cash`, `trade.remove_cash`, `trade.send`).
+
+**`kids.action.*` was the precedent** — it was already written in infinitives (`לקנות`,
+`לשלם {{amount}} ולצאת`, `להטיל את הקוביות`) while the adult catalogue still carried imperatives,
+so the fix was to bring `action.*` up to what the kids catalogue already demonstrated.
+
+Two things stay out of this rule and are **not** defects:
+
+- **Plural imperatives** (`בחרו משבצת`, `סיימו או בטלו`, `נסו שוב`) are the catalogue's neutral
+  second-person address, the same accepted form as `שלך`/`שלכם` — gender-ambiguous once niqqud is
+  off, and they stay.
+- **Nouns already in the head position** (`ביטול`, `חזרה`, `הצגת רמז`, `שמירת המשחק`) carry no
+  agreement and need no change.
+
+Guarded by `test_hebrew_action_labels_use_the_infinitive_register` in `tests/test_locale_parity.py`
+(every `action.*` Hebrew value opens with the infinitive `ל`), so an imperative reintroduced here
+goes red rather than shipping.
+
 ## What this is not
 
 **Not a claim that the Hebrew is beyond improvement.** These 45 strings were written by a model, not a
