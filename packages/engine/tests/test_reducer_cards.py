@@ -80,6 +80,7 @@ def _play(
     ruleset: Ruleset | None = None,
     deck: tuple[str, ...] | None = None,
     other_deck: tuple[str, ...] = (),
+    board_id: str = "classic",
 ) -> tuple[GameState, tuple[Event, ...]]:
     """Roll player 0 onto ``tile`` with ``card_id`` on top of that tile's deck.
 
@@ -91,7 +92,7 @@ def _play(
     if seats is None:
         seats = (make_player(0, cash=cash), make_player(1))
     seats = (PlayerState(**(dict(seats[0]) | {"position": start})), *seats[1:])
-    state = make_state(seats=seats, seed=_SEED, properties=properties, ruleset=ruleset)
+    state = make_state(seats=seats, seed=_SEED, properties=properties, ruleset=ruleset, board_id=board_id)
     stocked = deck if deck is not None else (card_id, _filler(card_id))
     drawn_from = "chance_deck" if tile in CHANCE_TILES else "community_chest_deck"
     opposite = "community_chest_deck" if drawn_from == "chance_deck" else "chance_deck"
@@ -133,6 +134,59 @@ def test_every_card_id_is_an_i18n_key_never_prose() -> None:
     for card_id in CARD_EFFECTS:
         assert card_id.startswith(("card.chance.", "card.community_chest."))
         assert " " not in card_id
+
+
+# --- The square a card names (MON-752) --------------------------------------
+
+
+def _square_key(events: tuple[Event, ...]) -> str | None:
+    return next(event.square_key for event in events if isinstance(event, CardDrawn))
+
+
+@pytest.mark.parametrize(
+    ("board_id", "expected"),
+    (("classic", "tile.classic.illinois_avenue"), ("israel", "tile.israel.t24")),
+)
+def test_a_card_names_the_square_the_board_in_play_actually_has(board_id: str, expected: str) -> None:
+    """The owner's bug. One deck serves both boards, so the *name* cannot live on the card.
+
+    ``AdvanceTo(tile=24)`` is Illinois Avenue on the classic board and רח' ביאליק on the Israeli
+    one. Before ``square_key`` the sentence spelled the classic name out, so an Israeli game told
+    the player to move to a square that board has not got — and it was wrong in Hebrew *and* in
+    English, which is what marks it as a data defect rather than a translation one.
+
+    Still a key and never prose (ADR-003): the engine resolves the index against ``state.board`` and
+    the catalogue owns the words.
+    """
+    _, events = _play("card.chance.advance_to_illinois_avenue", board_id=board_id)
+    assert _square_key(events) == expected
+
+
+def test_the_reading_trip_names_the_railway_of_the_board_in_play() -> None:
+    """The trip card is the one whose Hebrew shape depends on the value it will be given.
+
+    ``צאו לנסיעה אל {{square}}`` was chosen over a ``רכבת {{name}}`` form precisely because the
+    Israeli value already contains רכבת — so this card carrying a *resolved* name rather than a
+    railway number is what makes that sentence work on both boards.
+    """
+    _, events = _play("card.chance.trip_to_reading_railroad", board_id="israel")
+    assert _square_key(events) == "tile.israel.t05"
+
+
+def test_a_card_that_names_no_square_stamps_none() -> None:
+    """Most cards name no square, and inventing one for them would put a square into a sentence
+    that never asked for it. "Nearest railroad" is the sharp case: it genuinely moves a token, and
+    it deliberately does *not* say where to — the whole card is that the player must look."""
+    for card_id in ("card.chance.speeding_fine", "card.chance.advance_to_nearest_railroad"):
+        _, events = _play(card_id, board_id="israel")
+        assert _square_key(events) is None, card_id
+
+
+def test_the_go_cards_name_the_boards_own_go_square() -> None:
+    """`advance_to_go` is an `AdvanceTo` like any other, so it resolves like any other — which is
+    what lets the Israeli board call its GO דרך צלחה without the card knowing."""
+    _, events = _play("card.community_chest.advance_to_go", tile=CHEST, board_id="israel")
+    assert _square_key(events) == "tile.israel.t00"
 
 
 def test_a_drawn_card_goes_to_the_bottom_of_its_own_deck() -> None:

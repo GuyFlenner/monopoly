@@ -201,6 +201,17 @@ class CardDrawn(_EventBase):
     deck: Deck
     card_id: str = Field(min_length=1)
     """i18n key for the card text, e.g. ``card.chance.advance_to_go``."""
+    square_key: str | None = None
+    """The **active board's** name key for the square this card sends its holder to (MON-752).
+
+    One deck serves both boards, so a card names a *slot* and not a name: ``AdvanceTo(tile=24)`` is
+    Illinois Avenue on the classic board and a Tel Aviv street on the Israeli one. Before this field
+    the card's sentence spelled the classic name out, and an Israeli game told the player to move to
+    a square that board has not got — wrong in both languages.
+
+    Still a key, never prose (ADR-003): the engine resolves ``board.tile(t).name_key`` and the
+    catalogue interpolates it. ``None`` for every card that names no square, which is most of them.
+    """
 
 
 class SentToJail(_EventBase):

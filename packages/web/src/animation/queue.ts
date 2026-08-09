@@ -72,6 +72,11 @@ export interface RevealedCard {
   readonly deck: Deck;
   /** The engine's i18n key for the card text. The catalogue owns the sentence (ADR-003). */
   readonly cardId: string;
+  /**
+   * The engine's name key for the square the card names, resolved against the board in play, or
+   * `null` (MON-752). A key like `cardId` — the catalogue interpolates it into `{{square}}`.
+   */
+  readonly squareKey: string | null;
   /** What the draw moved, or `null` when the events stated no figure. Never derived. */
   readonly delta: number | null;
   readonly balance: number | null;
@@ -365,6 +370,7 @@ function revealedFrom(step: CardRevealStep, nonce: number): RevealedCard {
     player: step.player,
     deck: step.deck,
     cardId: step.cardId,
+    squareKey: step.squareKey,
     delta: step.delta,
     balance: step.balance,
   };

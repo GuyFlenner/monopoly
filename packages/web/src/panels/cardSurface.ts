@@ -11,6 +11,7 @@
  */
 
 import type { Deck } from "@/animation";
+import type { TileView } from "@/api";
 import { needsIsolation, type Direction } from "@/i18n/bidi";
 import { DIRECTION, isLocale, type Locale } from "@/i18n/direction";
 import type { DeckIconName } from "@/theme";
@@ -27,6 +28,26 @@ export const DECK_ICON: Readonly<Record<Deck, DeckIconName>> = {
   chance: "spark",
   community_chest: "chest",
 };
+
+/**
+ * The name key of the board's GO square, or `null` if it has none (MON-752).
+ *
+ * Six cards say "…if you pass GO on the way", and GO is not called GO on every board — the Israeli
+ * one calls it דרך צלחה, which is why `דרך {{go}}` was rejected as a shape and `עברתם את {{go}}`
+ * chosen instead. So the name is looked up rather than written down.
+ *
+ * **This is board data, not a rule.** It asks the tiles the server already sent which of them is the
+ * one of kind `go` — the same class of question as "what is tile 24 called" — and it reads a
+ * `name_key` off the answer rather than deciding anything about salaries, movement or passing.
+ * Nothing here knows what landing on GO does, and the index is deliberately not assumed: a board
+ * that put its GO elsewhere would still be answered correctly, and one that has no GO at all gets
+ * `null` instead of a square that happens to sit at index 0.
+ *
+ * Shared by the reveal and the narration so the two can never name GO differently in one game.
+ */
+export function goNameKey(tiles: readonly TileView[]): string | null {
+  return tiles.find((tile) => tile.kind === "go")?.name_key ?? null;
+}
 
 /**
  * The sentence for the figure a card moved, by the sign of the figure.
