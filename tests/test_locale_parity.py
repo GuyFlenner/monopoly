@@ -252,6 +252,35 @@ def test_the_hebrew_catalogue_is_not_a_copy_of_the_english_one(catalogue: str) -
     assert not untranslated, f"identical to English, so not translated: {untranslated}"
 
 
+INFINITIVE_PREFIX = "ל"
+"""Every Hebrew infinitive opens with lamed (`לבנות`, `לקנות`, `לשלם`). A masculine-singular
+imperative does not (`בנה`, `קנה`, `שלם`), which is exactly the form this test forbids."""
+
+
+def test_hebrew_action_labels_use_the_infinitive_register() -> None:
+    """MON-755. Action buttons are gender-free infinitives, never masculine-singular imperatives.
+
+    A command written as `בנה בית` is spelled for a male reader — its feminine twin is a different
+    word (`בני`) — so a woman sees a button addressed to a man. The register decision
+    (`docs/MON-501_HEBREW_GENDER.md`) is that `action.*` labels are Hebrew infinitives, which carry
+    no gender; `kids.action.*` demonstrated it first. Every infinitive opens with lamed, so a
+    reintroduced imperative (`בנה`, `סיים`, `הטל`) fails here rather than shipping.
+
+    This asserts a property of the Hebrew, not of English: English imperatives are already
+    gender-free, so only the `he` catalogue is checked.
+    """
+    hebrew = _load("common", "he")
+    imperatives = sorted(
+        f"{key} = {value!r}"
+        for key, value in hebrew.items()
+        if key.startswith("action.") and not value.startswith(INFINITIVE_PREFIX)
+    )
+    assert not imperatives, (
+        "Hebrew action labels must be infinitives (open with 'ל'), not masculine-singular "
+        f"imperatives — see docs/MON-501_HEBREW_GENDER.md (MON-755): {imperatives}"
+    )
+
+
 @pytest.mark.parametrize("board_id", ("classic", "israel"))
 def test_the_board_catalogue_covers_every_tile(board_id: str) -> None:
     """Each of the 40 board tiles needs a name in each language, or the board renders blanks."""

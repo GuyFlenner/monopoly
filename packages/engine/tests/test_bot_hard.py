@@ -614,6 +614,61 @@ class TestAmendmentFourTradeScepticism:
         assert _swap_gain(state, 0, chosen.offer) == pytest.approx(-_swap_gain(state, 1, chosen.offer))
 
 
+class TestTheReserveReachesTradeScoring:
+    """MON-751: the threat-scaled reserve must govern a trade response, not only a purchase.
+
+    `_score_trade` used to read the module constant `CASH_BUFFER` directly rather than
+    `self._buffer(...)`, so amendment 1 — the whole point of the subclass — silently never reached trade
+    scoring, which is the one decision (ADR-009) the trade machinery exists to enable. Routed through the
+    seam, the two bots now part ways on an offer that clears a flat 250 and not the reserve a hotelled
+    board actually demands. Asserted on `_score_trade` directly rather than through `choose`, because
+    `TRADE_REVIEW` always rolls out and the rollout would mask which reserve the ranking used.
+    """
+
+    def _offered_a_completing_gift_under_threat(self) -> tuple[GameState, tuple[RespondToTrade, ...]]:
+        """Seat 0 is handed the square completing light blue, for nothing, while the opponent's dark
+        blue carries a hotel — so the board's worst landing pushes the reserve to its ceiling."""
+        base = _state(cash=600)
+        threat = _group_of(base, BOARDWALK)  # dark blue, hotelled by the opponent: the fear that scales the reserve
+        light = _group_of(base, 6)  # light blue: seat 0 holds all but the completing square
+        owners = {index: PropertyState(owner=1, houses=HOTEL_LEVEL) for index in threat}
+        owners |= {light[0]: PropertyState(owner=0), light[1]: PropertyState(owner=0), light[2]: PropertyState(owner=1)}
+        state = _patched(base, owners)
+        frame = TradeFrame(
+            offer=TradeOffer(
+                proposer=1,
+                recipient=0,
+                give=TradeSide(tiles=(light[2],)),  # the completing square, coming in
+                receive=TradeSide(),  # nothing going out, so the deal is unambiguously "good"
+            ),
+            resume=Phase.AWAITING_END_TURN,
+        )
+        state = GameState(**{**dict(state), "phase": Phase.TRADE_REVIEW, "interrupts": (frame,)})
+        answers: tuple[RespondToTrade, ...] = (
+            RespondToTrade(player=0, accept=True),
+            RespondToTrade(player=0, accept=False),
+        )
+        return state, answers
+
+    def test_the_two_bots_part_ways_on_an_offer_only_the_threat_makes_unaffordable(self) -> None:
+        state, answers = self._offered_a_completing_gift_under_threat()
+        # The window the bug lived in: comfortable against a flat 250, thin against what the board charges.
+        assert CASH_BUFFER < state.player(0).cash < reserve(state, 0), "the fixture stopped straddling the two reserves"
+
+        def verdict(bot: NormalBot) -> bool:
+            best = max(answers, key=lambda answer: bot._score_trade(state, 0, answer))
+            assert isinstance(best, RespondToTrade)
+            return best.accept
+
+        # The normal bot keeps its flat reserve, can afford the (zero) cash side, and takes the gift.
+        assert verdict(NormalBot()) is True
+        # The hard bot's reserve is the worst landing this hotelled board can charge, which the offer would
+        # leave it below — so it declines the very same draft. Before the fix `_score_trade` read
+        # CASH_BUFFER too, so the hard bot agreed with the parent and accepted; that agreement is what this
+        # forbids, and it is the only thing that changes between the red and green runs.
+        assert verdict(HardBot()) is False
+
+
 class TestTheRolloutsDecideSomething:
     """The test that would fail if the rollouts were deleted — see the module docstring.
 
@@ -629,8 +684,14 @@ class TestTheRolloutsDecideSomething:
         group value, sees a completed group coming in, and accepts — while the cash going out leaves the
         bot unable to build on the group it has just completed or to pay the rent it then lands on. The
         rollouts play both answers out and prefer keeping the money.
+
+        The cash is pitched so that paying the 700 leaves the seat *below* its reserve — the affordability
+        branch of `_score_trade` has to fire for the ranking to read this as a thin accept rather than a
+        plain bad deal. Since MON-751 that reserve is the hard bot's threat-scaled one, which on this
+        barely-developed board is its `MIN_RESERVE` floor of 60; 740 - 700 = 40 clears the old flat 250
+        the same way it now clears 60, so the position still separates the ranking from the rollouts.
         """
-        base = _state(cash=760)
+        base = _state(cash=740)
         group = _group_of(base, BOARDWALK)
         state = _patched(base, {group[0]: PropertyState(owner=0), group[1]: PropertyState(owner=1)})
         frame = TradeFrame(

@@ -28,25 +28,25 @@
     "unpinned": "{{name}} — ביטול ההצמדה."
   },
   "action": {
-    "build_house": "בנה בית",
-    "buy_property": "קנה את המשבצת",
-    "cancel_trade": "בטל את ההצעה",
-    "declare_bankruptcy": "אני נפרש",
-    "decline_purchase": "לא קונה",
-    "end_turn": "סיים תור",
-    "mortgage_property": "משכן",
-    "pay_jail_fine": "שלם ערבות {{amount, money}}",
-    "place_bid": "הצע {{amount, money}}",
-    "propose_trade": "הצע עסקה",
-    "respond_to_trade_accept": "קבל את העסקה",
-    "respond_to_trade_decline": "דחה את העסקה",
-    "roll_dice": "הטל קוביות",
-    "roll_for_jail": "הטל לזוגי",
-    "sell_house": "מכור בית",
-    "sell_house_hotel": "מכור את המלון",
-    "unmortgage_property": "פדה משכנתא",
-    "use_jail_card": "השתמש בכרטיס יציאה",
-    "withdraw_from_auction": "צא מהמכירה"
+    "build_house": "לבנות בית",
+    "buy_property": "לקנות את המשבצת",
+    "cancel_trade": "לבטל את ההצעה",
+    "declare_bankruptcy": "לפרוש מהמשחק",
+    "decline_purchase": "לא לקנות",
+    "end_turn": "לסיים תור",
+    "mortgage_property": "למשכן",
+    "pay_jail_fine": "לשלם ערבות {{amount, money}}",
+    "place_bid": "להציע {{amount, money}}",
+    "propose_trade": "להציע עסקה",
+    "respond_to_trade_accept": "לקבל את העסקה",
+    "respond_to_trade_decline": "לדחות את העסקה",
+    "roll_dice": "להטיל קוביות",
+    "roll_for_jail": "להטיל לזוגי",
+    "sell_house": "למכור בית",
+    "sell_house_hotel": "למכור את המלון",
+    "unmortgage_property": "לפדות משכנתא",
+    "use_jail_card": "להשתמש בכרטיס יציאה",
+    "withdraw_from_auction": "לצאת מהמכירה"
   },
   "actionbar": {
     "choose_square": "בחרו משבצת",
@@ -105,8 +105,8 @@
     "keyboard_hint": "מקשי החיצים מזיזים על הלוח, Home חוזר להתחלה, End עובר לכלא, ו-Enter פותח משבצת.",
     "label": "לוח המשחק",
     "more_tokens": "+{{hidden}}",
-    "open_tile": "פתח {{name}}",
-    "skip_to_actions": "דלג למהלכים"
+    "open_tile": "לפתוח את {{name}}",
+    "skip_to_actions": "לדלג למהלכים"
   },
   "bot_level": {
     "easy": "קל",
@@ -441,7 +441,7 @@
     "skip_now": "סיום האנימציה"
   },
   "panel": {
-    "close": "סגור",
+    "close": "לסגור",
     "go_back": "לא, חזרה"
   },
   "rent": {
@@ -522,7 +522,7 @@
     "claim_prompt": "מי מכם משחק? אפשר לבחור מושב פנוי ולהצטרף."
   },
   "setup": {
-    "add_player": "הוסף שחקן",
+    "add_player": "להוסיף שחקן",
     "advanced": "הגדרות נוספות",
     "auctions_here": "מכירות פומביות במשחק הזה",
     "board": "לוח",
@@ -544,13 +544,13 @@
     "player_type": "אדם או מחשב",
     "players": "שחקנים",
     "pronoun": "לדבר על השחקן הזה בלשון",
-    "remove_player": "הסר",
+    "remove_player": "להסיר",
     "ruleset": "חוקים",
     "seat": "מושב {{number}}",
     "seats": "מי משחק",
     "seed": "זרע",
     "seed_hint": "אותו זרע מחלק אותן קוביות. השאירו ריק למשחק חדש.",
-    "start": "התחל משחק",
+    "start": "להתחיל משחק",
     "starting": "מתחיל…",
     "table": "השולחן",
     "title": "משחק חדש",
@@ -590,7 +590,7 @@
     "umbrella": "מטרייה"
   },
   "trade": {
-    "add_cash": "הוסף {{amount, money}}",
+    "add_cash": "להוסיף {{amount, money}}",
     "between": "הצעת עסקה: {{proposer}} אל {{recipient}}",
     "cannot_leave": "סיימו או בטלו את ההצעה לפני שממשיכים.",
     "cash": "מזומן",
@@ -603,9 +603,9 @@
     "ready": "אפשר לשלוח את ההצעה",
     "recipient": "עסקה עם",
     "refused": "לא ניתן לשלוח את ההצעה הזו.",
-    "remove_cash": "הורד {{amount, money}}",
+    "remove_cash": "להוריד {{amount, money}}",
     "review_title": "הצעה בשבילך",
-    "send": "שלח את ההצעה",
+    "send": "לשלוח את ההצעה",
     "side_cash": "מזומן מהצד של {{name}}",
     "side_empty": "שום דבר בצד הזה.",
     "side_gives": "הצד של {{name}}",
