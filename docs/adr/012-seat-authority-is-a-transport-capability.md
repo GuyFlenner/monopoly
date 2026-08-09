@@ -1,8 +1,9 @@
 # ADR-012 — Seat authority is a transport capability, not an engine rule
 
-- **Status**: Proposed (awaiting owner review — this is an authority model over who may speak
-  for a seat, which is an owner decision; the design is `_drafts/design-mon-906-seat-ownership.md`)
-- **Date**: 2026-08-07
+- **Status**: Accepted (2026-08-09 — implemented in MON-906/PR #80, reviewed and its 11
+  code-review findings fixed; the two open questions below resolved at their designed defaults;
+  the design is `_drafts/design-mon-906-seat-ownership.md`)
+- **Date**: 2026-08-07 · **Accepted**: 2026-08-09
 - **Deciders**: Guy Flenner
 - **Amends**: the unauthenticated surface of `POST /games/{id}/commands`, `GET /games/{id}/save`,
   `DELETE /games/{id}` and `POST /games/load?if_exists=replace`; the `POST /games` response shape.
@@ -71,8 +72,27 @@ six token identities), and an authority credential that shares its name is a rev
 - A lost host secret is unrecoverable in v1, same class as a lost save file.
 - `GameView` gains a `claims` projection (`[{player, claimed}]` — never the secrets) so a join
   screen can show who's taken; the contract regenerates.
-- Two UX questions stay with the owner (design doc §Open questions): whether watch and join
-  should be *different* invitations, and whether host-secret recovery is ever a feature.
+## Resolved questions (2026-08-09)
+
+Both design-doc §Open questions were decided at their implemented defaults:
+
+1. **One link, not two.** The shared `?game=` link is both the invitation to play and to
+   watch: whoever opens it claims a free human seat, first come first served; once the human
+   seats are all claimed, further openers are spectators. A separate watch-only link was
+   rejected as friction — a family sending a game to grandparents sends one thing. A pure
+   spectator link stays cheap to add later (a second secret and a second button) if wanted.
+2. **A lost host secret is not recoverable in v1.** Recovery would require accounts or logins,
+   which `PROJECT_BRIEF.md` puts out of scope; the host can already `release` a stuck seat,
+   which covers the common case. Same class as a lost save file. Revisit only if it bites.
+
+## Rollout completed
+
+Phase 1 (server mints + accepts authority, client sends/renders it, flag `off`) shipped in
+PR #80. **Phase 2 — `KESEF_SEAT_AUTHORITY=enforce` in `render.yaml` — is set as of 2026-08-09**,
+after the Pages deploy of the secret-aware client succeeded on `main`, so the enforcing server
+and the client that claims seats went live together. The `GameCreated`-as-`GameView`-subclass
+wire shape is dual-readable in both skew directions, so a stale cached bundle degrades rather
+than breaks during any deploy window. One env var; revert is the same one line.
 
 ## Alternatives considered
 

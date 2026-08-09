@@ -63,3 +63,12 @@ services:
       # where the proxy is. `ClientLimiter.identify` reads the *nearest* hop for the matching reason.
       - key: KESEF_TRUST_FORWARDED_FOR
         value: "true"
+      # **Phase 2 of ADR-012 (MON-906).** `enforce` turns seat ownership on: a connection may act
+      # only for the seat its `Authorization` secret speaks for; `/save`, `DELETE` and
+      # `if_exists=replace` become host-only. `off` (the default) leaves the routes unauthenticated —
+      # the pre-MON-906 behaviour. Flipped to `enforce` only after the Pages deploy of the
+      # secret-aware client landed on `main`, so the enforcing server and the client that claims
+      # seats went live together; the `GameCreated`-subclass response is dual-readable, so a stale
+      # cached bundle in a deploy window degrades rather than breaks. Revert is this one line.
+      - key: KESEF_SEAT_AUTHORITY
+        value: enforce
