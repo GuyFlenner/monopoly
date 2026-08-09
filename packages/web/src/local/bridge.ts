@@ -27,17 +27,24 @@ export interface Envelope {
  * `since` and `cursor` are passed as they arrived — a query string is a string, and the facade
  * validates it the way FastAPI's `Query(ge=0)` does, so `?since=nonsense` is the same
  * `error.malformed_request` here as it is over HTTP rather than a `NaN` this side invented.
+ *
+ * `secret` is the seat credential (ADR-012, MON-906) and is `""` when none is held — **not** `null`,
+ * because Pyodide's JS `null` arrives in Python as a distinct `JsNull` that is neither `None` nor a
+ * `str`. It sits *before* the optional parameters for the same reason: those are handled by omitting
+ * the argument, which only works if nothing that must always be passable comes after them.
  */
 export interface PyBridge {
   listBoards(): Promise<string>;
   listRulesets(): Promise<string>;
   createGame(requestJson: string): Promise<string>;
-  loadGame(saveJson: string, ifExists: string | null): Promise<string>;
-  getGame(gameId: string, since: string | null): Promise<string>;
-  saveGame(gameId: string): Promise<string>;
-  submitCommand(gameId: string, requestJson: string): Promise<string>;
-  validateCommand(gameId: string, requestJson: string): Promise<string>;
-  deleteGame(gameId: string): Promise<string>;
+  loadGame(saveJson: string, secret: string, ifExists: string | null): Promise<string>;
+  getGame(gameId: string, secret: string, since: string | null): Promise<string>;
+  saveGame(gameId: string, secret: string): Promise<string>;
+  submitCommand(gameId: string, requestJson: string, secret: string): Promise<string>;
+  validateCommand(gameId: string, requestJson: string, secret: string): Promise<string>;
+  deleteGame(gameId: string, secret: string): Promise<string>;
+  claimSeat(gameId: string, player: number): Promise<string>;
+  releaseSeat(gameId: string, player: number, secret: string): Promise<string>;
   eventsSince(gameId: string, cursor: number): Promise<string>;
   advanceBotsStep(gameId: string): Promise<string>;
 }

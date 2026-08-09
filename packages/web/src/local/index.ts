@@ -18,7 +18,7 @@
  * cover the whole transport with a fake bridge and no WebAssembly.
  */
 
-import { ApiClient } from "@/api";
+import { ApiClient, browserSecretStore, type SecretStore } from "@/api";
 
 import type { PyBridge } from "./bridge";
 import { loadPyodideBridge, type LoadEngineOptions } from "./engine";
@@ -66,9 +66,23 @@ export { isLocalEngineBuild, LOCAL_ENGINE } from "./mode";
  * Split from {@link startLocalEngine} so a test can build the whole transport over a fake bridge —
  * which is what `localTransport.test.ts` does, driving `ApiClient` itself rather than a stand-in.
  */
-export function localApiClient(bridge: PyBridge, slot: SaveSlot = browserSaveSlot()): ApiClient {
+export function localApiClient(
+  bridge: PyBridge,
+  slot: SaveSlot = browserSaveSlot(),
+  /*
+    The seat credentials this page holds (ADR-012, MON-906).
+
+    Shared deliberately between the `ApiClient` — which *writes* it, from the `GameCreated` a
+    creation or a load answers with — and the reload insurance below, which *reads* it, because
+    `GET /games/{id}/save` is host-only and this tab is the host. One store rather than two, for the
+    same reason the store's clock is injected once: two copies of "what this browser holds" is one
+    refactor away from a page that cannot save its own game.
+  */
+  secrets: SecretStore = browserSecretStore(),
+): ApiClient {
   const bus = new LocalEventBus(bridge);
   return new ApiClient({
+    secrets,
     fetch: createLocalFetch(bridge, {
       // Fired, not awaited. The caller's own move is already in the response it is waiting for; the
       // bots' moves arrive behind it as socket frames, which is the whole of MON-304 and the reason
@@ -84,11 +98,17 @@ export function localApiClient(bridge: PyBridge, slot: SaveSlot = browserSaveSlo
           Neither is awaited, for the same reason the pump is not: insurance that delayed the game
           it insures would be a poor trade.
         */
-        void snapshotGame(bridge, gameId, slot);
-        void bus.pump(gameId).then(() => snapshotGame(bridge, gameId, slot));
+        const held = secrets.get(gameId) ?? "";
+        void snapshotGame(bridge, gameId, slot, held);
+        void bus.pump(gameId).then(() => snapshotGame(bridge, gameId, slot, held));
       },
       // The other half: put the game back when a reload has emptied the heap the session lived in.
-      onMissingGame: (gameId) => restoreGame(bridge, gameId, slot),
+      // The restored session mints a *new* authority, so its secret replaces the stale one this
+      // browser was holding — see `restoreGame`.
+      onMissingGame: (gameId) =>
+        restoreGame(bridge, gameId, slot, (hostSecret) => {
+          secrets.set(gameId, hostSecret);
+        }),
     }),
     createSocket: createLocalSocketFactory(bus),
   });

@@ -99,12 +99,16 @@ interface BrowserFacade {
   list_rulesets(): string;
   create_game(requestJson: string): string;
   // Optional on this side too, because that is how "not given" crosses into Python — see `bridgeTo`.
-  load_game(saveJson: string, ifExists?: string): string;
-  get_game(gameId: string, since?: string): string;
-  save_game(gameId: string): string;
-  submit_command(gameId: string, requestJson: string): string;
-  validate_command(gameId: string, requestJson: string): string;
-  delete_game(gameId: string): string;
+  // `secret` is *not* optional: `""` is "none held", which is the one spelling of absent that
+  // survives the boundary, and it precedes the omittable parameters for that reason (ADR-012).
+  load_game(saveJson: string, secret: string, ifExists?: string): string;
+  get_game(gameId: string, secret: string, since?: string): string;
+  save_game(gameId: string, secret: string): string;
+  submit_command(gameId: string, requestJson: string, secret: string): string;
+  validate_command(gameId: string, requestJson: string, secret: string): string;
+  delete_game(gameId: string, secret: string): string;
+  claim_seat(gameId: string, player: number): string;
+  release_seat(gameId: string, player: number, secret: string): string;
   events_since(gameId: string, cursor: number): string;
   advance_bots_step(gameId: string): Promise<string>;
 }
@@ -195,18 +199,30 @@ export function bridgeTo(facade: BrowserFacade): PyBridge {
       that both languages agree on. `??` would not do: `undefined` is a JS value too, and relying on
       its conversion is relying on the same table that has already changed once.
     */
-    loadGame: (saveJson, ifExists) =>
+    loadGame: (saveJson, secret, ifExists) =>
       Promise.resolve(
-        ifExists === null ? facade.load_game(saveJson) : facade.load_game(saveJson, ifExists),
+        ifExists === null
+          ? facade.load_game(saveJson, secret)
+          : facade.load_game(saveJson, secret, ifExists),
       ),
-    getGame: (gameId, since) =>
-      Promise.resolve(since === null ? facade.get_game(gameId) : facade.get_game(gameId, since)),
-    saveGame: (gameId) => Promise.resolve(facade.save_game(gameId)),
-    submitCommand: (gameId, requestJson) =>
-      Promise.resolve(facade.submit_command(gameId, requestJson)),
-    validateCommand: (gameId, requestJson) =>
-      Promise.resolve(facade.validate_command(gameId, requestJson)),
-    deleteGame: (gameId) => Promise.resolve(facade.delete_game(gameId)),
+    getGame: (gameId, secret, since) =>
+      Promise.resolve(
+        since === null ? facade.get_game(gameId, secret) : facade.get_game(gameId, secret, since),
+      ),
+    saveGame: (gameId, secret) => Promise.resolve(facade.save_game(gameId, secret)),
+    submitCommand: (gameId, requestJson, secret) =>
+      Promise.resolve(facade.submit_command(gameId, requestJson, secret)),
+    validateCommand: (gameId, requestJson, secret) =>
+      Promise.resolve(facade.validate_command(gameId, requestJson, secret)),
+    deleteGame: (gameId, secret) => Promise.resolve(facade.delete_game(gameId, secret)),
+    /*
+      The seat routes (ADR-012, MON-906). `secret` is a plain string and never omitted — `""` is
+      "none held", which is the spelling both languages agree on and the reason it precedes the
+      optional parameters above.
+    */
+    claimSeat: (gameId, player) => Promise.resolve(facade.claim_seat(gameId, player)),
+    releaseSeat: (gameId, player, secret) =>
+      Promise.resolve(facade.release_seat(gameId, player, secret)),
     eventsSince: (gameId, cursor) => Promise.resolve(facade.events_since(gameId, cursor)),
     // The one genuinely asynchronous call: it awaits `Settings.bot_think_seconds` inside Python, so
     // the pause happens where the setting lives and this side has no timer of its own.

@@ -89,9 +89,14 @@ export async function snapshotGame(
   bridge: PyBridge,
   gameId: string,
   slot: SaveSlot,
+  hostSecret = "",
 ): Promise<void> {
   try {
-    const envelope = parseEnvelope(await bridge.saveGame(gameId));
+    // `/save` is host-only since ADR-012, and this page *is* the host — `hostSecret` is the
+    // credential the local transport handed its own client when the game was created. Defaulted to
+    // `""` so a caller that has none still gets today's behaviour while the flag is off; once it is
+    // on, insurance without the credential would be refused by this tab's own engine.
+    const envelope = parseEnvelope(await bridge.saveGame(gameId, hostSecret));
     if (!ok(envelope.status) || envelope.body === null) {
       // A game that has just been left, most likely. Nothing to keep, and the old slot is now about
       // a game that no longer exists, so it goes rather than lingering to be restored later.
@@ -115,11 +120,17 @@ export async function snapshotGame(
  * Returns whether the caller should try its request again. `false` covers every uninteresting case
  * — an empty slot, a save for a different game, a load the engine refused — and in all of them the
  * caller's original 404 is the right answer.
+ *
+ * `remember` is handed the **new** host secret when the restore succeeds (ADR-012). A restored game
+ * is a new session with a new authority, so the credential this tab was holding names a session that
+ * no longer exists; without this, a reload would silently demote the host to a spectator of their own
+ * game the moment `seat_authority` is enforced.
  */
 export async function restoreGame(
   bridge: PyBridge,
   gameId: string,
   slot: SaveSlot,
+  remember?: (hostSecret: string) => void,
 ): Promise<boolean> {
   const payload = slot.read();
   if (savedGameId(payload) !== gameId || payload === null) {
@@ -130,8 +141,12 @@ export async function restoreGame(
     // nothing to conflict with, and a policy sent here would be this file deciding something the
     // player was never asked (ADR-011). If a session *did* somehow hold the id, the honest 409 is
     // handled by the branch below like any other refusal.
-    const envelope = parseEnvelope(await bridge.loadGame(payload, null));
+    const envelope = parseEnvelope(await bridge.loadGame(payload, "", null));
     if (ok(envelope.status)) {
+      const minted = (envelope.body as { host_secret?: unknown } | null)?.host_secret;
+      if (typeof minted === "string" && minted !== "") {
+        remember?.(minted);
+      }
       return true;
     }
     // The engine refused it — a save written by an older `SCHEMA_VERSION` is the case MON-704

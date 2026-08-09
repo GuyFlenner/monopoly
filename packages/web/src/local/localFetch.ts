@@ -22,6 +22,10 @@
  * * **An unrouted path is a keyed 404, and a wrong method a keyed 405**, mirroring
  *   `api._http_exception_handler` — a shape the generated client can branch on rather than the
  *   `{"detail": ...}` starlette used to answer with (G-33).
+ * * **It forwards the credential and never reads it.** `Authorization: Bearer <secret>` is lifted
+ *   off the request and handed to the facade, which enforces it through the *same*
+ *   `kesef_server.transport` functions the HTTP API uses (ADR-012, MON-906). This file decides
+ *   nothing about who may act; it moves a string across the language boundary.
  */
 
 import type { FetchLike } from "@/api";
@@ -76,6 +80,7 @@ const GAME = /^\/games\/([^/]+)$/;
 const GAME_COMMANDS = /^\/games\/([^/]+)\/commands$/;
 const GAME_VALIDATE = /^\/games\/([^/]+)\/validate$/;
 const GAME_SAVE = /^\/games\/([^/]+)\/save$/;
+const GAME_SEAT_CLAIM = /^\/games\/([^/]+)\/seats\/(\d+)\/claim$/;
 
 export function createLocalFetch(bridge: PyBridge, options: LocalFetchOptions = {}): FetchLike {
   const basePath = (options.basePath ?? DEFAULT_LOCAL_BASE_PATH).replace(/\/$/, "");
@@ -94,8 +99,9 @@ export function createLocalFetch(bridge: PyBridge, options: LocalFetchOptions = 
       ? url.pathname.slice(basePath.length)
       : url.pathname;
     const body = typeof init?.body === "string" ? init.body : "";
+    const secret = bearerOf(init?.headers);
 
-    const route = match(bridge, method, path, url, body);
+    const route = match(bridge, method, path, url, body, secret);
     if (route === null) {
       return respond(unrouted(path));
     }
@@ -135,12 +141,31 @@ export function createLocalFetch(bridge: PyBridge, options: LocalFetchOptions = 
   };
 }
 
+/**
+ * The `Authorization: Bearer` value on a request, or `""` when there is none (ADR-012).
+ *
+ * `""` rather than `null` all the way down to Python: see `bridge.ts`. Parsed rather than forwarded
+ * whole so the two transports read the header the same way — `api.secret_of` does exactly this.
+ */
+function bearerOf(headers: HeadersInit | undefined): string {
+  if (headers === undefined) {
+    return "";
+  }
+  const value = new Headers(headers).get("authorization");
+  if (value === null) {
+    return "";
+  }
+  const [scheme, ...rest] = value.split(" ");
+  return scheme?.toLowerCase() === "bearer" ? rest.join(" ").trim() : "";
+}
+
 function match(
   bridge: PyBridge,
   method: string,
   path: string,
   url: URL,
   body: string,
+  secret: string,
 ): Route | null {
   if (path === "/boards") {
     return method === "GET" ? { answer: () => bridge.listBoards() } : null;
@@ -160,7 +185,7 @@ function match(
     // the way FastAPI's enum does, so a typo is the same `error.malformed_request` in both builds
     // rather than a policy this side quietly picked (ADR-011).
     const ifExists = url.searchParams.get("if_exists");
-    return { answer: () => bridge.loadGame(body, ifExists), mutates: "in-response" };
+    return { answer: () => bridge.loadGame(body, secret, ifExists), mutates: "in-response" };
   }
   // Any other verb on `/games/load` deliberately falls through to `/games/{id}` below, because
   // that is what starlette does: `GET /games/load` is a full match for the parameterised route and
@@ -170,20 +195,37 @@ function match(
   if (commands !== null) {
     const gameId = decode(commands[1]);
     return method === "POST"
-      ? { answer: () => bridge.submitCommand(gameId, body), mutates: "known", gameId }
+      ? { answer: () => bridge.submitCommand(gameId, body, secret), mutates: "known", gameId }
       : null;
   }
 
   const validate = GAME_VALIDATE.exec(path);
   if (validate !== null) {
     const gameId = decode(validate[1]);
-    return method === "POST" ? { answer: () => bridge.validateCommand(gameId, body) } : null;
+    return method === "POST"
+      ? { answer: () => bridge.validateCommand(gameId, body, secret) }
+      : null;
   }
 
   const save = GAME_SAVE.exec(path);
   if (save !== null) {
     const gameId = decode(save[1]);
-    return method === "GET" ? { answer: () => bridge.saveGame(gameId) } : null;
+    return method === "GET" ? { answer: () => bridge.saveGame(gameId, secret) } : null;
+  }
+
+  // The seat routes (ADR-012). Matched *before* `/games/{id}`, because that pattern is anchored to a
+  // single segment and would otherwise not reach here at all — the ordering is what a reader should
+  // check rather than the anchors.
+  const claim = GAME_SEAT_CLAIM.exec(path);
+  if (claim !== null) {
+    const gameId = decode(claim[1]);
+    const player = Number(claim[2]);
+    if (method === "POST") {
+      return { answer: () => bridge.claimSeat(gameId, player) };
+    }
+    return method === "DELETE"
+      ? { answer: () => bridge.releaseSeat(gameId, player, secret) }
+      : null;
   }
 
   const game = GAME.exec(path);
@@ -193,9 +235,9 @@ function match(
       // Forwarded as text, present-or-absent, because `?since=` is a cursor the facade validates:
       // omitted means state only and `0` replays the whole game, and those are different answers.
       const since = url.searchParams.get("since");
-      return { answer: () => bridge.getGame(gameId, since) };
+      return { answer: () => bridge.getGame(gameId, secret, since) };
     }
-    return method === "DELETE" ? { answer: () => bridge.deleteGame(gameId) } : null;
+    return method === "DELETE" ? { answer: () => bridge.deleteGame(gameId, secret) } : null;
   }
 
   return null;
@@ -210,8 +252,9 @@ function match(
  */
 function unrouted(path: string): Envelope {
   const known =
-    [GAME, GAME_COMMANDS, GAME_VALIDATE, GAME_SAVE].some((pattern) => pattern.test(path)) ||
-    ["/boards", "/rulesets", "/games"].includes(path);
+    [GAME, GAME_COMMANDS, GAME_VALIDATE, GAME_SAVE, GAME_SEAT_CLAIM].some((pattern) =>
+      pattern.test(path),
+    ) || ["/boards", "/rulesets", "/games"].includes(path);
   const status = known ? METHOD_NOT_ALLOWED : NOT_FOUND;
   const reason_key = known ? "error.method_not_allowed" : "error.not_found";
   // `params: {status}` and nothing else, because that is exactly what
@@ -235,9 +278,17 @@ function respond(envelope: Envelope): Response {
   });
 }
 
-/** The game a creation or a load answered with. `undefined` when the body is not a view. */
+/**
+ * The game a creation or a load answered with. `undefined` when the body is not one of those.
+ *
+ * Reads through the `GameCreated` envelope since ADR-012: `POST /games` and `POST /games/load`
+ * answer `{host_secret, view}` rather than a bare view. The *secret* is deliberately not touched
+ * here — `api/client.ts` stores it, and a transport that also handled credentials would be a second
+ * place for one to leak from.
+ */
 function gameIdIn(body: unknown): string | undefined {
-  const state = (body as { state?: { game_id?: unknown } } | null)?.state;
+  const envelope = body as { view?: { state?: { game_id?: unknown } } } | null;
+  const state = envelope?.view?.state;
   return typeof state?.game_id === "string" ? state.game_id : undefined;
 }
 
