@@ -214,6 +214,7 @@
     "group_has_buildings": "Sell the houses on the {{group}} set before mortgaging.",
     "group_incomplete": "You need the whole {{group}} set before you can build.",
     "group_mortgaged": "One of the squares in the {{group}} set is mortgaged.",
+    "host_only": "Only the person who started this game can do that.",
     "http_error": "The table couldn't handle that request.",
     "illegal_move": "That move isn't allowed right now.",
     "insufficient_funds": "Not enough cash — that costs {{required, money}} and you have {{available, money}}.",
@@ -247,6 +248,8 @@
     "save_schema_mismatch": "This saved game was made by a different version of Kesef Street.",
     "save_too_large": "That saved game is too big to load.",
     "save_unreadable": "That file isn't a Kesef Street saved game.",
+    "seat_not_yours": "That's somebody else's seat. You can only play your own.",
+    "seat_taken": "Somebody is already in that seat. Choose a free one.",
     "server_at_capacity": "The table is full — {{limit}} games are already running.",
     "session_replaced": "A saved game was loaded over this one. Catching up from the start.",
     "tile_already_owned": "Somebody already owns this square.",
@@ -509,6 +512,9 @@
       "copy": "Load as a separate game",
       "cancel": "Cancel"
     }
+  },
+  "seat": {
+    "claim_prompt": "Which player are you? Pick a free seat to join in."
   },
   "setup": {
     "add_player": "Add a player",

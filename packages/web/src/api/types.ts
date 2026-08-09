@@ -44,6 +44,35 @@ export type ErrorResponse = Schemas["ErrorResponse"];
 export type ErrorParams = ErrorResponse["params"];
 export type LegalityView = Schemas["LegalityView"];
 
+/**
+ * A newly seated game and the one credential for it (ADR-012, MON-906).
+ *
+ * `POST /games` and `POST /games/load` both answer this. It is a **`GameView` plus `host_secret`**
+ * (the server subclasses one), so it is dual-readable across a non-atomic deploy: an old cached
+ * client reads `state.game_id` off the top level, a new client reads `host_secret`. Only
+ * `api/client.ts` names the type — the secret is stripped there and every layer above is handed a
+ * plain `GameView`.
+ */
+export type GameCreated = Schemas["GameCreated"];
+/** The answer to a seat claim: that seat's secret, and the view filtered to it. */
+export type SeatClaimed = Schemas["SeatClaimed"];
+/**
+ * One human seat and whether it is taken — `GameView.claims` (ADR-012).
+ *
+ * The whole of what a joiner is told about seat authority, and the input to the seat picker. Human
+ * seats only: a bot seat is not a seat anybody can claim, and `PlayerView.is_bot` is where the UI
+ * reads that.
+ */
+export type SeatClaimView = Schemas["SeatClaimView"];
+/**
+ * Who this connection speaks for — `GameView.speaker` (ADR-012, MON-906).
+ *
+ * The projection's own answer to "who am I here", which the client reads instead of inferring it
+ * from `localStorage`. A voided or replaced secret resolves to `spectator` in the next view, so the
+ * seat picker reappears and the holder can re-claim — the self-heal the root-cause fix buys.
+ */
+export type SpeakerView = Schemas["SpeakerView"];
+
 export type NewGameRequest = Schemas["NewGameRequest"];
 /**
  * The per-game amendments a table may make to the named rule set (MON-712).

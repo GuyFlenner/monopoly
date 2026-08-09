@@ -51,6 +51,21 @@ steps because each call is one await.
 The step budget mirrors ``bot_max_steps_per_call`` exactly: it is set when a human's command
 lands and spent by the pump, so a pair of mutually re-enabling commands stops the loop instead of
 hanging the tab — the same bound, in the same place in the sequence, as the HTTP transport's.
+
+## Seat authority here too, and that is the point of it (ADR-012, MON-906)
+
+This build mints an authority like any other session and hands its own client the host secret in the
+same ``GameCreated`` envelope the HTTP transport uses. The page then sends it back on every call, and
+:mod:`kesef_server.transport` enforces it — the *same* functions ``api.py`` calls. So there is one
+code path rather than "the server checks and the local build does not", and
+``test_browser_parity.py`` measures the two answers against each other for every new interaction.
+
+**The secret is a positional string, and an absent one is ``""`` rather than ``None``.** Pyodide
+stopped translating JS ``null`` to Python ``None`` — it arrives as a distinct ``JsNull``, which is
+neither ``None`` nor a ``str`` — and ``packages/web/src/local/engine.ts`` documents the reload that
+broke over exactly that. The existing optional parameters (``since``, ``if_exists``) work around it
+by *omitting* the argument, which is why the secret is ordered **before** them here: a call that
+needs a secret and no cursor must still be able to omit the cursor.
 """
 
 from __future__ import annotations
@@ -175,6 +190,17 @@ def _since(raw: str | int | None) -> int | None:
     return value
 
 
+def _secret(raw: str) -> str | None:
+    """One ``Authorization: Bearer`` value as :func:`api.secret_of` resolves it.
+
+    ``""`` is "none presented", which is what the page sends when it holds no secret for this game.
+    An empty string is never a credential — :func:`~kesef_server.sessions.mint_secret` produces 32
+    hex characters — so the two meanings cannot collide. See the module docstring for why this is an
+    empty string rather than ``None`` at the language boundary.
+    """
+    return raw or None
+
+
 def _if_exists(raw: str | None) -> IfExists:
     """``?if_exists=`` as ``api.load_game``'s annotation reads it (ADR-011).
 
@@ -223,7 +249,11 @@ class BrowserHost:
     # --- Games --------------------------------------------------------------
 
     def create_game(self, request_json: str) -> str:
-        """``POST /games``. Bot moves do not stream in behind it — the page pumps them."""
+        """``POST /games``. Bot moves do not stream in behind it — the page pumps them.
+
+        Answers a ``GameCreated`` since ADR-012: the session mints a host secret and this is the one
+        moment it is handed over, in this build exactly as over HTTP.
+        """
         return self._answer("/games", lambda: self._create_game(request_json))
 
     def _create_game(self, request_json: str) -> Reply:
@@ -257,13 +287,18 @@ class BrowserHost:
         # before anybody had touched anything. The budget is opened here for the same reason
         # `api.create_game` queues `_advance_bots`: the pump has something to spend.
         self._open_budget(state.game_id)
-        return Reply(CREATED, _dumped(transport.view(session)))
+        return Reply(CREATED, _dumped(transport.created(session, enforcing=self._enforcing)))
 
-    def load_game(self, save_json: str, if_exists: str | None = None) -> str:
-        """``POST /games/load?if_exists=``. The body is exactly what :meth:`save_game` returned."""
-        return self._answer("/games/load", lambda: self._load_game(save_json, if_exists))
+    def load_game(self, save_json: str, secret: str = "", if_exists: str | None = None) -> str:
+        """``POST /games/load?if_exists=``. The body is exactly what :meth:`save_game` returned.
 
-    def _load_game(self, save_json: str, if_exists: str | None) -> Reply:
+        ``secret`` comes before ``if_exists`` for the reason the module docstring gives: an omitted
+        argument is the only spelling of "absent" both languages agree on, so the parameter that is
+        *always* passable has to sit in front of the ones that are sometimes omitted.
+        """
+        return self._answer("/games/load", lambda: self._load_game(save_json, secret, if_exists))
+
+    def _load_game(self, save_json: str, secret: str, if_exists: str | None) -> Reply:
         raw = save_json.encode("utf-8")
         if len(raw) > self.config.max_save_bytes:
             raise errors.save_too_large(self.config.max_save_bytes)
@@ -277,64 +312,105 @@ class BrowserHost:
             # `ValueError`, an unknown board raises `BoardDataError`. From the player's side the
             # file does not load, and that is the whole of what there is to say.
             raise errors.save_schema_mismatch() from None
-        session = transport.load(self.store, save, policy)
+        session = transport.load(self.store, save, policy, secret=_secret(secret), enforcing=self._enforcing)
         self._open_budget(session.state.game_id)
-        return Reply(CREATED, _dumped(transport.view(session)))
+        return Reply(CREATED, _dumped(transport.created(session, enforcing=self._enforcing)))
 
-    def get_game(self, game_id: str, since: str | int | None = None) -> str:
-        """``GET /games/{id}?since=``. Safe to poll, and the reload path for the page."""
-        return self._answer(f"/games/{game_id}", lambda: self._get_game(game_id, since))
+    def get_game(self, game_id: str, secret: str = "", since: str | int | None = None) -> str:
+        """``GET /games/{id}?since=``. Safe to poll, and the reload path for the page.
 
-    def _get_game(self, game_id: str, since: str | int | None) -> Reply:
+        Never refused — a caller with no secret is a spectator and gets the whole board with an
+        empty ``legal_commands`` (ADR-012), which is exactly what the HTTP route answers.
+        """
+        return self._answer(f"/games/{game_id}", lambda: self._get_game(game_id, secret, since))
+
+    def _get_game(self, game_id: str, secret: str, since: str | int | None) -> Reply:
         cursor = _since(since)
         session = transport.session(self.store, game_id)
         events = session.events_since(cursor) if cursor is not None else ()
-        return Reply(OK, _dumped(transport.view(session, events)))
+        return Reply(OK, _dumped(transport.viewed(session, _secret(secret), events, enforcing=self._enforcing)))
 
-    def save_game(self, game_id: str) -> str:
+    def save_game(self, game_id: str, secret: str = "") -> str:
         """``GET /games/{id}/save`` — the only answer carrying hidden information (ADR-008 §2).
 
         The state *and* the session's log since ADR-011, which is also what makes the reload
         insurance in ``src/local/rehydrate.ts`` keep the event log: it stores whatever this returns.
+
+        **Host only** since ADR-012, in this build too. Not ceremony on a transport with one caller:
+        the reload insurance is written against this route, so exempting the local build would make
+        the two transports answer differently for the one response carrying the deck order — and it
+        is the exemption, not the rule, that a later reader would copy.
         """
-        return self._answer(
-            f"/games/{game_id}/save",
-            lambda: Reply(OK, _dumped(transport.save_file(transport.session(self.store, game_id)))),
-        )
+        return self._answer(f"/games/{game_id}/save", lambda: self._save_game(game_id, secret))
 
-    def submit_command(self, game_id: str, request_json: str) -> str:
+    def _save_game(self, game_id: str, secret: str) -> Reply:
+        session = transport.session(self.store, game_id)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
+        return Reply(OK, _dumped(transport.save_file(session)))
+
+    def submit_command(self, game_id: str, request_json: str, secret: str = "") -> str:
         """``POST /games/{id}/commands``. The only way a game changes."""
-        return self._answer(f"/games/{game_id}/commands", lambda: self._submit_command(game_id, request_json))
+        return self._answer(f"/games/{game_id}/commands", lambda: self._submit_command(game_id, request_json, secret))
 
-    def _submit_command(self, game_id: str, request_json: str) -> Reply:
+    def _submit_command(self, game_id: str, request_json: str, secret: str) -> Reply:
         request = self._command(request_json)
         session = transport.session(self.store, game_id)
+        # Before `apply`, exactly as in `api.submit_command`: a refusal issued afterwards would be a
+        # refusal of a move that had already been made (ADR-012).
+        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self._enforcing)
         state, events = apply(session.state, transport.stamped(self.store, session, request.command))
         updated = self.store.update(session, state, events)
         # The human's command may have handed the table to a computer — by ending a turn, by
         # declining a purchase into an auction a bot is eligible for, or by proposing a trade a bot
         # must answer. The budget says the pump may run; the page is what runs it.
         self._open_budget(game_id)
-        return Reply(OK, _dumped(transport.view(updated, transport.logged(session, events))))
+        tail = transport.logged(session, events)
+        return Reply(OK, _dumped(transport.viewed(updated, _secret(secret), tail, enforcing=self._enforcing)))
 
-    def validate_command(self, game_id: str, request_json: str) -> str:
+    def validate_command(self, game_id: str, request_json: str, secret: str = "") -> str:
         """``POST /games/{id}/validate``: would this be accepted? Changes nothing (G-32)."""
-        return self._answer(f"/games/{game_id}/validate", lambda: self._validate_command(game_id, request_json))
+        return self._answer(f"/games/{game_id}/validate", lambda: self._validate_command(game_id, request_json, secret))
 
-    def _validate_command(self, game_id: str, request_json: str) -> Reply:
+    def _validate_command(self, game_id: str, request_json: str, secret: str) -> Reply:
         request = self._command(request_json)
         session = transport.session(self.store, game_id)
+        # Scoped like `commands`, so a draft the trade builder calls valid is one that can be sent.
+        transport.require_seat(session, _secret(secret), request.command.player, enforcing=self._enforcing)
         result = is_legal(session.state, transport.stamped(self.store, session, request.command))
         view = LegalityView(legal=result.legal, reason_key=result.reason_key, params=result.params)
         return Reply(OK, _dumped(view))
 
-    def delete_game(self, game_id: str) -> str:
-        return self._answer(f"/games/{game_id}", lambda: self._delete_game(game_id))
+    def delete_game(self, game_id: str, secret: str = "") -> str:
+        """``DELETE /games/{id}``. **Host only** since ADR-012."""
+        return self._answer(f"/games/{game_id}", lambda: self._delete_game(game_id, secret))
 
-    def _delete_game(self, game_id: str) -> Reply:
-        transport.session(self.store, game_id)
+    def _delete_game(self, game_id: str, secret: str) -> Reply:
+        session = transport.session(self.store, game_id)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
         self.store.delete(game_id)
         self._budget.pop(game_id, None)
+        return Reply(NO_CONTENT)
+
+    # --- Seats (ADR-012, MON-906) -------------------------------------------
+
+    def claim_seat(self, game_id: str, player: int) -> str:
+        """``POST /games/{id}/seats/{player}/claim``. Unauthenticated: the id is the invitation."""
+        return self._answer(f"/games/{game_id}/seats/{player}/claim", lambda: self._claim_seat(game_id, player))
+
+    def _claim_seat(self, game_id: str, player: int) -> Reply:
+        session = transport.session(self.store, game_id)
+        return Reply(CREATED, _dumped(transport.claimed(session, player, enforcing=self._enforcing)))
+
+    def release_seat(self, game_id: str, player: int, secret: str = "") -> str:
+        """``DELETE /games/{id}/seats/{player}/claim``. **Host only**, and idempotent."""
+        return self._answer(
+            f"/games/{game_id}/seats/{player}/claim", lambda: self._release_seat(game_id, player, secret)
+        )
+
+    def _release_seat(self, game_id: str, player: int, secret: str) -> Reply:
+        session = transport.session(self.store, game_id)
+        transport.require_host(session, _secret(secret), enforcing=self._enforcing)
+        transport.release_seat(session, player)
         return Reply(NO_CONTENT)
 
     # --- The event stream ---------------------------------------------------
@@ -398,6 +474,16 @@ class BrowserHost:
 
     # --- Plumbing -----------------------------------------------------------
 
+    @property
+    def _enforcing(self) -> bool:
+        """Whether seat authority is in force for this host (ADR-012).
+
+        Read once here rather than spelled ``self.config.enforcing_seats`` at each site, so the flag
+        this build passes to the shared ``transport`` helpers is the same reading everywhere — the
+        mirror of ``api``'s ``config.enforcing_seats`` dependency. `transport.py` holds no
+        configuration, which is why the flag is read in the transport module rather than inside it."""
+        return self.config.enforcing_seats
+
     def _command(self, request_json: str) -> CommandRequest:
         try:
             return CommandRequest.model_validate_json(request_json)
@@ -451,28 +537,36 @@ def create_game(request_json: str) -> str:
     return host().create_game(request_json)
 
 
-def load_game(save_json: str, if_exists: str | None = None) -> str:
-    return host().load_game(save_json, if_exists)
+def load_game(save_json: str, secret: str = "", if_exists: str | None = None) -> str:
+    return host().load_game(save_json, secret, if_exists)
 
 
-def get_game(game_id: str, since: str | int | None = None) -> str:
-    return host().get_game(game_id, since)
+def get_game(game_id: str, secret: str = "", since: str | int | None = None) -> str:
+    return host().get_game(game_id, secret, since)
 
 
-def save_game(game_id: str) -> str:
-    return host().save_game(game_id)
+def save_game(game_id: str, secret: str = "") -> str:
+    return host().save_game(game_id, secret)
 
 
-def submit_command(game_id: str, request_json: str) -> str:
-    return host().submit_command(game_id, request_json)
+def submit_command(game_id: str, request_json: str, secret: str = "") -> str:
+    return host().submit_command(game_id, request_json, secret)
 
 
-def validate_command(game_id: str, request_json: str) -> str:
-    return host().validate_command(game_id, request_json)
+def validate_command(game_id: str, request_json: str, secret: str = "") -> str:
+    return host().validate_command(game_id, request_json, secret)
 
 
-def delete_game(game_id: str) -> str:
-    return host().delete_game(game_id)
+def delete_game(game_id: str, secret: str = "") -> str:
+    return host().delete_game(game_id, secret)
+
+
+def claim_seat(game_id: str, player: int) -> str:
+    return host().claim_seat(game_id, player)
+
+
+def release_seat(game_id: str, player: int, secret: str = "") -> str:
+    return host().release_seat(game_id, player, secret)
 
 
 def events_since(game_id: str, cursor: int = 0) -> str:

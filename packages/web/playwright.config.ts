@@ -108,10 +108,25 @@ export default defineConfig({
        * refuse the forty-plus games this directory starts for the same reason the 50-session store
        * did above. Raised here and not in `config.py`, for the same reason as the line above it.
        */
+      /*
+       * Seat authority is **enforced** for the whole e2e stack (ADR-012, MON-906), and that is a
+       * deliberately stronger statement than switching it on for `online.spec.ts` alone.
+       *
+       * The item's definition of done needs it on: two contexts on one link, and the guest refused
+       * a move for the host's seat. But *every other spec in this directory is a hotseat game*, and
+       * ADR-012's headline consequence is that hotseat is unchanged under enforcement — one screen,
+       * one host secret, every unclaimed human seat playable. Running the whole suite this way is
+       * what makes that a measurement rather than an assurance; a second API on a second port would
+       * have tested the enforcing path only where somebody remembered to point at it.
+       *
+       * `render.yaml` is untouched: production stays `off` until the client that sends secrets is
+       * deployed (the design's rollout step 2, a separate PR and one env var).
+       */
       env: {
         KESEF_MAX_SESSIONS: "400",
         KESEF_MAX_SESSIONS_PER_CLIENT: "400",
         KESEF_REQUESTS_PER_MINUTE: "10000",
+        KESEF_SEAT_AUTHORITY: "enforce",
       },
       url: `http://${HOST}:${String(API_PORT)}/boards`,
       reuseExistingServer: !isCI,

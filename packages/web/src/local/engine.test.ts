@@ -60,17 +60,19 @@ describe("the arguments that reach the Python facade", () => {
     // Python reads as a bad value — a keyed 422 instead of a restored game.
     const { calls, facade } = recordingFacade();
 
-    await bridgeTo(facade).loadGame('{"state":{}}', null);
+    await bridgeTo(facade).loadGame('{"state":{}}', "", null);
 
-    expect(calls).toEqual([{ fn: "load_game", args: ['{"state":{}}'] }]);
+    // The secret is *always* passed — `""` is "none held", the one spelling of absent that survives
+    // the boundary (ADR-012) — and it is `if_exists` that is omitted.
+    expect(calls).toEqual([{ fn: "load_game", args: ['{"state":{}}', ""] }]);
   });
 
   it("passes if_exists through when the player has answered", async () => {
     const { calls, facade } = recordingFacade();
 
-    await bridgeTo(facade).loadGame('{"state":{}}', "replace");
+    await bridgeTo(facade).loadGame('{"state":{}}', "s3cret", "replace");
 
-    expect(calls).toEqual([{ fn: "load_game", args: ['{"state":{}}', "replace"] }]);
+    expect(calls).toEqual([{ fn: "load_game", args: ['{"state":{}}', "s3cret", "replace"] }]);
   });
 
   it("omits an absent since for the same reason", async () => {
@@ -80,12 +82,12 @@ describe("the arguments that reach the Python facade", () => {
     const { calls, facade } = recordingFacade();
     const bridge = bridgeTo(facade);
 
-    await bridge.getGame("g1", null);
-    await bridge.getGame("g1", "0");
+    await bridge.getGame("g1", "", null);
+    await bridge.getGame("g1", "", "0");
 
     expect(calls).toEqual([
-      { fn: "get_game", args: ["g1"] },
-      { fn: "get_game", args: ["g1", "0"] },
+      { fn: "get_game", args: ["g1", ""] },
+      { fn: "get_game", args: ["g1", "", "0"] },
     ]);
   });
 });

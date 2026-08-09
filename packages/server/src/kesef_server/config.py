@@ -2,8 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+SeatAuthorityMode = Literal["off", "enforce"]
+"""The two values :attr:`Settings.seat_authority` takes (ADR-012, MON-906).
+
+A ``Literal`` rather than a bool because the flag is a *rollout stage* and the next one is already
+foreseeable — a "report but do not refuse" mode, say, for measuring how many old clients are still
+out there. A boolean named ``enforce_seat_authority`` would have to be replaced rather than
+extended, and the env var it reads is the thing a human types into ``render.yaml`` under pressure.
+"""
 
 
 class Settings(BaseSettings):
@@ -112,6 +123,34 @@ class Settings(BaseSettings):
     deployment fact — so it is a setting rather than a heuristic. ``render.yaml`` sets it; a local
     ``uvicorn`` and the test suite leave it off. See :meth:`kesef_server.limits.ClientLimiter.identify`
     for which hop of the header is read, and why it is not the leftmost one."""
+
+    seat_authority: SeatAuthorityMode = "off"
+    """Whether a request has to prove which seat it speaks for (ADR-012, MON-906).
+
+    ``off`` at merge, and that default *is* the rollout plan rather than caution about the code.
+    The published site is a static build on GitHub Pages: a browser that loaded it yesterday keeps
+    running yesterday's JavaScript, which sends no ``Authorization`` header at all. An API that
+    started enforcing before that client had been replaced would refuse a family mid-game, and the
+    refusal would be correct and useless. So the server learns to *mint and accept* secrets first,
+    the client learns to store and send them, and only then does ``render.yaml`` set
+    ``KESEF_SEAT_AUTHORITY=enforce`` — one env var, instantly revertible.
+
+    With ``off``, the enforcement points in :mod:`kesef_server.transport` return without asking
+    anything, so behaviour is exactly what it was before this setting existed: every caller speaks
+    for every seat, ``/save`` and ``DELETE`` ask nobody who they are.
+    ``test_seat_authority.py::test_the_flag_off_reproduces_todays_behaviour`` is what holds that
+    claim up, because a rollout flag whose "off" position had quietly changed something would be
+    the one defect this staging exists to prevent.
+    """
+
+    @property
+    def enforcing_seats(self) -> bool:
+        """:attr:`seat_authority`, as the one question the transports actually ask of it.
+
+        A property rather than a comparison at each call site: two spellings of ``== "enforce"``
+        is one typo away from a route that enforces and a projection that does not, which would
+        show up as a spectator being refused a move they can still see a button for."""
+        return self.seat_authority == "enforce"
 
 
 settings = Settings()

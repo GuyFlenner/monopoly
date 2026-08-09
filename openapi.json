@@ -90,7 +90,7 @@
           "game"
         ],
         "summary": "Create Game",
-        "description": "Start a game and return the opening view. Any bot moves stream in behind it.",
+        "description": "Start a game and return the opening view, plus its host secret. Bot moves stream in behind it.\n\nThe response is a ``GameCreated`` envelope since ADR-012, not a bare ``GameView``: the session\nmints a host secret and this is the only moment it is ever handed over. See\n:class:`~kesef_server.schemas.GameCreated` for why there is no second chance, and\n``docs/adr/012-*`` for why the credential lives on the session rather than in the game.",
         "operationId": "create_game_games_post",
         "requestBody": {
           "content": {
@@ -108,7 +108,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GameView"
+                  "$ref": "#/components/schemas/GameCreated"
                 }
               }
             }
@@ -172,7 +172,7 @@
           "game"
         ],
         "summary": "Load Game",
-        "description": "Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.\n\nThe body is read raw rather than declared as a ``SaveFile`` parameter, for two reasons\ncarried forward from the MON-100 security review:\n\n* **Size.** This is the only route whose body is not a small fixed shape, so it gets an\n  explicit ceiling instead of reading whatever arrives — enforced *while* reading, by\n  :func:`_read_bounded`, not after.\n* **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``\n  (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,\n  which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body\n  parameter it escaped as a 500 with a traceback. Validating inside the handler is what\n  lets both become ``error.save_schema_mismatch``.\n\n``if_exists`` is the answer to a question the player was asked *after* being refused once\n(ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409\nit always got rather than silently ending somebody's game.\n\nThe OpenAPI request body is declared by hand above, so the contract still says ``SaveFile``\nand ``generated.ts`` still types it.",
+        "description": "Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.\n\nThe body is read raw rather than declared as a ``SaveFile`` parameter, for two reasons\ncarried forward from the MON-100 security review:\n\n* **Size.** This is the only route whose body is not a small fixed shape, so it gets an\n  explicit ceiling instead of reading whatever arrives — enforced *while* reading, by\n  :func:`_read_bounded`, not after.\n* **Every load failure is one key.** A stale ``schema_version`` raises ``ValueError``\n  (pydantic wraps it), but a save naming an unknown board raises ``BoardDataError``,\n  which is *not* a ``ValueError`` — pydantic lets it through, and as a declared body\n  parameter it escaped as a 500 with a traceback. Validating inside the handler is what\n  lets both become ``error.save_schema_mismatch``.\n\n``if_exists`` is the answer to a question the player was asked *after* being refused once\n(ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409\nit always got rather than silently ending somebody's game. ``replace`` is host-only since\nADR-012 — it ends a live game, and until MON-906 any stranger holding the id could do it.\n\nThe answer is a ``GameCreated`` for the same reason ``POST /games`` is: a restored game is a new\nsession with a new authority, and the client that restored it is the one that needs the host\nsecret. The OpenAPI request body is declared by hand above, so the contract still says\n``SaveFile`` and ``generated.ts`` still types it.",
         "operationId": "load_game_games_load_post",
         "parameters": [
           {
@@ -193,7 +193,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GameView"
+                  "$ref": "#/components/schemas/GameCreated"
                 }
               }
             }
@@ -277,7 +277,7 @@
           "game"
         ],
         "summary": "Get Game",
-        "description": "The current view. Safe to poll, and the reconnect path for the UI.\n\n``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the\nwhole game, which is what a reconnecting client wants.",
+        "description": "The current view. Safe to poll, and the reconnect path for the UI.\n\n``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the\nwhole game, which is what a reconnecting client wants.\n\nNever refused. A spectator — anybody with the link and no secret — gets the whole board, the\nwhole state and an **empty** ``legal_commands`` (ADR-012). That asymmetry is deliberate: under\nthe universal rules holdings are public (spec §5.2), every event is already public on the\nWebSocket by ADR-008's self-containment rule, and the only hidden information in this system\nlives in ``/save`` — which this PR closes. Watching is not a privilege; acting is.",
         "operationId": "get_game_games__game_id__get",
         "parameters": [
           {
@@ -357,6 +357,7 @@
           "game"
         ],
         "summary": "Delete Game",
+        "description": "End a game. **Host only** (ADR-012).\n\nBefore MON-906 this route asked nobody who they were, so a stranger holding a shared id could\nend a family's game from a URL bar. ``Session.client_id`` was never the answer: it exists to\n*count* games for ``max_sessions_per_client`` and confers no authority, because a household\nshares one address — its own docstring says so and names this item.",
         "operationId": "delete_game_games__game_id__delete",
         "parameters": [
           {
@@ -382,6 +383,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "403": {
+            "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           },
           "429": {
             "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
@@ -422,7 +433,7 @@
           "game"
         ],
         "summary": "Save Game",
-        "description": "The complete state, RNG and deck order included — the save file.\n\nThis is the *only* route that returns hidden information, which is the whole of\nADR-008 §2: \"the JSON is the save file\" survives without being conflated with what a\nclient may see while playing.\n\nSince ADR-011 the file is an envelope — the state *and* the session's log — because a session is\nmore than a ``GameState`` and a restored game with no history was the half of that nobody noticed.",
+        "description": "The complete state, RNG and deck order included — the save file. **Host only** (ADR-012).\n\nThis is the *only* route that returns hidden information, which is the whole of\nADR-008 §2: \"the JSON is the save file\" survives without being conflated with what a\nclient may see while playing. On a network API that made it a cheat channel: the RNG counter\nand the deck order are every future roll and every card, in order, readable by anybody the join\nlink reached. ADR-011 §Security parked it pending MON-901; the host secret is the answer.\n\nSince ADR-011 the file is an envelope — the state *and* the session's log — because a session is\nmore than a ``GameState`` and a restored game with no history was the half of that nobody noticed.",
         "operationId": "save_game_games__game_id__save_get",
         "parameters": [
           {
@@ -475,6 +486,191 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/games/{game_id}/seats/{player}/claim": {
+      "post": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Claim Seat",
+        "description": "Take one unclaimed human seat and receive the secret that speaks for it (ADR-012).\n\nUnauthenticated on purpose: the game id *is* the invitation, so anybody holding the link may\nclaim a free seat, first come first served. See :func:`transport.claim_seat`.\n\nThe returned view is already filtered to the claimed seat, so the joiner's first frame is the\nframe they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of\n``view``, never a field inside it. The claim itself is taken under the authority's lock, so two\nrequests for one seat resolve to exactly one winner (finding 3); see :func:`transport.claimed`.",
+        "operationId": "claim_seat_games__game_id__seats__player__claim_post",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "player",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Player"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatClaimed"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No game with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`error.seat_taken` — somebody, or a computer, is already in that seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`error.unknown_player` — no such seat.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "game"
+        ],
+        "summary": "Release Seat",
+        "description": "Void a seat's claim, so it can be taken again. **Host only** (ADR-012).\n\nThe unstick for a lost seat secret, which is a real evening rather than a hypothetical: a guest\ncloses the tab on a phone that keeps no storage and the seat is held by a string nobody has.\nHost-only because the alternative is any joiner evicting any player, which is the problem this\nitem exists to fix wearing a different hat.\n\nIdempotent, so a host pressing it twice is not shown an error about the outcome they wanted.",
+        "operationId": "release_seat_games__game_id__seats__player__claim_delete",
+        "parameters": [
+          {
+            "name": "game_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Game Id"
+            }
+          },
+          {
+            "name": "player",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Player"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "403": {
+            "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -485,7 +681,7 @@
           "game"
         ],
         "summary": "Submit Command",
-        "description": "Apply one command, then let the bots answer it. The only way a game changes.\n\n``async`` on purpose: it puts the handler on the event loop, so appending to a live\nWebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from\na thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,\nand a handler off the loop could not yield to let those pushes drain.",
+        "description": "Apply one command, then let the bots answer it. The only way a game changes.\n\n``async`` on purpose: it puts the handler on the event loop, so appending to a live\nWebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from\na thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,\nand a handler off the loop could not yield to let those pushes drain.\n\n``require_seat`` is the **first** thing here and that ordering is load-bearing (ADR-012): a\ncross-seat command refused after ``apply`` would be a move that had already happened, reported\nas though it had not. Refusing before the engine is consulted leaves the log untouched, which is\nwhat ``test_seat_authority.py`` asserts by comparing the cursor.",
         "operationId": "submit_command_games__game_id__commands_post",
         "parameters": [
           {
@@ -548,6 +744,16 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -558,7 +764,7 @@
           "game"
         ],
         "summary": "Validate Command",
-        "description": "Ask whether a command would be accepted, changing nothing (G-32).\n\nAn illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder\nasks this on every keystroke, and \"not valid yet\" is a normal answer, not an error.",
+        "description": "Ask whether a command would be accepted, changing nothing (G-32).\n\nAn illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder\nasks this on every keystroke, and \"not valid yet\" is a normal answer, not an error.\n\nScoped exactly like ``commands`` since ADR-012, and that is a correctness matter rather than\nsymmetry: the trade builder validates a draft here and enables its send button on the answer, so\na route that said \"yes, legal\" to a caller the *send* would refuse would be offering a move that\ncannot be made. The seat refusal is a 403 here as well, for the same reason it is not a\n``legal: false`` — \"you may not ask for this seat\" is not a statement about the rules.",
         "operationId": "validate_command_games__game_id__validate_post",
         "parameters": [
           {
@@ -614,6 +820,16 @@
           },
           "500": {
             "description": "An engine failure. `error.engine_failure` — a defect on this side of the wire.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2099,6 +2315,138 @@
         "title": "ErrorResponse",
         "description": "Every failure this API reports, in one shape (GAP G-33).\n\n``reason_key`` is an i18n key, never a sentence, and ``params`` carries the context the\ncatalogue entry interpolates — which is what lets ``error.insufficient_funds`` say how\nmuch short. The engine's ``IllegalCommandError`` already carries both; before ADR-008\nthe transport dropped the params on the floor."
       },
+      "GameCreated": {
+        "properties": {
+          "board": {
+            "$ref": "#/components/schemas/BoardView"
+          },
+          "state": {
+            "$ref": "#/components/schemas/GameStateView"
+          },
+          "legal_commands": {
+            "items": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/RollDice"
+                },
+                {
+                  "$ref": "#/components/schemas/EndTurn"
+                },
+                {
+                  "$ref": "#/components/schemas/BuyProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclinePurchase"
+                },
+                {
+                  "$ref": "#/components/schemas/PlaceBid"
+                },
+                {
+                  "$ref": "#/components/schemas/WithdrawFromAuction"
+                },
+                {
+                  "$ref": "#/components/schemas/BuildHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/SellHouse"
+                },
+                {
+                  "$ref": "#/components/schemas/MortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/UnmortgageProperty"
+                },
+                {
+                  "$ref": "#/components/schemas/ProposeTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/RespondToTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/CancelTrade"
+                },
+                {
+                  "$ref": "#/components/schemas/PayJailFine"
+                },
+                {
+                  "$ref": "#/components/schemas/UseJailCard"
+                },
+                {
+                  "$ref": "#/components/schemas/RollForJail"
+                },
+                {
+                  "$ref": "#/components/schemas/DeclareBankruptcy"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind",
+                "mapping": {
+                  "build_house": "#/components/schemas/BuildHouse",
+                  "buy_property": "#/components/schemas/BuyProperty",
+                  "cancel_trade": "#/components/schemas/CancelTrade",
+                  "declare_bankruptcy": "#/components/schemas/DeclareBankruptcy",
+                  "decline_purchase": "#/components/schemas/DeclinePurchase",
+                  "end_turn": "#/components/schemas/EndTurn",
+                  "mortgage_property": "#/components/schemas/MortgageProperty",
+                  "pay_jail_fine": "#/components/schemas/PayJailFine",
+                  "place_bid": "#/components/schemas/PlaceBid",
+                  "propose_trade": "#/components/schemas/ProposeTrade",
+                  "respond_to_trade": "#/components/schemas/RespondToTrade",
+                  "roll_dice": "#/components/schemas/RollDice",
+                  "roll_for_jail": "#/components/schemas/RollForJail",
+                  "sell_house": "#/components/schemas/SellHouse",
+                  "unmortgage_property": "#/components/schemas/UnmortgageProperty",
+                  "use_jail_card": "#/components/schemas/UseJailCard",
+                  "withdraw_from_auction": "#/components/schemas/WithdrawFromAuction"
+                }
+              }
+            },
+            "type": "array",
+            "title": "Legal Commands"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/LoggedEvent"
+            },
+            "type": "array",
+            "title": "Events",
+            "default": []
+          },
+          "event_cursor": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Event Cursor",
+            "default": 0
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/SeatClaimView"
+            },
+            "type": "array",
+            "title": "Claims",
+            "default": []
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/SpeakerView",
+            "default": {
+              "kind": "host"
+            }
+          },
+          "host_secret": {
+            "type": "string",
+            "title": "Host Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "board",
+          "state",
+          "legal_commands",
+          "host_secret"
+        ],
+        "title": "GameCreated",
+        "description": "``POST /games`` and ``POST /games/load``: a :class:`GameView`, plus the one credential for it.\n\nThe host secret has exactly one moment at which it can be handed over — the moment the session is\nminted — and no route returns it again (ADR-012). A ``load`` answers this too, which the ADR does\nnot spell out but the alternative makes plain: a restored game is a *new session* with a new\nauthority, so a loader handed a bare ``GameView`` would be locked out of the game it had just\nrestored the instant the flag was flipped.\n\n**A subclass of ``GameView``, deliberately, and that is the deploy-skew fix** (MON-906 review,\nfinding 1). The response carries every ``GameView`` field at the top level *and* ``host_secret``,\nso it is a superset that reads correctly in both skew directions across a non-atomic Pages/Render\ndeploy: an old cached client reads ``state.game_id`` off the top level exactly as it always did,\nand a new client reads ``host_secret``. Nothing the old client depends on was moved or removed,\nso ``config.py``'s \"an old cached client keeps working\" is true at merge *and* across the flip —\nwhich a nested ``{host_secret, view}`` envelope could not promise, since it relocated\n``state.game_id`` under ``view`` and would 404 every pre-deploy client the moment it shipped.\n\n``host_secret`` is the one field of this model that must never appear in a plain ``GameView``; it\nlives here because this response is the single place a credential is *meant* to cross the wire."
+      },
       "GameEnded": {
         "properties": {
           "type": {
@@ -2581,6 +2929,20 @@
             "minimum": 0.0,
             "title": "Event Cursor",
             "default": 0
+          },
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/SeatClaimView"
+            },
+            "type": "array",
+            "title": "Claims",
+            "default": []
+          },
+          "speaker": {
+            "$ref": "#/components/schemas/SpeakerView",
+            "default": {
+              "kind": "host"
+            }
           }
         },
         "type": "object",
@@ -4184,6 +4546,43 @@
         "title": "SaveFile",
         "description": "A whole session on disk: the state, and the events that produced it (ADR-011).\n\n``GET /games/{id}/save`` answers with this and ``POST /games/load`` accepts it. It exists\nbecause a save used to be a bare ``GameState`` and a session is more than one — ``Session.log``\nis not a state field, so a restored game came back with its board, money and deeds exactly right\nand *\"What's happened\"* empty. Both halves of that are here now.\n\n**The events are the engine's, without ``seq``.** ``LoggedEvent.seq`` is assigned by the store\nand nowhere else (see :mod:`kesef_server.sessions`), so a file that carried numbers would be\nasking the next session to honour a previous one's. The store stamps a restored log ``1..N``\nexactly as it stamps a live one.\n\n**A bare ``GameState`` still loads.** Every file saved before ADR-011 is one, and\n:meth:`from_json` reads it as the state with no events. The two shapes cannot be confused: an\nenvelope has a ``state`` field and ``GameState`` declares none, so neither validates as the other.\n\n**No version of its own.** Whether a save loads is decided by ``state.schema_version``, and the\nevents are validated by the same union the live log is built from. A second version field beside\nthe engine's would be a second thing to keep in step and the first to go stale."
       },
+      "SeatClaimView": {
+        "properties": {
+          "player": {
+            "type": "integer",
+            "title": "Player"
+          },
+          "claimed": {
+            "type": "boolean",
+            "title": "Claimed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "player",
+          "claimed"
+        ],
+        "title": "SeatClaimView",
+        "description": "One human seat, and whether somebody has taken it (ADR-012, MON-906).\n\n**Never the secret.** This is the projection a join screen renders — \"seat 2 is free\" — and it\nis the only thing about seat authority that crosses the wire at all outside the two envelopes\nbelow. A ``claimed`` flag is the whole of what a joiner needs to know and the whole of what\nthey are entitled to.\n\nHuman seats only. A bot seat is not a seat anybody can claim (the server drives it, MON-304),\nso listing one with ``claimed: true`` would be a row that means something different from every\nother row. Which seats are bots is already on ``GameStateView.players``, where the UI reads it."
+      },
+      "SeatClaimed": {
+        "properties": {
+          "seat_secret": {
+            "type": "string",
+            "title": "Seat Secret"
+          },
+          "view": {
+            "$ref": "#/components/schemas/GameView"
+          }
+        },
+        "type": "object",
+        "required": [
+          "seat_secret",
+          "view"
+        ],
+        "title": "SeatClaimed",
+        "description": "``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.\n\nA nested envelope rather than a ``GameView`` subclass like :class:`GameCreated`, because this is\na **new** route — no cached client calls it, so there is no old top-level shape to stay\ncompatible with, and ``seat_secret`` reads more honestly as a sibling of the view than as a field\nsmuggled into it.\n\n``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame\nafter claiming is the frame they will play from — one round trip rather than a claim followed\nby a refetch that renders an empty action bar in between."
+      },
       "SeatConfig": {
         "properties": {
           "name": {
@@ -4291,6 +4690,36 @@
           "via"
         ],
         "title": "SentToJail"
+      },
+      "SpeakerView": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "host",
+              "seat",
+              "spectator"
+            ],
+            "title": "Kind"
+          },
+          "player": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Player"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "title": "SpeakerView",
+        "description": "Who **this connection** speaks for, resolved from its secret (ADR-012, MON-906).\n\nThe projection's answer to \"who am I here\", added so the client stops inferring it from what it\nput in ``localStorage`` (MON-906 review, the root-cause fix). Three kinds mirror the transport's\nthree speakers:\n\n* ``host`` — holds the host secret; speaks for every unclaimed human seat.\n* ``seat`` — holds a seat secret; ``player`` names the one seat it is.\n* ``spectator`` — holds nothing this session recognises; the whole board, no buttons.\n\n**This is the self-heal.** A secret that has been voided (the host released the seat), or that\nbelongs to a session a load replaced, resolves to ``spectator`` in the very next view — so the\nseat picker reappears and the holder can re-claim, rather than being stranded holding a string\nthe server has forgotten. It is a *projection*, not a credential: it carries no secret, and it\nis computed the same way on both transports (:func:`kesef_server.transport.speaker_for`)."
       },
       "TileKind": {
         "type": "string",

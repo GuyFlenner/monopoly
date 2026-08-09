@@ -76,7 +76,12 @@ export interface paths {
         put?: never;
         /**
          * Create Game
-         * @description Start a game and return the opening view. Any bot moves stream in behind it.
+         * @description Start a game and return the opening view, plus its host secret. Bot moves stream in behind it.
+         *
+         *     The response is a ``GameCreated`` envelope since ADR-012, not a bare ``GameView``: the session
+         *     mints a host secret and this is the only moment it is ever handed over. See
+         *     :class:`~kesef_server.schemas.GameCreated` for why there is no second chance, and
+         *     ``docs/adr/012-*`` for why the credential lives on the session rather than in the game.
          */
         post: operations["create_game_games_post"];
         delete?: never;
@@ -112,10 +117,13 @@ export interface paths {
          *
          *     ``if_exists`` is the answer to a question the player was asked *after* being refused once
          *     (ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409
-         *     it always got rather than silently ending somebody's game.
+         *     it always got rather than silently ending somebody's game. ``replace`` is host-only since
+         *     ADR-012 — it ends a live game, and until MON-906 any stranger holding the id could do it.
          *
-         *     The OpenAPI request body is declared by hand above, so the contract still says ``SaveFile``
-         *     and ``generated.ts`` still types it.
+         *     The answer is a ``GameCreated`` for the same reason ``POST /games`` is: a restored game is a new
+         *     session with a new authority, and the client that restored it is the one that needs the host
+         *     secret. The OpenAPI request body is declared by hand above, so the contract still says
+         *     ``SaveFile`` and ``generated.ts`` still types it.
          */
         post: operations["load_game_games_load_post"];
         delete?: never;
@@ -137,11 +145,25 @@ export interface paths {
          *
          *     ``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the
          *     whole game, which is what a reconnecting client wants.
+         *
+         *     Never refused. A spectator — anybody with the link and no secret — gets the whole board, the
+         *     whole state and an **empty** ``legal_commands`` (ADR-012). That asymmetry is deliberate: under
+         *     the universal rules holdings are public (spec §5.2), every event is already public on the
+         *     WebSocket by ADR-008's self-containment rule, and the only hidden information in this system
+         *     lives in ``/save`` — which this PR closes. Watching is not a privilege; acting is.
          */
         get: operations["get_game_games__game_id__get"];
         put?: never;
         post?: never;
-        /** Delete Game */
+        /**
+         * Delete Game
+         * @description End a game. **Host only** (ADR-012).
+         *
+         *     Before MON-906 this route asked nobody who they were, so a stranger holding a shared id could
+         *     end a family's game from a URL bar. ``Session.client_id`` was never the answer: it exists to
+         *     *count* games for ``max_sessions_per_client`` and confers no authority, because a household
+         *     shares one address — its own docstring says so and names this item.
+         */
         delete: operations["delete_game_games__game_id__delete"];
         options?: never;
         head?: never;
@@ -157,11 +179,13 @@ export interface paths {
         };
         /**
          * Save Game
-         * @description The complete state, RNG and deck order included — the save file.
+         * @description The complete state, RNG and deck order included — the save file. **Host only** (ADR-012).
          *
          *     This is the *only* route that returns hidden information, which is the whole of
          *     ADR-008 §2: "the JSON is the save file" survives without being conflated with what a
-         *     client may see while playing.
+         *     client may see while playing. On a network API that made it a cheat channel: the RNG counter
+         *     and the deck order are every future roll and every card, in order, readable by anybody the join
+         *     link reached. ADR-011 §Security parked it pending MON-901; the host secret is the answer.
          *
          *     Since ADR-011 the file is an envelope — the state *and* the session's log — because a session is
          *     more than a ``GameState`` and a restored game with no history was the half of that nobody noticed.
@@ -170,6 +194,45 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/games/{game_id}/seats/{player}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim Seat
+         * @description Take one unclaimed human seat and receive the secret that speaks for it (ADR-012).
+         *
+         *     Unauthenticated on purpose: the game id *is* the invitation, so anybody holding the link may
+         *     claim a free seat, first come first served. See :func:`transport.claim_seat`.
+         *
+         *     The returned view is already filtered to the claimed seat, so the joiner's first frame is the
+         *     frame they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of
+         *     ``view``, never a field inside it. The claim itself is taken under the authority's lock, so two
+         *     requests for one seat resolve to exactly one winner (finding 3); see :func:`transport.claimed`.
+         */
+        post: operations["claim_seat_games__game_id__seats__player__claim_post"];
+        /**
+         * Release Seat
+         * @description Void a seat's claim, so it can be taken again. **Host only** (ADR-012).
+         *
+         *     The unstick for a lost seat secret, which is a real evening rather than a hypothetical: a guest
+         *     closes the tab on a phone that keeps no storage and the seat is held by a string nobody has.
+         *     Host-only because the alternative is any joiner evicting any player, which is the problem this
+         *     item exists to fix wearing a different hat.
+         *
+         *     Idempotent, so a host pressing it twice is not shown an error about the outcome they wanted.
+         */
+        delete: operations["release_seat_games__game_id__seats__player__claim_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -192,6 +255,11 @@ export interface paths {
          *     WebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from
          *     a thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,
          *     and a handler off the loop could not yield to let those pushes drain.
+         *
+         *     ``require_seat`` is the **first** thing here and that ordering is load-bearing (ADR-012): a
+         *     cross-seat command refused after ``apply`` would be a move that had already happened, reported
+         *     as though it had not. Refusing before the engine is consulted leaves the log untouched, which is
+         *     what ``test_seat_authority.py`` asserts by comparing the cursor.
          */
         post: operations["submit_command_games__game_id__commands_post"];
         delete?: never;
@@ -215,6 +283,12 @@ export interface paths {
          *
          *     An illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder
          *     asks this on every keystroke, and "not valid yet" is a normal answer, not an error.
+         *
+         *     Scoped exactly like ``commands`` since ADR-012, and that is a correctness matter rather than
+         *     symmetry: the trade builder validates a draft here and enables its send button on the answer, so
+         *     a route that said "yes, legal" to a caller the *send* would refuse would be offering a move that
+         *     cannot be made. The seat refusal is a 403 here as well, for the same reason it is not a
+         *     ``legal: false`` — "you may not ask for this seat" is not a statement about the rules.
          */
         post: operations["validate_command_games__game_id__validate_post"];
         delete?: never;
@@ -865,6 +939,57 @@ export interface components {
                 [key: string]: number | string;
             };
         };
+        /**
+         * GameCreated
+         * @description ``POST /games`` and ``POST /games/load``: a :class:`GameView`, plus the one credential for it.
+         *
+         *     The host secret has exactly one moment at which it can be handed over — the moment the session is
+         *     minted — and no route returns it again (ADR-012). A ``load`` answers this too, which the ADR does
+         *     not spell out but the alternative makes plain: a restored game is a *new session* with a new
+         *     authority, so a loader handed a bare ``GameView`` would be locked out of the game it had just
+         *     restored the instant the flag was flipped.
+         *
+         *     **A subclass of ``GameView``, deliberately, and that is the deploy-skew fix** (MON-906 review,
+         *     finding 1). The response carries every ``GameView`` field at the top level *and* ``host_secret``,
+         *     so it is a superset that reads correctly in both skew directions across a non-atomic Pages/Render
+         *     deploy: an old cached client reads ``state.game_id`` off the top level exactly as it always did,
+         *     and a new client reads ``host_secret``. Nothing the old client depends on was moved or removed,
+         *     so ``config.py``'s "an old cached client keeps working" is true at merge *and* across the flip —
+         *     which a nested ``{host_secret, view}`` envelope could not promise, since it relocated
+         *     ``state.game_id`` under ``view`` and would 404 every pre-deploy client the moment it shipped.
+         *
+         *     ``host_secret`` is the one field of this model that must never appear in a plain ``GameView``; it
+         *     lives here because this response is the single place a credential is *meant* to cross the wire.
+         */
+        GameCreated: {
+            board: components["schemas"]["BoardView"];
+            state: components["schemas"]["GameStateView"];
+            /** Legal Commands */
+            legal_commands: (components["schemas"]["RollDice"] | components["schemas"]["EndTurn"] | components["schemas"]["BuyProperty"] | components["schemas"]["DeclinePurchase"] | components["schemas"]["PlaceBid"] | components["schemas"]["WithdrawFromAuction"] | components["schemas"]["BuildHouse"] | components["schemas"]["SellHouse"] | components["schemas"]["MortgageProperty"] | components["schemas"]["UnmortgageProperty"] | components["schemas"]["ProposeTrade"] | components["schemas"]["RespondToTrade"] | components["schemas"]["CancelTrade"] | components["schemas"]["PayJailFine"] | components["schemas"]["UseJailCard"] | components["schemas"]["RollForJail"] | components["schemas"]["DeclareBankruptcy"])[];
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["LoggedEvent"][];
+            /**
+             * Event Cursor
+             * @default 0
+             */
+            event_cursor: number;
+            /**
+             * Claims
+             * @default []
+             */
+            claims: components["schemas"]["SeatClaimView"][];
+            /**
+             * @default {
+             *       "kind": "host"
+             *     }
+             */
+            speaker: components["schemas"]["SpeakerView"];
+            /** Host Secret */
+            host_secret: string;
+        };
         /** GameEnded */
         GameEnded: {
             /**
@@ -1036,6 +1161,17 @@ export interface components {
              * @default 0
              */
             event_cursor: number;
+            /**
+             * Claims
+             * @default []
+             */
+            claims: components["schemas"]["SeatClaimView"][];
+            /**
+             * @default {
+             *       "kind": "host"
+             *     }
+             */
+            speaker: components["schemas"]["SpeakerView"];
         };
         /**
          * GroupHoldings
@@ -1804,6 +1940,43 @@ export interface components {
             events: (components["schemas"]["TurnStarted"] | components["schemas"]["DiceRolled"] | components["schemas"]["TokenMoved"] | components["schemas"]["CashChanged"] | components["schemas"]["RentCharged"] | components["schemas"]["PropertyAcquired"] | components["schemas"]["AuctionStarted"] | components["schemas"]["BidPlaced"] | components["schemas"]["BidderWithdrew"] | components["schemas"]["AuctionEnded"] | components["schemas"]["CardDrawn"] | components["schemas"]["SentToJail"] | components["schemas"]["LeftJail"] | components["schemas"]["BuildingChanged"] | components["schemas"]["MortgageChanged"] | components["schemas"]["TradeProposed"] | components["schemas"]["TradeExecuted"] | components["schemas"]["TradeDeclined"] | components["schemas"]["TradeCancelled"] | components["schemas"]["DebtIncurred"] | components["schemas"]["DebtSettled"] | components["schemas"]["PlayerBankrupted"] | components["schemas"]["PhaseChanged"] | components["schemas"]["GameEnded"])[];
         };
         /**
+         * SeatClaimView
+         * @description One human seat, and whether somebody has taken it (ADR-012, MON-906).
+         *
+         *     **Never the secret.** This is the projection a join screen renders — "seat 2 is free" — and it
+         *     is the only thing about seat authority that crosses the wire at all outside the two envelopes
+         *     below. A ``claimed`` flag is the whole of what a joiner needs to know and the whole of what
+         *     they are entitled to.
+         *
+         *     Human seats only. A bot seat is not a seat anybody can claim (the server drives it, MON-304),
+         *     so listing one with ``claimed: true`` would be a row that means something different from every
+         *     other row. Which seats are bots is already on ``GameStateView.players``, where the UI reads it.
+         */
+        SeatClaimView: {
+            /** Player */
+            player: number;
+            /** Claimed */
+            claimed: boolean;
+        };
+        /**
+         * SeatClaimed
+         * @description ``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.
+         *
+         *     A nested envelope rather than a ``GameView`` subclass like :class:`GameCreated`, because this is
+         *     a **new** route — no cached client calls it, so there is no old top-level shape to stay
+         *     compatible with, and ``seat_secret`` reads more honestly as a sibling of the view than as a field
+         *     smuggled into it.
+         *
+         *     ``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame
+         *     after claiming is the frame they will play from — one round trip rather than a claim followed
+         *     by a refetch that renders an empty action bar in between.
+         */
+        SeatClaimed: {
+            /** Seat Secret */
+            seat_secret: string;
+            view: components["schemas"]["GameView"];
+        };
+        /**
          * SeatConfig
          * @description One seat at the table. A seat is either a person or a bot.
          *
@@ -1868,6 +2041,33 @@ export interface components {
              * @enum {string}
              */
             via: "tile" | "card" | "three_doubles";
+        };
+        /**
+         * SpeakerView
+         * @description Who **this connection** speaks for, resolved from its secret (ADR-012, MON-906).
+         *
+         *     The projection's answer to "who am I here", added so the client stops inferring it from what it
+         *     put in ``localStorage`` (MON-906 review, the root-cause fix). Three kinds mirror the transport's
+         *     three speakers:
+         *
+         *     * ``host`` — holds the host secret; speaks for every unclaimed human seat.
+         *     * ``seat`` — holds a seat secret; ``player`` names the one seat it is.
+         *     * ``spectator`` — holds nothing this session recognises; the whole board, no buttons.
+         *
+         *     **This is the self-heal.** A secret that has been voided (the host released the seat), or that
+         *     belongs to a session a load replaced, resolves to ``spectator`` in the very next view — so the
+         *     seat picker reappears and the holder can re-claim, rather than being stranded holding a string
+         *     the server has forgotten. It is a *projection*, not a credential: it carries no secret, and it
+         *     is computed the same way on both transports (:func:`kesef_server.transport.speaker_for`).
+         */
+        SpeakerView: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "host" | "seat" | "spectator";
+            /** Player */
+            player?: number | null;
         };
         /**
          * TileKind
@@ -2183,7 +2383,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GameView"];
+                    "application/json": components["schemas"]["GameCreated"];
                 };
             };
             /** @description That game_id is already live. */
@@ -2255,7 +2455,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["GameView"];
+                    "application/json": components["schemas"]["GameCreated"];
                 };
             };
             /** @description Conflict */
@@ -2384,6 +2584,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Not Found */
             404: {
                 headers: {
@@ -2442,6 +2651,15 @@ export interface operations {
                     "application/json": components["schemas"]["SaveFile"];
                 };
             };
+            /** @description This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description No game with that id. */
             404: {
                 headers: {
@@ -2453,6 +2671,140 @@ export interface operations {
             };
             /** @description Rejected, with an i18n key. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    claim_seat_games__game_id__seats__player__claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: string;
+                player: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeatClaimed"];
+                };
+            };
+            /** @description No game with that id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description `error.seat_taken` — somebody, or a computer, is already in that seat. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description `error.unknown_player` — no such seat. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description An engine failure. `error.engine_failure` — a defect on this side of the wire. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    release_seat_games__game_id__seats__player__claim_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                game_id: string;
+                player: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Refused by a per-client bound (MON-905). `error.too_many_requests` carries `retry_after` in seconds; `error.too_many_games` means this client already holds `max_sessions_per_client` live games and waiting will not help. */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2493,6 +2845,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GameView"];
+                };
+            };
+            /** @description This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description No game with that id. */
@@ -2546,6 +2907,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LegalityView"];
+                };
+            };
+            /** @description This connection does not speak for that seat (ADR-012). `error.seat_not_yours` carries the `player` it refused; `error.host_only` is a route only the game's host may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description No game with that id. */

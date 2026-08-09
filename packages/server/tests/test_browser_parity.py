@@ -28,6 +28,18 @@ everything the two still spell separately:
   transport drives bots in a background task; the browser inverts the pump into something the page
   calls. Same seed, same board, same moves — asserted by comparing the *finished game*, not the
   mechanism.
+* **Seat authority** (ADR-012, MON-906). The enforcement itself is shared — both transports call
+  ``transport.require_seat`` and ``transport.require_host`` — but *reading the credential* is spelled
+  separately: HTTP parses an ``Authorization: Bearer`` header, and the facade takes a positional
+  string, because Pyodide's JS ``null`` is not Python's ``None`` and an omitted argument is the only
+  spelling of "absent" the two languages agree on. So the refusals, the claim conflicts and the
+  filtered ``legal_commands`` are all compared here.
+
+The **secrets themselves cannot be equal** — each transport draws from its own ``secrets`` module —
+so they are masked for the comparison in the same way ``load_as_a_copy`` masks a minted game id, and
+:class:`Pair` keeps each side's real secret so a later call can present the right one. That is not a
+test convenience: it is the shape of the thing being tested, since the local build's client holds its
+own host secret exactly as a browser holds the one the API minted.
 
 One thing is deliberately not asserted: a request body that is not JSON at all. FastAPI reports
 that with the offending character offset inside ``loc`` and pydantic reports it with an empty
@@ -43,8 +55,8 @@ import json
 import subprocess
 import sys
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 import pytest
 from conftest import SESSION_TTL_SECONDS, FakeClock, new_game_payload, seat
@@ -123,6 +135,27 @@ def _with_game_id(body: Any, game_id: str) -> Any:
     return body | {"state": body["state"] | {"game_id": game_id}}
 
 
+MASKED = "<minted>"
+"""What a value drawn from ``secrets`` is replaced by before the two answers are compared."""
+
+
+class Held(NamedTuple):
+    """One credential, held twice: the HTTP transport's, and the local facade's.
+
+    The two are different strings for the same authority — each transport minted its own — so a
+    :class:`Pair` method presents whichever side it is currently calling. Mirrors what actually
+    happens in production: a browser holds the secret *its own* server handed it.
+    """
+
+    http: str
+    local: str
+
+
+def _mask(body: Any, field_name: str) -> Any:
+    """One envelope with its secret field blanked, for a comparison that must ignore it."""
+    return body | {field_name: MASKED}
+
+
 @dataclass
 class Pair:
     """One game played twice at once: over HTTP, and through the browser facade.
@@ -134,10 +167,22 @@ class Pair:
 
     http: TestClient
     facade: BrowserHost
+    host: Held = Held("", "")
+    """The host secret each transport minted for the game :meth:`create` last seated (ADR-012)."""
+    seats: dict[int, Held] = field(default_factory=dict)
+    """Seat secrets, per seat, per transport — whatever :meth:`claim` has been asked for."""
 
     def same(self, route: str, over_http: Answer, locally: Answer) -> Answer:
         assert locally == over_http, f"{route} diverged\n  http:  {over_http}\n  local: {locally}"
         return over_http
+
+    @staticmethod
+    def _bearer(secret: str) -> dict[str, str]:
+        """``Authorization`` for the HTTP side, or no header at all when nothing is held.
+
+        An empty dict rather than ``Bearer ``: "sends no credential" is the request an old cached
+        client makes, and it is a case worth exercising rather than approximating."""
+        return {"Authorization": f"Bearer {secret}"} if secret else {}
 
     def boards(self) -> Answer:
         return self.same("GET /boards", _response(self.http.get("/boards")), _envelope(self.facade.list_boards()))
@@ -146,19 +191,62 @@ class Pair:
         return self.same("GET /rulesets", _response(self.http.get("/rulesets")), _envelope(self.facade.list_rulesets()))
 
     def create(self, **overrides: Any) -> Answer:
+        """``POST /games``, with the two host secrets remembered and masked out of the comparison.
+
+        The answer handed back is the ``GameCreated`` — a ``GameView`` flattened with ``host_secret``
+        (finding 1) — with ``host_secret`` masked, so a test reads the view fields off the top level
+        and cannot accidentally assert on a value that is random by design.
+        """
         payload = _payload(**overrides)
+        over_http = _response(self.http.post("/games", json=payload))
+        locally = _envelope(self.facade.create_game(json.dumps(payload)))
+        if over_http[0] != 201:
+            return self.same("POST /games", over_http, locally)
+        self.host = Held(over_http[1]["host_secret"], locally[1]["host_secret"])
+        self.seats = {}
         return self.same(
             "POST /games",
-            _response(self.http.post("/games", json=payload)),
-            _envelope(self.facade.create_game(json.dumps(payload))),
+            (over_http[0], _mask(over_http[1], "host_secret")),
+            (locally[0], _mask(locally[1], "host_secret")),
         )
 
-    def load(self, save: object, if_exists: str | None = None) -> Answer:
+    # --- Seats (ADR-012, MON-906) -------------------------------------------
+
+    def claim(self, game_id: str, player: int) -> Answer:
+        """``POST /games/{id}/seats/{player}/claim`` on both, secrets remembered and masked."""
+        over_http = _response(self.http.post(f"/games/{game_id}/seats/{player}/claim"))
+        locally = _envelope(self.facade.claim_seat(game_id, player))
+        route = "POST /games/{id}/seats/{player}/claim"
+        if over_http[0] != 201:
+            return self.same(route, over_http, locally)
+        self.seats[player] = Held(over_http[1]["seat_secret"], locally[1]["seat_secret"])
+        return self.same(
+            route,
+            (over_http[0], _mask(over_http[1], "seat_secret")),
+            (locally[0], _mask(locally[1], "seat_secret")),
+        )
+
+    def release(self, game_id: str, player: int, who: Held | None = None) -> Answer:
+        return self.same(
+            "DELETE /games/{id}/seats/{player}/claim",
+            _response(self.http.delete(f"/games/{game_id}/seats/{player}/claim", headers=self._bearer(_h(who)))),
+            _envelope(self.facade.release_seat(game_id, player, _l(who))),
+        )
+
+    def load(self, save: object, if_exists: str | None = None, who: Held | None = None) -> Answer:
         query = "" if if_exists is None else f"?if_exists={if_exists}"
+        over_http = _response(self.http.post(f"/games/load{query}", json=save, headers=self._bearer(_h(who))))
+        locally = _envelope(self.facade.load_game(json.dumps(save), _l(who), if_exists))
+        if over_http[0] != 201:
+            return self.same("POST /games/load", over_http, locally)
+        # A restored game is a *new* session with a new authority, and its loader is the one who
+        # needs it — so this is remembered exactly as `create` remembers one (ADR-012).
+        self.host = Held(over_http[1]["host_secret"], locally[1]["host_secret"])
+        self.seats = {}
         return self.same(
             "POST /games/load",
-            _response(self.http.post(f"/games/load{query}", json=save)),
-            _envelope(self.facade.load_game(json.dumps(save), if_exists)),
+            (over_http[0], _mask(over_http[1], "host_secret")),
+            (locally[0], _mask(locally[1], "host_secret")),
         )
 
     def load_raw(self, body: str) -> Answer:
@@ -172,7 +260,7 @@ class Pair:
         return self.same(
             "POST /games/load",
             _response(self.http.post("/games/load", content=body.encode())),
-            _envelope(self.facade.load_game(body, None)),
+            _envelope(self.facade.load_game(body)),
         )
 
     def load_as_a_copy(self, save: object) -> tuple[Answer, tuple[str, str]]:
@@ -185,52 +273,53 @@ class Pair:
         has to match exactly.
         """
         over_http = _response(self.http.post("/games/load?if_exists=copy", json=save))
-        locally = _envelope(self.facade.load_game(json.dumps(save), "copy"))
+        locally = _envelope(self.facade.load_game(json.dumps(save), "", "copy"))
         ids = (over_http[1]["state"]["game_id"], locally[1]["state"]["game_id"])
-        masked = [(status, _with_game_id(body, "<minted>")) for status, body in (over_http, locally)]
+        # Flat `GameCreated` (finding 1): mask both the random host secret and the minted top-level id.
+        masked = [(status, _with_game_id(_mask(body, "host_secret"), MASKED)) for status, body in (over_http, locally)]
         return self.same("POST /games/load?if_exists=copy", masked[0], masked[1]), ids
 
-    def get(self, game_id: str, since: int | str | None = None) -> Answer:
+    def get(self, game_id: str, since: int | str | None = None, who: Held | None = None) -> Answer:
         query = "" if since is None else f"?since={since}"
         return self.same(
             "GET /games/{id}",
-            _response(self.http.get(f"/games/{game_id}{query}")),
-            _envelope(self.facade.get_game(game_id, since)),
+            _response(self.http.get(f"/games/{game_id}{query}", headers=self._bearer(_h(who)))),
+            _envelope(self.facade.get_game(game_id, _l(who), since)),
         )
 
-    def save(self, game_id: str) -> Answer:
+    def save(self, game_id: str, who: Held | None = None) -> Answer:
         return self.same(
             "GET /games/{id}/save",
-            _response(self.http.get(f"/games/{game_id}/save")),
-            _envelope(self.facade.save_game(game_id)),
+            _response(self.http.get(f"/games/{game_id}/save", headers=self._bearer(_h(who)))),
+            _envelope(self.facade.save_game(game_id, _l(who))),
         )
 
-    def submit(self, game_id: str, body: dict[str, Any]) -> Answer:
+    def submit(self, game_id: str, body: dict[str, Any], who: Held | None = None) -> Answer:
         return self.same(
             "POST /games/{id}/commands",
-            _response(self.http.post(f"/games/{game_id}/commands", json=body)),
-            _envelope(self.facade.submit_command(game_id, json.dumps(body))),
+            _response(self.http.post(f"/games/{game_id}/commands", json=body, headers=self._bearer(_h(who)))),
+            _envelope(self.facade.submit_command(game_id, json.dumps(body), _l(who))),
         )
 
-    def validate(self, game_id: str, body: dict[str, Any]) -> Answer:
+    def validate(self, game_id: str, body: dict[str, Any], who: Held | None = None) -> Answer:
         return self.same(
             "POST /games/{id}/validate",
-            _response(self.http.post(f"/games/{game_id}/validate", json=body)),
-            _envelope(self.facade.validate_command(game_id, json.dumps(body))),
+            _response(self.http.post(f"/games/{game_id}/validate", json=body, headers=self._bearer(_h(who)))),
+            _envelope(self.facade.validate_command(game_id, json.dumps(body), _l(who))),
         )
 
-    def delete(self, game_id: str) -> Answer:
+    def delete(self, game_id: str, who: Held | None = None) -> Answer:
         return self.same(
             "DELETE /games/{id}",
-            _response(self.http.delete(f"/games/{game_id}")),
-            _envelope(self.facade.delete_game(game_id)),
+            _response(self.http.delete(f"/games/{game_id}", headers=self._bearer(_h(who)))),
+            _envelope(self.facade.delete_game(game_id, _l(who))),
         )
 
-    def forward(self, game_id: str) -> Answer:
+    def forward(self, game_id: str, who: Held | None = None) -> Answer:
         """Play whichever legal command advances the turn, on both transports."""
-        legal = self.get(game_id)[1]["legal_commands"]
+        legal = self.get(game_id, who=who)[1]["legal_commands"]
         assert legal, "a UI driven by legal_commands cannot recover from an empty list"
-        return self.submit(game_id, _forward(legal))
+        return self.submit(game_id, _forward(legal), who)
 
     async def pump(self, game_id: str, limit: int = 500) -> int:
         """Run the browser's bot pump to a standstill, the way the page does.
@@ -245,6 +334,16 @@ class Pair:
             if body["done"]:
                 return step
         raise AssertionError("the pump never reported done")
+
+
+def _h(who: Held | None) -> str:
+    """The HTTP side's secret, or ``""`` for a call that presents none."""
+    return "" if who is None else who.http
+
+
+def _l(who: Held | None) -> str:
+    """The facade's. ``""`` rather than ``None`` — see ``browser.py``'s module docstring."""
+    return "" if who is None else who.local
 
 
 PairFactory = Callable[..., Pair]
@@ -317,7 +416,8 @@ def test_the_ruleset_list_matches(pair: PairFactory) -> None:
 
 
 def test_creating_a_game_matches(pair: PairFactory) -> None:
-    status, view = pair().create()
+    status, created = pair().create()
+    view = created  # flat GameCreated (finding 1): the view fields are on it directly
     assert status == 201
     assert view["state"]["game_id"] == GAME_ID
     assert view["legal_commands"] == [{"kind": "roll_dice", "player": 0}]
@@ -505,7 +605,7 @@ def test_the_three_conflict_policies_answer_the_same_way(pair: PairFactory) -> N
     assert status == 201
     for minted in (http_id, local_id):
         assert minted.startswith("game-") and minted != GAME_ID
-    assert copied["state"]["game_id"] == "<minted>"  # masked; the ids themselves are above
+    assert copied["state"]["game_id"] == MASKED  # masked; the ids themselves are above
     assert both.get(GAME_ID)[0] == 200, "the copy ended the game it was supposed to leave alone"
 
 
@@ -778,8 +878,8 @@ async def test_pumping_concurrently_changes_nothing(clock: FakeClock) -> None:
     for _ in range(6):
         await hosts[1].advance_bots_step(GAME_ID)
 
-    concurrent = _envelope(hosts[0].get_game(GAME_ID, 0))
-    sequential = _envelope(hosts[1].get_game(GAME_ID, 0))
+    concurrent = _envelope(hosts[0].get_game(GAME_ID, "", 0))
+    sequential = _envelope(hosts[1].get_game(GAME_ID, "", 0))
     assert concurrent[1]["event_cursor"] > 0, "the bots moved; two empty logs would be equal and vacuous"
     assert concurrent == sequential
     assert _envelope(hosts[0].save_game(GAME_ID)) == _envelope(hosts[1].save_game(GAME_ID)), "same RNG, not just log"
@@ -809,6 +909,153 @@ async def test_both_transports_serialize_on_the_same_lock(pair: PairFactory) -> 
 
     assert _envelope(await pumping)[0] == 200
     assert not session.advance_lock.locked(), "released, or the next pump would hang forever"
+
+
+# --- Seat authority (ADR-012, MON-906) --------------------------------------
+#
+# `enforcing()` rather than `pair()` throughout: the shipped default is `off`, and every test above
+# this line is therefore already the proof that the flag's off position is unchanged on *both*
+# transports. What is left to check is the on position, which is what these say.
+
+
+@pytest.fixture
+def enforcing(pair: PairFactory) -> Callable[..., Pair]:
+    """A matched pair whose two transports both have ``seat_authority=enforce``.
+
+    One setting object reaches both sides — ``Pair``'s factory hands the same ``Settings`` to the
+    FastAPI dependency override and to the ``BrowserHost`` — so a flag that only one transport
+    honoured would show up as a divergence rather than as a skipped check.
+    """
+
+    def build(**overrides: Any) -> Pair:
+        return pair(seat_authority="enforce", **overrides)
+
+    return build
+
+
+def test_the_host_secret_is_minted_by_both_and_serialized_by_neither(enforcing: PairFactory) -> None:
+    """Both transports mint one, both hand it to their own client, and neither puts it in the view."""
+    both = enforcing()
+    status, created = both.create()
+
+    assert status == 201
+    assert created["host_secret"] == MASKED, "masked for the comparison; the real ones are on the Pair"
+    for secret in both.host:
+        assert len(secret) == 32, "16 bytes of hex — sessions.SECRET_BYTES, on both sides"
+        assert secret not in json.dumps(created)
+    assert both.host.http != both.host.local, "each transport draws from its own `secrets`"
+
+
+def test_a_guest_cannot_act_for_a_seat_it_did_not_claim_on_either_transport(enforcing: PairFactory) -> None:
+    """The audit's headline repro, refused identically by the API and by the in-tab engine."""
+    both = enforcing()
+    both.create()
+    both.claim(GAME_ID, 1)
+
+    status, body = both.submit(GAME_ID, _roll(0), both.seats[1])
+    assert (status, body["reason_key"], body["params"]["player"]) == (403, "error.seat_not_yours", 0)
+    # And the engine never saw it, on either side: the log is where that shows.
+    assert both.get(GAME_ID, 0)[1]["events"] == []
+
+
+def test_the_host_speaks_for_every_unclaimed_seat_on_either_transport(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create()
+    assert both.submit(GAME_ID, _roll(0), both.host)[0] == 200
+
+    both.claim(GAME_ID, 0)
+    status, body = both.submit(GAME_ID, _roll(0), both.host)
+    assert (status, body["reason_key"]) == (403, "error.seat_not_yours"), "a claimed seat leaves the host"
+
+
+def test_claiming_matches_including_the_conflict(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create()
+
+    status, claimed = both.claim(GAME_ID, 1)
+    assert status == 201
+    assert claimed["seat_secret"] == MASKED
+    assert [command["player"] for command in claimed["view"]["legal_commands"]] == []
+    assert claimed["view"]["claims"] == [{"player": 0, "claimed": False}, {"player": 1, "claimed": True}]
+
+    status, refused = both.claim(GAME_ID, 1)
+    assert (status, refused["reason_key"], refused["params"]["player"]) == (409, "error.seat_taken", 1)
+
+
+def test_a_bot_seat_is_refused_the_same_way_by_both(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create(seats=[seat("Ann"), seat("Bot", is_bot=True, bot_level="easy")])
+    status, refused = both.claim(GAME_ID, 1)
+    assert (status, refused["reason_key"]) == (409, "error.seat_taken")
+    assert both.get(GAME_ID, who=both.host)[1]["claims"] == [{"player": 0, "claimed": False}]
+
+
+def test_the_host_only_routes_are_host_only_on_both(enforcing: PairFactory) -> None:
+    """``/save``, ``DELETE`` and ``if_exists=replace`` — the three ADR-011 §Security parked."""
+    both = enforcing()
+    both.create()
+    both.claim(GAME_ID, 0)
+    # Held rather than re-read: a `replace` below seats a *new* session, whose authority has no
+    # claims at all — which is itself the right behaviour and is why `Pair.load` forgets them.
+    guest = both.seats[0]
+
+    assert both.save(GAME_ID)[1]["reason_key"] == "error.host_only"
+    assert both.save(GAME_ID, guest)[1]["reason_key"] == "error.host_only"
+    saved = both.save(GAME_ID, both.host)[1]
+    assert saved["state"]["rng"], "the host does get the file, or this test proves only a refusal"
+
+    assert both.load(saved, "replace")[1]["reason_key"] == "error.host_only"
+    assert both.load(saved, "replace", both.host)[0] == 201
+
+    assert both.delete(GAME_ID, guest)[1]["reason_key"] == "error.host_only"
+    # The replace above re-seated the game, so the credential that can end it is the *new* one.
+    assert both.delete(GAME_ID, both.host)[0] == 204
+
+
+def test_a_spectator_gets_the_same_empty_hand_from_both(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create()
+    status, watched = both.get(GAME_ID)
+    assert status == 200
+    assert watched["legal_commands"] == []
+    assert len(watched["board"]["tiles"]) == 40, "watching is not a privilege; acting is"
+
+
+def test_releasing_a_claim_matches_and_voids_the_old_secret(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create()
+    both.claim(GAME_ID, 0)
+    stale = both.seats[0]
+
+    assert both.release(GAME_ID, 0)[1]["reason_key"] == "error.host_only"
+    assert both.release(GAME_ID, 0, both.host)[0] == 204
+    assert both.submit(GAME_ID, _roll(0), stale)[1]["reason_key"] == "error.seat_not_yours"
+    assert both.claim(GAME_ID, 0)[0] == 201, "the seat is free again"
+
+
+def test_validation_is_scoped_like_commands_on_both(enforcing: PairFactory) -> None:
+    both = enforcing()
+    both.create()
+    both.claim(GAME_ID, 1)
+    status, refused = both.validate(GAME_ID, _roll(0), both.seats[1])
+    assert (status, refused["reason_key"]) == (403, "error.seat_not_yours")
+    assert both.validate(GAME_ID, _roll(1), both.seats[1])[1]["legal"] is False
+
+
+def test_a_whole_turn_each_stays_in_step_under_enforcement(enforcing: PairFactory) -> None:
+    """The broadest test above, replayed with the flag on and every command carrying a credential.
+
+    The point is that enforcement changes *nothing* about the game: same commands, same events, same
+    cursor. A filter that quietly dropped a legal move would show up here as a shorter game rather
+    than as a refusal, which no single-route test would catch.
+    """
+    both = enforcing()
+    both.create()
+    for _ in range(12):
+        assert both.forward(GAME_ID, both.host)[0] == 200
+    view = both.get(GAME_ID, 0, both.host)[1]
+    assert view["state"]["turn_number"] > 1
+    assert [entry["seq"] for entry in view["events"]] == list(range(1, view["event_cursor"] + 1))
 
 
 # --- Failures that are this side's fault ------------------------------------
@@ -883,12 +1130,16 @@ def test_the_module_level_functions_share_one_host() -> None:
 
     game_id = "module-level"
     payload = json.dumps(new_game_payload(game_id=game_id))
-    assert _envelope(browser.create_game(payload))[0] == 201
+    created = _envelope(browser.create_game(payload))
+    assert created[0] == 201
+    assert created[1]["host_secret"], "the module-level surface hands its own page the host secret"
     try:
         assert _envelope(browser.get_game(game_id))[1]["state"]["game_id"] == game_id
         assert _envelope(browser.submit_command(game_id, json.dumps(_roll(0))))[0] == 200
         assert _envelope(browser.validate_command(game_id, json.dumps(_end_turn(0))))[1]["legal"] is False
-        assert _envelope(browser.get_game(game_id, 0))[1]["events"]
+        # `("", 0)`: the secret is positional and comes *before* the cursor, so that a call needing
+        # a credential and no cursor can still omit the cursor (see `browser.py`'s docstring).
+        assert _envelope(browser.get_game(game_id, "", 0))[1]["events"]
         assert _envelope(browser.events_since(game_id, 0))[1]["events"]
         state = _envelope(browser.save_game(game_id))[1]
     finally:

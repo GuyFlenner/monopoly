@@ -18,7 +18,7 @@
  * cover the whole transport with a fake bridge and no WebAssembly.
  */
 
-import { ApiClient } from "@/api";
+import { ApiClient, browserSecretStore, type SecretStore } from "@/api";
 
 import type { PyBridge } from "./bridge";
 import { loadPyodideBridge, type LoadEngineOptions } from "./engine";
@@ -66,9 +66,23 @@ export { isLocalEngineBuild, LOCAL_ENGINE } from "./mode";
  * Split from {@link startLocalEngine} so a test can build the whole transport over a fake bridge —
  * which is what `localTransport.test.ts` does, driving `ApiClient` itself rather than a stand-in.
  */
-export function localApiClient(bridge: PyBridge, slot: SaveSlot = browserSaveSlot()): ApiClient {
+export function localApiClient(
+  bridge: PyBridge,
+  slot: SaveSlot = browserSaveSlot(),
+  /*
+    The seat credentials this page holds (ADR-012, MON-906).
+
+    Shared deliberately between the `ApiClient` — which *writes* it, from the `GameCreated` a
+    creation or a load answers with — and the reload insurance below, which *reads* it, because
+    `GET /games/{id}/save` is host-only and this tab is the host. One store rather than two, for the
+    same reason the store's clock is injected once: two copies of "what this browser holds" is one
+    refactor away from a page that cannot save its own game.
+  */
+  secrets: SecretStore = browserSecretStore(),
+): ApiClient {
   const bus = new LocalEventBus(bridge);
   return new ApiClient({
+    secrets,
     fetch: createLocalFetch(bridge, {
       // Fired, not awaited. The caller's own move is already in the response it is waiting for; the
       // bots' moves arrive behind it as socket frames, which is the whole of MON-304 and the reason
@@ -83,12 +97,32 @@ export function localApiClient(bridge: PyBridge, slot: SaveSlot = browserSaveSlo
 
           Neither is awaited, for the same reason the pump is not: insurance that delayed the game
           it insures would be a poor trade.
+
+          The host secret is read at *call* time rather than captured (MON-906 review, finding 5).
+          `onMutation` fires from inside the `fetch`, before `ApiClient` has stored a freshly-minted
+          credential — for a *create* or *load* the store is still empty here — so a captured value
+          would be `""` and the host-only `/save` would refuse the snapshot. **Both** snapshots are
+          deferred a macrotask (`setTimeout(0)`), because a bot pump can resolve in a microtask and
+          reach its `.then` *before* `ApiClient`'s post-response `.set` — so pinning only the
+          immediate one still let the pump-drain snapshot read `""`. A macrotask runs after the whole
+          microtask queue drains, which is where `.set` lives, so both re-read the real secret.
         */
-        void snapshotGame(bridge, gameId, slot);
-        void bus.pump(gameId).then(() => snapshotGame(bridge, gameId, slot));
+        const snapshot = (): void => {
+          setTimeout(() => void snapshotGame(bridge, gameId, slot, secrets.get(gameId) ?? ""), 0);
+        };
+        snapshot();
+        void bus.pump(gameId).then(snapshot);
       },
       // The other half: put the game back when a reload has emptied the heap the session lived in.
-      onMissingGame: (gameId) => restoreGame(bridge, gameId, slot),
+      // The restored session mints a *new* authority; its secret is stored for later requests and
+      // handed back so the in-flight retry re-issues as the host rather than a spectator (finding 6).
+      onMissingGame: async (gameId) => {
+        const hostSecret = await restoreGame(bridge, gameId, slot);
+        if (hostSecret !== null) {
+          secrets.set(gameId, hostSecret);
+        }
+        return hostSecret;
+      },
     }),
     createSocket: createLocalSocketFactory(bus),
   });

@@ -45,6 +45,17 @@ export function envelope(status: number, body: unknown): string {
 
 const NOT_FOUND = envelope(404, { reason_key: "error.game_not_found", params: { game_id: "g" } });
 
+/**
+ * The host secret this fake hands out (ADR-012, MON-906).
+ *
+ * A constant rather than a random string, because what a test wants to say is "the client stored
+ * *the* secret the transport returned" — and a value it can name is what makes that assertable.
+ */
+export const HOST_SECRET = "fake-host-secret";
+
+/** Prefix for a claimed seat's secret; the seat number is appended. */
+export const SEAT_SECRET_PREFIX = "fake-seat-secret-";
+
 export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const calls: RecordedCall[] = [];
   const log: { seq: number; event: { type: string } }[] = [];
@@ -70,32 +81,57 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
 
     listBoards: () => record("listBoards", [], () => envelope(200, [{ id: "classic" }])),
     listRulesets: () => record("listRulesets", [], () => envelope(200, [{ name: "universal" }])),
+    // A `GameCreated` since ADR-012 — a `GameView` *flattened* with `host_secret` at the top level
+    // (finding 1). `HOST_SECRET` is a fixed string so a test can assert the client stored *this* one.
     createGame: (requestJson) =>
       record("createGame", [requestJson], () =>
-        envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),
+        envelope(201, {
+          state: { game_id: "g1" },
+          event_cursor: 0,
+          claims: [],
+          speaker: { kind: "host" },
+          host_secret: HOST_SECRET,
+        }),
       ),
-    loadGame: (saveJson, ifExists) =>
-      record("loadGame", [saveJson, ifExists], () =>
-        envelope(201, { state: { game_id: "g1" }, event_cursor: 0 }),
+    loadGame: (saveJson, secret, ifExists) =>
+      record("loadGame", [saveJson, secret, ifExists], () =>
+        envelope(201, {
+          state: { game_id: "g1" },
+          event_cursor: 0,
+          claims: [],
+          speaker: { kind: "host" },
+          host_secret: HOST_SECRET,
+        }),
       ),
-    getGame: (gameId, since) =>
-      record("getGame", [gameId, since], () =>
-        envelope(200, { state: { game_id: gameId }, event_cursor: cursor() }),
+    getGame: (gameId, secret, since) =>
+      record("getGame", [gameId, secret, since], () =>
+        envelope(200, { state: { game_id: gameId }, event_cursor: cursor(), claims: [] }),
       ),
-    saveGame: (gameId) =>
+    saveGame: (gameId, secret) =>
       // A `SaveFile` since ADR-011: the state, and the log a restored session has to come back with.
-      record("saveGame", [gameId], () =>
+      record("saveGame", [gameId, secret], () =>
         envelope(200, { state: { game_id: gameId, rng: { seed: 1 } }, events: [] }),
       ),
-    submitCommand: (gameId, requestJson) =>
-      record("submitCommand", [gameId, requestJson], () =>
-        envelope(200, { state: { game_id: gameId }, event_cursor: cursor() }),
+    submitCommand: (gameId, requestJson, secret) =>
+      record("submitCommand", [gameId, requestJson, secret], () =>
+        envelope(200, { state: { game_id: gameId }, event_cursor: cursor(), claims: [] }),
       ),
-    validateCommand: (gameId, requestJson) =>
-      record("validateCommand", [gameId, requestJson], () =>
+    validateCommand: (gameId, requestJson, secret) =>
+      record("validateCommand", [gameId, requestJson, secret], () =>
         envelope(200, { legal: true, params: {} }),
       ),
-    deleteGame: (gameId) => record("deleteGame", [gameId], () => envelope(204, null)),
+    deleteGame: (gameId, secret) =>
+      record("deleteGame", [gameId, secret], () => envelope(204, null)),
+    /* The seat routes (ADR-012). `claim` answers a `SeatClaimed`; `release` is a bare 204. */
+    claimSeat: (gameId, player) =>
+      record("claimSeat", [gameId, player], () =>
+        envelope(201, {
+          seat_secret: `${SEAT_SECRET_PREFIX}${String(player)}`,
+          view: { state: { game_id: gameId }, event_cursor: cursor(), claims: [] },
+        }),
+      ),
+    releaseSeat: (gameId, player, secret) =>
+      record("releaseSeat", [gameId, player, secret], () => envelope(204, null)),
 
     eventsSince: (gameId, from) =>
       record("eventsSince", [gameId, from], () => {

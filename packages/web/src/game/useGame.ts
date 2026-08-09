@@ -31,6 +31,7 @@ import type {
   GameView,
   LegalityView,
   LoggedEvent,
+  SeatClaimView,
 } from "@/api";
 
 import { GameContext, type GameContextValue } from "./GameProvider";
@@ -64,6 +65,30 @@ export interface UseGameResult {
   readonly validate: (command: Command) => Promise<LegalityView>;
   /** The de-duplicated event log, oldest first — the narration and animation script. */
   readonly events: readonly LoggedEvent[];
+  /**
+   * Which human seats are taken (ADR-012, MON-906) — the server's projection, copied.
+   *
+   * A join screen's whole input. Never the secrets; the credential lives inside `ApiClient` and
+   * nothing above it can read one.
+   */
+  readonly claims: readonly SeatClaimView[];
+  /**
+   * Whether this connection already speaks for a seat in this game (ADR-012, MON-906).
+   *
+   * Read from `view.speaker` — the server's projection of who this connection is — **not** from
+   * whether a secret sits in `localStorage`. That is the root-cause fix (MON-906 review): a stale,
+   * voided or replaced secret resolves to `spectator` on the server, so it surfaces here as
+   * `seated === false` in the very next view and the seat picker reappears, rather than leaving the
+   * holder stranded believing they hold a seat the server has forgotten. A missing `speaker` (an
+   * old server across a deploy skew) is treated as seated, since that server has no picker concept
+   * and enforces nothing.
+   *
+   * A boolean rather than the speaker object, so a component still cannot reach for a credential —
+   * there is none to reach for now, but the shape keeps it that way.
+   */
+  readonly seated: boolean;
+  /** Take a free seat. Resolves with the view filtered to it; rejects with an `ApiError`. */
+  readonly claimSeat: (player: number) => Promise<GameView>;
   readonly status: GameStatus;
   /**
    * Ask for the view again — the retry behind a failed first fetch (MON-708).
@@ -77,6 +102,7 @@ export interface UseGameResult {
 }
 
 const NO_COMMANDS: readonly Command[] = [];
+const NO_CLAIMS: readonly SeatClaimView[] = [];
 
 export function useGameContext(): GameContextValue {
   const context = useContext(GameContext);
@@ -126,7 +152,43 @@ export function useGame(): UseGameResult {
     () => queue.log,
   );
 
+  // Who the server says this connection is (MON-906 review root-cause fix). `undefined` both before
+  // the first view arrives and — at runtime, though the required type does not admit it — when an
+  // old server across a deploy skew omits the field. The intermediate name is what lets the
+  // `=== undefined` guard read the runtime absence without eslint proving it impossible from the type.
+  const speaker = view.data?.speaker;
+
+  // Sweep a *confirmed-dead* credential (ADR-012, MON-906 review, finding 10). If the server resolves
+  // this connection to a spectator, any secret this browser still holds for the game is one the
+  // server no longer recognises — voided by a release, or lost to a restart — so it is dropped rather
+  // than left to accrue as an orphan. This is the right place to forget, not "on leave": a host who
+  // leaves and comes back, or loads a save of their own still-live game, needs the secret kept, and
+  // only the server can say it is dead. `forgetSeat` is idempotent, so a spectator who never held one
+  // is a no-op.
+  const isSpectator = speaker !== undefined && speaker.kind === "spectator";
+  useEffect(() => {
+    if (isSpectator) {
+      client.forgetSeat(gameId);
+    }
+  }, [isSpectator, client, gameId]);
+
   const send = useCallback((command: Command) => commands.mutateAsync(command), [commands]);
+  /**
+   * Take a seat, and render from the view the claim answered with (ADR-012).
+   *
+   * The response is the whole projection — already filtered to the newly claimed seat — so it is
+   * written into the cache exactly as a command's response is. No refetch, and nothing patched: the
+   * server decided which buttons this connection now has, and a client that guessed would be
+   * holding a rule about seat authority.
+   */
+  const claimSeat = useCallback(
+    async (player: number) => {
+      const claimed = await client.claimSeat(gameId, player);
+      queryClient.setQueryData(queryKeys.game(gameId), claimed);
+      return claimed;
+    },
+    [client, gameId, queryClient],
+  );
   const validate = useCallback(
     (command: Command) => client.validateCommand(gameId, command),
     [client, gameId],
@@ -142,6 +204,9 @@ export function useGame(): UseGameResult {
     send,
     validate,
     events,
+    claims: view.data?.claims ?? NO_CLAIMS,
+    seated: speaker === undefined || speaker.kind !== "spectator",
+    claimSeat,
     refetch,
     status: {
       isPending: view.isPending,

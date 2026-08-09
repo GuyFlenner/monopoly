@@ -21,11 +21,20 @@ Two things beyond storage live here, and both are deliberate:
   allowed here; the engine's rule 3 forbids one *there*. It is injected, so tests wind it by
   hand and no other module is tempted to read a clock of its own. A client-supplied elapsed
   time is never trusted: it would let a player force or dodge the ending.
+* **Seat authority lives here too** (ADR-012, MON-906). A :class:`SeatAuthority` sits beside the
+  log, minted with the session and dying with it, and it is the *only* place a credential for
+  this game exists. It is deliberately not on the :class:`~kesef_engine.state.GameState`: "who
+  may speak for this seat" is identity rather than a rule, the engine has none, and a credential
+  on the state would serialize into every save file, every ``/save`` response and every golden —
+  the artifacts it must never appear in. The transport resolves it; see
+  :mod:`kesef_server.transport`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import secrets
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -116,6 +125,73 @@ class Subscriber:
             self.overflowed.set()
 
 
+SECRET_BYTES = 16
+"""128 bits per credential, as :func:`secrets.token_hex` counts them (ADR-012).
+
+A capability is the only thing standing between a shared link and somebody else's seat, so it has
+to be unguessable rather than merely unlikely. 16 bytes is the same order as the 64-hex-character
+game ids this server already mints, and the cost of a longer one is a header nobody reads."""
+
+
+@dataclass
+class SeatAuthority:
+    """Who may speak for which seat in one game (ADR-012, MON-906).
+
+    Two credentials and nothing else:
+
+    * ``host_secret`` — minted with the session, returned **once** in the ``GameCreated`` envelope,
+      and never again by any route. It speaks for every *unclaimed human* seat, which is what keeps
+      hotseat play exactly what it was: one screen, one secret, six playable seats.
+    * ``seat_secrets`` — one per claimed seat, minted by ``POST /games/{id}/seats/{p}/claim``.
+      Claimed seats only; an absent entry *is* "unclaimed", so there is no second flag to disagree
+      with the dict.
+
+    **Nothing here is ever serialized.** Not into a :class:`~kesef_server.schemas.GameView`, not
+    into a :class:`~kesef_server.schemas.SaveFile`, not into an event, and not into a log line —
+    ``tests/test_seat_authority.py``'s leak tests are the standing proof, because "we were careful"
+    is not a property a reader can check.
+
+    The name is **secret**, not token, and that is deliberate: ``SeatConfig.token`` is already the
+    pawn identity (MON-412's six token identities), and an authority credential sharing its name
+    would be a review hazard rather than a naming preference.
+    """
+
+    host_secret: str
+    seat_secrets: dict[int, str] = field(default_factory=dict)
+    """``PlayerId`` -> that seat's secret. Present only for seats somebody has claimed."""
+    lock: threading.Lock = field(default_factory=threading.Lock, compare=False, repr=False)
+    """Serializes every access to :attr:`seat_secrets` (MON-906 review, finding 3).
+
+    FastAPI runs a *synchronous* route handler in a threadpool, so ``POST .../claim`` and a plain
+    ``GET`` resolving a speaker execute on **different OS threads** against this one object. Without
+    this lock two things go wrong, and both were reproduced: ``claim_seat``'s check-then-set is not
+    atomic, so two requests for one seat both pass the "is it free" check and the second silently
+    overwrites the first's secret (93 double-claims in 2000 concurrent attempts); and
+    ``speaker_for`` iterating the dict while a claim inserts into it raises ``RuntimeError: dictionary
+    changed size during iteration`` — a 500 on a read path.
+
+    ``Session.advance_lock`` does **not** cover this: it is an ``asyncio.Lock`` guarding the bot
+    driver, held on the event loop, and it neither excludes a threadpool worker nor is even
+    acquirable from one without a running loop. A plain ``threading.Lock`` is the tool because it
+    works from any thread and the critical sections are three dict operations — microseconds, so the
+    event loop is never meaningfully blocked when a handler on it takes the lock. Excluded from
+    ``compare``/``repr`` because a lock is identity, not data, and two authorities are not unequal
+    for holding different lock objects.
+    """
+
+
+def mint_secret() -> str:
+    """One credential. The single spelling of :data:`SECRET_BYTES`, for the reason
+    :func:`~kesef_server.transport.minted_game_id` gives about its own literal."""
+    return secrets.token_hex(SECRET_BYTES)
+
+
+def mint_authority() -> SeatAuthority:
+    """A fresh authority for a session that is about to exist. Host secret only; no seat is claimed
+    at the moment a game is seated, whether it was created or restored from a file."""
+    return SeatAuthority(host_secret=mint_secret())
+
+
 @dataclass
 class Session:
     """One game, its sequenced history, and whoever is watching it."""
@@ -138,6 +214,15 @@ class Session:
 
     ``None`` for a session created by a transport that has no callers to tell apart — the browser
     build (MON-805), where the one caller is the tab itself.
+    """
+    authority: SeatAuthority = field(default_factory=mint_authority)
+    """Who may speak for which seat (ADR-012, MON-906). See :class:`SeatAuthority`.
+
+    A ``default_factory`` rather than a constructor argument, so that *every* way a session comes
+    into existence mints one: ``create``, the ``replace`` that goes through it, and a
+    :class:`Session` a test builds by hand. There is no code path to a session without an
+    authority, which is the property that stops "the loaded game had no host" being a bug somebody
+    has to remember not to write.
     """
     log: list[LoggedEvent] = field(default_factory=list)
     """Append-only. Replaying it against the initial state reproduces the game exactly."""

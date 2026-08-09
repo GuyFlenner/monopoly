@@ -52,6 +52,9 @@ EXPECTED_PATHS: Final = {
     ("post", "/games/{game_id}/commands"),
     ("post", "/games/{game_id}/validate"),
     ("delete", "/games/{game_id}"),
+    # ADR-012 / MON-906: a seat is claimed by anybody holding the link, and released by the host.
+    ("post", "/games/{game_id}/seats/{player}/claim"),
+    ("delete", "/games/{game_id}/seats/{player}/claim"),
     ("get", WS_EVENT_STREAM_PATH),
 }
 """Every operation the document advertises. The frontend generates a client from this
@@ -84,6 +87,13 @@ EXPECTED_SCHEMAS: Final = {
     "CommandRequest",
     "LegalityView",
     "ErrorResponse",
+    # Seat authority (ADR-012). `GameCreated` is a `GameView` flattened with `host_secret` (the
+    # deploy-skew fix, MON-906 review finding 1); `SpeakerView` is `GameView.speaker`, who this
+    # connection speaks for.
+    "GameCreated",
+    "SeatClaimed",
+    "SeatClaimView",
+    "SpeakerView",
     "BoardSummary",
     # The ruleset projection (MON-417, G-36): `/rulesets` no longer returns raw flags, so the
     # setup screen's client-side diff and its `ruleset.<field>` label map both deleted.
@@ -570,7 +580,9 @@ def test_there_is_no_route_that_enumerates_the_live_games(client: TestClient, st
 def test_creating_a_game_returns_the_opening_view(client: TestClient) -> None:
     response = client.post("/games", json=new_game_payload())
     assert response.status_code == status.HTTP_201_CREATED
-    view = response.json()
+    created = response.json()
+    assert len(created["host_secret"]) == 32, "the creator is handed the one host secret (ADR-012)"
+    view = created
     assert view["state"]["turn_number"] == 1
     assert view["state"]["phase"] == "awaiting_roll"
     assert [player["name"] for player in view["state"]["players"]] == ["Ann", "Ben"]
@@ -1388,6 +1400,12 @@ def test_declining_a_purchase_opens_an_auction_the_view_can_render(client: TestC
 
 
 def _create(client: TestClient, **overrides: object) -> dict[str, Any]:
+    """The opening ``GameView`` of a new game.
+
+    ``POST /games`` answers a ``GameCreated`` envelope since ADR-012 — the view *and* the one host
+    secret this session will ever hand out — so the view is unwrapped here rather than at forty call
+    sites. A test that is about the credential asks for it directly; see ``test_seat_authority.py``.
+    """
     response = client.post("/games", json=new_game_payload(**overrides))
     assert response.status_code == status.HTTP_201_CREATED, response.text
     body: dict[str, Any] = response.json()

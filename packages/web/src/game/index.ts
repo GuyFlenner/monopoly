@@ -14,6 +14,8 @@ export {
   UNREADABLE_SAVE_KEY,
 } from "./saveFile";
 export type { SaveFilePort } from "./saveFile";
+export { SeatClaim } from "./SeatClaim";
+export type { SeatClaimProps } from "./SeatClaim";
 export { MAX_PINNED_PLAYERS, useUiStore } from "./uiStore";
 export type { PanelId, UiState } from "./uiStore";
 export { useGame, useGameContext } from "./useGame";

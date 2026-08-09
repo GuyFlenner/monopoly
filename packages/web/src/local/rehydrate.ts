@@ -89,9 +89,14 @@ export async function snapshotGame(
   bridge: PyBridge,
   gameId: string,
   slot: SaveSlot,
+  hostSecret = "",
 ): Promise<void> {
   try {
-    const envelope = parseEnvelope(await bridge.saveGame(gameId));
+    // `/save` is host-only since ADR-012, and this page *is* the host — `hostSecret` is the
+    // credential the local transport handed its own client when the game was created. Defaulted to
+    // `""` so a caller that has none still gets today's behaviour while the flag is off; once it is
+    // on, insurance without the credential would be refused by this tab's own engine.
+    const envelope = parseEnvelope(await bridge.saveGame(gameId, hostSecret));
     if (!ok(envelope.status) || envelope.body === null) {
       // A game that has just been left, most likely. Nothing to keep, and the old slot is now about
       // a game that no longer exists, so it goes rather than lingering to be restored later.
@@ -112,39 +117,53 @@ export async function snapshotGame(
 /**
  * Put `gameId` back into the engine from the slot, if the slot is about that game.
  *
- * Returns whether the caller should try its request again. `false` covers every uninteresting case
- * — an empty slot, a save for a different game, a load the engine refused — and in all of them the
- * caller's original 404 is the right answer.
+ * Returns the **host secret of the restored session**, or `null` when nothing was put back. `null`
+ * covers every uninteresting case — an empty slot, a save for a different game, a load the engine
+ * refused — and in all of them the caller's original 404 is the right answer.
+ *
+ * The secret is what the caller retries with (ADR-012, MON-906 review, finding 6). A restored game
+ * is a *new session with a new authority*, so the credential this tab was holding names a session
+ * that no longer exists; a retry carrying the old secret would demote the host to a spectator of
+ * their own restored game the moment `seat_authority` is enforced. Returning the fresh secret lets
+ * `localFetch` re-issue the request as the host, and lets the wiring store it for later requests.
+ * The current facade always answers a `GameCreated` carrying one — even a pre-ADR-011 bare
+ * `GameState` is loaded into a new session that mints its own — so on success the fresh secret comes
+ * back; the `""` fallback below is unreachable with today's facade and only guards a hypothetical
+ * older one, where a flag-off build still works with no credential.
  */
 export async function restoreGame(
   bridge: PyBridge,
   gameId: string,
   slot: SaveSlot,
-): Promise<boolean> {
+): Promise<string | null> {
   const payload = slot.read();
   if (savedGameId(payload) !== gameId || payload === null) {
-    return false;
+    return null;
   }
   try {
     // No `if_exists`: this restores a game the store has just answered a 404 for, so there is
     // nothing to conflict with, and a policy sent here would be this file deciding something the
     // player was never asked (ADR-011). If a session *did* somehow hold the id, the honest 409 is
     // handled by the branch below like any other refusal.
-    const envelope = parseEnvelope(await bridge.loadGame(payload, null));
+    const envelope = parseEnvelope(await bridge.loadGame(payload, "", null));
     if (ok(envelope.status)) {
-      return true;
+      const minted = (envelope.body as { host_secret?: unknown } | null)?.host_secret;
+      // A `GameCreated` always carries one; the fallback keeps the type honest and, on a
+      // hypothetical older facade that answered a bare view, restores without a credential rather
+      // than throwing — the flag-off local build works either way.
+      return typeof minted === "string" && minted !== "" ? minted : "";
     }
     // The engine refused it — a save written by an older `SCHEMA_VERSION` is the case MON-704
     // names. It will refuse it again on the next request, so the slot is dropped rather than
     // retried on every poll for the rest of the session.
     console.warn("kesef: the stored game was refused", envelope.status, envelope.body);
     slot.clear();
-    return false;
+    return null;
   } catch (cause) {
     // Same reasoning as the snapshot's: the caller gets its honest 404 either way, and a restore that
     // silently stopped working is a reload that silently loses the game.
     console.warn("kesef: the stored game could not be restored", cause);
-    return false;
+    return null;
   }
 }
 

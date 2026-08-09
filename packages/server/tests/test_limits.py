@@ -176,6 +176,28 @@ def test_reading_and_playing_and_watching_are_never_metered() -> None:
     )
 
 
+def test_claiming_a_seat_is_metered_so_a_secret_flood_is_throttled() -> None:
+    """The seat routes join the bound (ADR-012, MON-906 review, finding 4).
+
+    ``POST /games/{id}/seats/{p}/claim`` is unauthenticated — the link is the invitation — session-
+    mutating, and it *mints a credential*, so an unmetered claim is a flood that stamps the store with
+    secrets as fast as a script can post. It is charged like seating a game, not like playing one: a
+    family joining takes a handful over a minute, nowhere near the bound.
+
+    A budget of two: the ``POST /games`` spends the first, the first claim spends the second, and the
+    second claim is refused — so this measures the *claim* being charged rather than creation alone.
+    """
+    store = SessionStore(max_sessions=50, ttl_seconds=SESSION_TTL_SECONDS, clock=FakeClock())
+    limiter = ClientLimiter(requests_per_minute=2, trust_forwarded_for=False, clock=FakeClock())
+    alice, _ = _clients(store, limiter)
+
+    assert alice.post("/games", json=new_game_payload(game_id="g")).status_code == 201
+    assert alice.post("/games/g/seats/0/claim").status_code == 201
+    flooded = alice.post("/games/g/seats/1/claim")
+    assert flooded.status_code == TOO_MANY_REQUESTS
+    assert flooded.json()["reason_key"] == "error.too_many_requests"
+
+
 # --- The share of the store -------------------------------------------------
 
 

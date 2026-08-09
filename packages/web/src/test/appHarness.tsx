@@ -23,6 +23,7 @@ import { render } from "@testing-library/react";
 import { App } from "@/App";
 import {
   ApiClient,
+  memorySecretStore,
   type BoardSummary,
   type Command,
   type FetchLike,
@@ -114,6 +115,10 @@ export function makeEdge(routes: Routes, options: { readonly hang?: boolean } = 
       fetch: doFetch,
       createSocket: (url) => new FakeSocket(url),
       origin: "http://localhost/",
+      // In memory rather than `localStorage` (ADR-012): a store shared across the run would let one
+      // test's host secret reach another test's request, and the seat picker's visibility is read
+      // off exactly that. Per-edge, so each test starts as a spectator unless it creates a game.
+      secrets: memorySecretStore(),
     }),
   };
 }
@@ -141,6 +146,16 @@ export const UNNAMED_BOARD: BoardSummary = {
 
 /** Both rule sets, as `/rulesets` now returns them — labelled, with no flags to explain here. */
 export const RULESETS: readonly RulesetView[] = [UNIVERSAL_VIEW, KIDS_VIEW];
+
+/**
+ * What `POST /games` and `POST /games/load` answer since ADR-012 (MON-906 review, finding 1): a
+ * `GameView` **flattened** with `host_secret` at the top level, so it stays readable by an old
+ * cached client across a deploy skew. The secret is a fixed string so a test can name the value it
+ * expects the client to have kept; it is never rendered.
+ */
+export function gameCreated(view: GameView, hostSecret = "test-host-secret"): unknown {
+  return { ...view, host_secret: hostSecret };
+}
 
 /** A real forty-square ring, so every square name resolves in the catalogue (G-F17). */
 export function gameView(
