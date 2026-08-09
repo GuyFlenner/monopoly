@@ -670,6 +670,23 @@ class IfExists(StrEnum):
     """A freshly minted id. The live game is untouched and the file behaves as a template."""
 
 
+class SeatClaimView(BaseModel):
+    """One human seat, and whether somebody has taken it (ADR-012, MON-906).
+
+    **Never the secret.** This is the projection a join screen renders — "seat 2 is free" — and it
+    is the only thing about seat authority that crosses the wire at all outside the two envelopes
+    below. A ``claimed`` flag is the whole of what a joiner needs to know and the whole of what
+    they are entitled to.
+
+    Human seats only. A bot seat is not a seat anybody can claim (the server drives it, MON-304),
+    so listing one with ``claimed: true`` would be a row that means something different from every
+    other row. Which seats are bots is already on ``GameStateView.players``, where the UI reads it.
+    """
+
+    player: PlayerId
+    claimed: bool
+
+
 class GameView(BaseModel):
     """Everything a client needs to render one frame — a projection, not the state.
 
@@ -680,11 +697,57 @@ class GameView(BaseModel):
     board: BoardView
     state: GameStateView
     legal_commands: tuple[Command, ...]
+    """What this **speaker** may do — the engine's answer, filtered to the seats this connection
+    speaks for (ADR-012). The filtering is a *projection* concern and happens in
+    :func:`kesef_server.transport.view`; ``legal_commands(state)`` itself stays a pure function of
+    the state, which is what keeps ADR-005's soundness and completeness properties meaningful. A
+    spectator gets an empty list and the whole board."""
     events: tuple[LoggedEvent, ...] = ()
     """The events this response reports — the animation script. For a command, what that
     command produced; for a poll, whatever followed ``?since=``."""
     event_cursor: int = Field(default=0, ge=0)
     """The session's highest ``seq``. Poll or reconnect with ``?since=`` this."""
+    claims: tuple[SeatClaimView, ...] = ()
+    """Which human seats are taken (ADR-012, MON-906), so a joiner can be offered a free one.
+
+    Defaulted to empty rather than required, because a :class:`GameView` is also built by tests and
+    by the goldens' tooling, and an empty tuple is the truthful answer for a game nobody has claimed
+    a seat in."""
+
+
+class GameCreated(BaseModel):
+    """``POST /games`` and ``POST /games/load``: the new game, and the one credential for it.
+
+    The envelope exists because the host secret has exactly one moment at which it can be handed
+    over — the moment the session is minted — and no route will ever return it again (ADR-012).
+    There is no recovery in v1: a lost host secret is the same class of loss as a lost save file,
+    and turning it into a recoverable thing is a product feature rather than a patch.
+
+    A ``load`` answers this too, which the ADR does not spell out but the alternative makes plain:
+    a restored game is a *new session* with a new authority, so a loader handed a bare ``GameView``
+    would be locked out of the game they had just restored the instant the flag was flipped.
+
+    **This is a shape change.** ``POST /games`` used to answer a bare ``GameView``; a client now
+    reads ``created.view``. That is why the contract regenerates in the same commit and why the
+    rollout flag is separate from it — the shape lands with a client that understands it, and the
+    *enforcement* lands later.
+    """
+
+    host_secret: str
+    """Speaks for every unclaimed human seat, and for the host-only routes. Returned once, here."""
+    view: GameView
+
+
+class SeatClaimed(BaseModel):
+    """``POST /games/{id}/seats/{player}/claim``: that seat is yours now, and here is the proof.
+
+    ``view`` comes back with it, already filtered to the claimed seat, so a joiner's first frame
+    after claiming is the frame they will play from — one round trip rather than a claim followed
+    by a refetch that renders an empty action bar in between.
+    """
+
+    seat_secret: str
+    view: GameView
 
 
 class LegalityView(BaseModel):

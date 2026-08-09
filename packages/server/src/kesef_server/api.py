@@ -55,6 +55,7 @@ from kesef_server.schemas import (
     BoardSummary,
     CommandRequest,
     ErrorResponse,
+    GameCreated,
     GameView,
     IfExists,
     LegalityView,
@@ -62,6 +63,7 @@ from kesef_server.schemas import (
     NewGameRequest,
     RulesetView,
     SaveFile,
+    SeatClaimed,
 )
 from kesef_server.sessions import (
     Session,
@@ -255,9 +257,39 @@ def client_of(request: Request) -> str:
     )
 
 
+BEARER = "bearer"
+"""The one authorization scheme this API reads (ADR-012, MON-906)."""
+
+
+def secret_of(request: Request) -> str | None:
+    """The capability secret this request presented, or ``None`` (ADR-012, MON-906).
+
+    **A header, never a query parameter.** A URL lands in access logs, in browser history, in a
+    ``Referer`` and in whatever a parent pastes into a chat window — and the whole point of a
+    capability is that holding the string is holding the authority. ``Authorization`` is the one
+    place a browser will put a credential and not write it down; ``CORS_HEADERS`` already allows it
+    on the preflight (MON-909 added it in advance for exactly this).
+
+    Parsed rather than forwarded whole, so ``Bearer <secret>`` and a bare secret cannot both work by
+    accident — one spelling, checked. A scheme this API does not serve resolves to ``None``, which
+    is Spectator, which is the same answer as sending nothing: see :class:`transport.Spectator` for
+    why "wrong" and "absent" are deliberately indistinguishable.
+
+    **Never logged.** ``_api_error_handler`` records the route template and the key; this value
+    joins caller-supplied ids on ``log.py``'s never-interpolate list, and it is a great deal worse
+    than an id — an id in an aggregator is noise, a secret in an aggregator is the seat.
+    """
+    header = request.headers.get("authorization")
+    if header is None:
+        return None
+    scheme, _, value = header.partition(" ")
+    return value.strip() or None if scheme.lower() == BEARER else None
+
+
 StoreDep = Annotated[SessionStore, Depends(get_store)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 ClientDep = Annotated[str, Depends(client_of)]
+SecretDep = Annotated[str | None, Depends(secret_of)]
 
 SERVER_ERROR_RESPONSE: dict[int | str, dict[str, Any]] = {
     status.HTTP_500_INTERNAL_SERVER_ERROR: {
@@ -289,6 +321,19 @@ METERED_RESPONSE: dict[int | str, dict[str, Any]] = {
 """Declared on every route :data:`METERED_ROUTES` names, for the reason the 422 is declared: a
 status the document does not mention is a status the generated client cannot branch on, so it would
 reach the UI as an unhandled failure rather than as its own sentence (G-33)."""
+
+SEATED_RESPONSE: dict[int | str, dict[str, Any]] = {
+    status.HTTP_403_FORBIDDEN: {
+        "model": ErrorResponse,
+        "description": (
+            "This connection does not speak for that seat (ADR-012). `error.seat_not_yours` "
+            "carries the `player` it refused; `error.host_only` is a route only the game's host "
+            "may reach. Both are silent while `KESEF_SEAT_AUTHORITY` is `off`."
+        ),
+    },
+}
+"""Declared on every route seat authority can refuse, for the reason above: the client renders a
+keyed sentence off the status, and an undeclared 403 would reach it as `error.network`."""
 
 
 # --- Error handling ---------------------------------------------------------
@@ -470,8 +515,14 @@ async def create_game(
     config: SettingsDep,
     client: ClientDep,
     background: BackgroundTasks,
-) -> GameView:
-    """Start a game and return the opening view. Any bot moves stream in behind it."""
+) -> GameCreated:
+    """Start a game and return the opening view, plus its host secret. Bot moves stream in behind it.
+
+    The response is a ``GameCreated`` envelope since ADR-012, not a bare ``GameView``: the session
+    mints a host secret and this is the only moment it is ever handed over. See
+    :class:`~kesef_server.schemas.GameCreated` for why there is no second chance, and
+    ``docs/adr/012-*`` for why the credential lives on the session rather than in the game.
+    """
     seed = request.seed if request.seed is not None else secrets.randbits(32)
     try:
         state = new_game(
@@ -508,7 +559,7 @@ async def create_game(
     # anybody had touched anything. Queued, not awaited — otherwise creating such a game is a request
     # that sits for as long as the bot's opening turn takes.
     background.add_task(_advance_bots, store, session.state.game_id, config)
-    return _view(session)
+    return _created(config, session)
 
 
 @app.post(
@@ -535,11 +586,12 @@ async def load_game(
     store: StoreDep,
     config: SettingsDep,
     client: ClientDep,
+    secret: SecretDep,
     if_exists: Annotated[
         IfExists,
         Query(description="What to do when this save's game_id is already live (ADR-011)."),
     ] = IfExists.REFUSE,
-) -> GameView:
+) -> GameCreated:
     """Restore a saved game — the body is exactly what ``GET /games/{id}/save`` returned.
 
     The body is read raw rather than declared as a ``SaveFile`` parameter, for two reasons
@@ -556,10 +608,13 @@ async def load_game(
 
     ``if_exists`` is the answer to a question the player was asked *after* being refused once
     (ADR-011): it defaults to ``refuse``, so a client that has never heard of it gets the same 409
-    it always got rather than silently ending somebody's game.
+    it always got rather than silently ending somebody's game. ``replace`` is host-only since
+    ADR-012 — it ends a live game, and until MON-906 any stranger holding the id could do it.
 
-    The OpenAPI request body is declared by hand above, so the contract still says ``SaveFile``
-    and ``generated.ts`` still types it.
+    The answer is a ``GameCreated`` for the same reason ``POST /games`` is: a restored game is a new
+    session with a new authority, and the client that restored it is the one that needs the host
+    secret. The OpenAPI request body is declared by hand above, so the contract still says
+    ``SaveFile`` and ``generated.ts`` still types it.
     """
     declared = request.headers.get("content-length")
     if declared is not None and declared.isdigit() and int(declared) > config.max_save_bytes:
@@ -577,37 +632,111 @@ async def load_game(
     # the constraint ``NewGameRequest.game_id`` does. Unchecked, a save named ``kitchen/table``
     # took a session slot that no route could then reach or free (schemas.GAME_ID_PATTERN).
     # Checked inside `transport.load`, which both transports share.
-    return _view(transport.load(store, save, if_exists, client_id=client))
+    return _created(
+        config,
+        transport.load(store, save, if_exists, client_id=client, secret=secret, enforcing=config.enforcing_seats),
+    )
 
 
 @app.get("/games/{game_id}", tags=["game"], responses=ERROR_RESPONSES)
 def get_game(
     game_id: str,
     store: StoreDep,
+    config: SettingsDep,
+    secret: SecretDep,
     since: Annotated[int | None, Query(ge=0, description="Replay the events after this cursor.")] = None,
 ) -> GameView:
     """The current view. Safe to poll, and the reconnect path for the UI.
 
     ``since`` is the event cursor (G-34). Omit it for state only; ``since=0`` replays the
     whole game, which is what a reconnecting client wants.
+
+    Never refused. A spectator — anybody with the link and no secret — gets the whole board, the
+    whole state and an **empty** ``legal_commands`` (ADR-012). That asymmetry is deliberate: under
+    the universal rules holdings are public (spec §5.2), every event is already public on the
+    WebSocket by ADR-008's self-containment rule, and the only hidden information in this system
+    lives in ``/save`` — which this PR closes. Watching is not a privilege; acting is.
     """
     session = _session(store, game_id)
     events = session.events_since(since) if since is not None else ()
-    return _view(session, events)
+    return _view(session, events, speaker=_speaker(config, session, secret))
 
 
-@app.get("/games/{game_id}/save", tags=["game"], responses=ERROR_RESPONSES)
-def save_game(game_id: str, store: StoreDep) -> SaveFile:
-    """The complete state, RNG and deck order included — the save file.
+@app.get("/games/{game_id}/save", tags=["game"], responses={**ERROR_RESPONSES, **SEATED_RESPONSE})
+def save_game(game_id: str, store: StoreDep, config: SettingsDep, secret: SecretDep) -> SaveFile:
+    """The complete state, RNG and deck order included — the save file. **Host only** (ADR-012).
 
     This is the *only* route that returns hidden information, which is the whole of
     ADR-008 §2: "the JSON is the save file" survives without being conflated with what a
-    client may see while playing.
+    client may see while playing. On a network API that made it a cheat channel: the RNG counter
+    and the deck order are every future roll and every card, in order, readable by anybody the join
+    link reached. ADR-011 §Security parked it pending MON-901; the host secret is the answer.
 
     Since ADR-011 the file is an envelope — the state *and* the session's log — because a session is
     more than a ``GameState`` and a restored game with no history was the half of that nobody noticed.
     """
-    return transport.save_file(_session(store, game_id))
+    session = _session(store, game_id)
+    transport.require_host(session, secret, enforcing=config.enforcing_seats)
+    return transport.save_file(session)
+
+
+@app.post(
+    "/games/{game_id}/seats/{player}/claim",
+    status_code=status.HTTP_201_CREATED,
+    tags=["game"],
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse, "description": "No game with that id."},
+        status.HTTP_409_CONFLICT: {
+            "model": ErrorResponse,
+            "description": "`error.seat_taken` — somebody, or a computer, is already in that seat.",
+        },
+        UNPROCESSABLE: {"model": ErrorResponse, "description": "`error.unknown_player` — no such seat."},
+        **SERVER_ERROR_RESPONSE,
+    },
+)
+def claim_seat(game_id: str, player: int, store: StoreDep, config: SettingsDep) -> SeatClaimed:
+    """Take one unclaimed human seat and receive the secret that speaks for it (ADR-012).
+
+    Unauthenticated on purpose: the game id *is* the invitation, so anybody holding the link may
+    claim a free seat, first come first served. See :func:`transport.claim_seat`.
+
+    The returned view is already filtered to the claimed seat, so the joiner's first frame is the
+    frame they play from. It carries no secret of its own — ``seat_secret`` is a sibling field of
+    ``view``, never a field inside it.
+    """
+    session = _session(store, game_id)
+    secret = transport.claim_seat(session, player)
+    return SeatClaimed(
+        seat_secret=secret,
+        # `Seat(player)` rather than the resolved speaker: this response is the answer to *this*
+        # claim, and resolving would be asking the session a question we have just answered.
+        view=_view(session, speaker=transport.Seat(player) if config.enforcing_seats else None),
+    )
+
+
+@app.delete(
+    "/games/{game_id}/seats/{player}/claim",
+    status_code=status.HTTP_204_NO_CONTENT,
+    tags=["game"],
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        **SEATED_RESPONSE,
+        **SERVER_ERROR_RESPONSE,
+    },
+)
+def release_seat(game_id: str, player: int, store: StoreDep, config: SettingsDep, secret: SecretDep) -> None:
+    """Void a seat's claim, so it can be taken again. **Host only** (ADR-012).
+
+    The unstick for a lost seat secret, which is a real evening rather than a hypothetical: a guest
+    closes the tab on a phone that keeps no storage and the seat is held by a string nobody has.
+    Host-only because the alternative is any joiner evicting any player, which is the problem this
+    item exists to fix wearing a different hat.
+
+    Idempotent, so a host pressing it twice is not shown an error about the outcome they wanted.
+    """
+    session = _session(store, game_id)
+    transport.require_host(session, secret, enforcing=config.enforcing_seats)
+    transport.release_seat(session, player)
 
 
 async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> None:
@@ -646,12 +775,13 @@ async def _advance_bots(store: SessionStore, game_id: str, config: Settings) -> 
     )
 
 
-@app.post("/games/{game_id}/commands", tags=["game"], responses=ERROR_RESPONSES)
+@app.post("/games/{game_id}/commands", tags=["game"], responses={**ERROR_RESPONSES, **SEATED_RESPONSE})
 async def submit_command(
     game_id: str,
     request: CommandRequest,
     store: StoreDep,
     config: SettingsDep,
+    secret: SecretDep,
     background: BackgroundTasks,
 ) -> GameView:
     """Apply one command, then let the bots answer it. The only way a game changes.
@@ -660,8 +790,14 @@ async def submit_command(
     WebSocket subscriber's queue (MON-303) happens on the loop's own thread rather than from
     a thread-pool worker. MON-304 relies on the same thing — the bot driver awaits between moves,
     and a handler off the loop could not yield to let those pushes drain.
+
+    ``require_seat`` is the **first** thing here and that ordering is load-bearing (ADR-012): a
+    cross-seat command refused after ``apply`` would be a move that had already happened, reported
+    as though it had not. Refusing before the engine is consulted leaves the log untouched, which is
+    what ``test_seat_authority.py`` asserts by comparing the cursor.
     """
     session = _session(store, game_id)
+    transport.require_seat(session, secret, request.command.player, enforcing=config.enforcing_seats)
     state, events = apply(session.state, _stamped(store, session, request.command))
     # Two statements on purpose. `_logged` reads the tail of `session.log`, which `store.update`
     # is what appends to, so as one expression this depended on Python evaluating arguments left
@@ -674,17 +810,26 @@ async def submit_command(
     # rather than awaited: this response carries the human's move and returns now, and the bot's moves
     # stream in behind it. See `_advance_bots`.
     background.add_task(_advance_bots, store, game_id, config)
-    return _view(updated, _logged(session, events))
+    return _view(updated, _logged(session, events), speaker=_speaker(config, updated, secret))
 
 
-@app.post("/games/{game_id}/validate", tags=["game"], responses=ERROR_RESPONSES)
-def validate_command(game_id: str, request: CommandRequest, store: StoreDep) -> LegalityView:
+@app.post("/games/{game_id}/validate", tags=["game"], responses={**ERROR_RESPONSES, **SEATED_RESPONSE})
+def validate_command(
+    game_id: str, request: CommandRequest, store: StoreDep, config: SettingsDep, secret: SecretDep
+) -> LegalityView:
     """Ask whether a command would be accepted, changing nothing (G-32).
 
     An illegal command is a 200 with ``legal: false`` here, not a 422 — the trade builder
     asks this on every keystroke, and "not valid yet" is a normal answer, not an error.
+
+    Scoped exactly like ``commands`` since ADR-012, and that is a correctness matter rather than
+    symmetry: the trade builder validates a draft here and enables its send button on the answer, so
+    a route that said "yes, legal" to a caller the *send* would refuse would be offering a move that
+    cannot be made. The seat refusal is a 403 here as well, for the same reason it is not a
+    ``legal: false`` — "you may not ask for this seat" is not a statement about the rules.
     """
     session = _session(store, game_id)
+    transport.require_seat(session, secret, request.command.player, enforcing=config.enforcing_seats)
     result = is_legal(session.state, _stamped(store, session, request.command))
     return LegalityView(legal=result.legal, reason_key=result.reason_key, params=result.params)
 
@@ -695,12 +840,21 @@ def validate_command(game_id: str, request: CommandRequest, store: StoreDep) -> 
     tags=["game"],
     responses={
         status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        **SEATED_RESPONSE,
         **METERED_RESPONSE,
         **SERVER_ERROR_RESPONSE,
     },
 )
-def delete_game(game_id: str, store: StoreDep) -> None:
-    _session(store, game_id)
+def delete_game(game_id: str, store: StoreDep, config: SettingsDep, secret: SecretDep) -> None:
+    """End a game. **Host only** (ADR-012).
+
+    Before MON-906 this route asked nobody who they were, so a stranger holding a shared id could
+    end a family's game from a URL bar. ``Session.client_id`` was never the answer: it exists to
+    *count* games for ``max_sessions_per_client`` and confers no authority, because a household
+    shares one address — its own docstring says so and names this item.
+    """
+    session = _session(store, game_id)
+    transport.require_host(session, secret, enforcing=config.enforcing_seats)
     store.delete(game_id)
 
 
@@ -859,6 +1013,34 @@ _create = transport.create
 _view = transport.view
 _logged = transport.logged
 _stamped = transport.stamped
+
+
+def _speaker(config: Settings, session: Session, secret: str | None) -> transport.Speaker | None:
+    """Who this request speaks for, or ``None`` while ``seat_authority`` is off (ADR-012).
+
+    The rollout flag is read *here* rather than inside ``transport.view`` so that "off" is
+    structurally the old code path: ``None`` reaches the projection, the projection filters nothing,
+    and the answer is byte-identical to the one this API gave before MON-906. A flag consulted
+    inside the filter would be a filter that runs and then decides not to, which is one refactor
+    away from running and deciding wrongly.
+    """
+    return transport.speaker_for(session, secret) if config.enforcing_seats else None
+
+
+def _created(config: Settings, session: Session) -> GameCreated:
+    """A newly seated game, with the one credential for it (ADR-012).
+
+    Both ``POST /games`` and ``POST /games/load`` answer this, through one function, because "the
+    creator is handed the host secret" is a property of *seating a session* rather than of either
+    route — and a second spelling is how a load ends up returning a game its own client cannot play.
+
+    The view is projected as the host, since that is who is reading it, so the first frame of a new
+    game already excludes a bot seat's moves rather than offering them for one render.
+    """
+    return GameCreated(
+        host_secret=session.authority.host_secret,
+        view=_view(session, speaker=transport.HOST if config.enforcing_seats else None),
+    )
 
 
 def _retype_validation_errors(document: dict[str, Any]) -> None:

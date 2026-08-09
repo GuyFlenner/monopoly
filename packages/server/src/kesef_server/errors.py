@@ -25,10 +25,11 @@ CONTENT_TOO_LARGE = 413
 """Renamed for the same reason. See ``UNPROCESSABLE``."""
 
 NOT_FOUND = 404
+FORBIDDEN = 403
 CONFLICT = 409
 TOO_MANY_REQUESTS = 429
 SERVICE_UNAVAILABLE = 503
-"""The other four statuses this module answers with.
+"""The other five statuses this module answers with.
 
 Spelled as numbers, and ``fastapi.status`` deliberately *not* imported, because this module is
 on the import path of :mod:`kesef_server.browser` — the same handlers running inside a browser
@@ -180,6 +181,61 @@ def invalid_new_game() -> ApiError:
 
 def unknown_board(board_id: str) -> ApiError:
     return ApiError(UNPROCESSABLE, "error.unknown_board", board_id=_reflected(board_id))
+
+
+def seat_not_yours(player: int) -> ApiError:
+    """This connection does not speak for that seat (ADR-012, MON-906).
+
+    403 rather than 404 or 422, and the distinction is the whole of what the player is being told:
+    the game exists, the move is well-formed, and the engine may well consider it legal — it is
+    *this caller* who may not make it. A 422 would say "that move is not allowed", which is a claim
+    about the rules and would be false.
+
+    ``player`` rides along for a client that wants to highlight the seat rather than name it. The
+    catalogue sentence deliberately does not interpolate it, for the reason ``tests/
+    test_key_contract.py``'s ``UNSPENT_PARAMS`` gives about seat ids: a seat's *name* is typed in at
+    the setup screen, so no catalogue can carry it, and "0" is not a thing to say to a six-year-old.
+    """
+    return ApiError(FORBIDDEN, "error.seat_not_yours", player=player)
+
+
+def seat_taken(player: int) -> ApiError:
+    """Somebody already holds that seat, so it cannot be claimed (ADR-012, MON-906).
+
+    409 rather than 403, because nothing about the caller is wrong: the seat is simply gone, first
+    come first served, and the answer would be the same for anybody asking now.
+
+    **A bot seat answers this too**, and that is the honest reading rather than a shortcut: a
+    computer is sitting in it, the server drives it (MON-304), and no credential will ever be minted
+    for it. The alternative — a fourth key meaning "that seat is a computer's" — would be a second
+    sentence for a player to read about the same fact the seat list already shows them.
+    """
+    return ApiError(CONFLICT, "error.seat_taken", player=player)
+
+
+def unknown_player(player: int) -> ApiError:
+    """A seat index this game does not have — a claim for seat 4 at a two-player table.
+
+    The engine already owns this key for the same fact ("there's nobody in that seat"), so the
+    transport reuses it rather than minting a near-synonym: a claim route and a rule module
+    disagreeing about what to call an empty chair is a catalogue with two sentences for one thing.
+    """
+    return ApiError(UNPROCESSABLE, "error.unknown_player", player=player)
+
+
+def host_only() -> ApiError:
+    """A route only the game's host may reach: ``/save``, ``DELETE``, ``if_exists=replace``,
+    and releasing somebody's seat claim (ADR-012, MON-906).
+
+    ``/save`` is the one that matters most. It carries the RNG counter and the full deck order —
+    every future roll and every card, in order — so an unauthenticated ``/save`` on a *network* API
+    is a cheat channel handed to anybody the link was shared with. ADR-011 §Security parked exactly
+    this pending MON-901; MON-901 happened.
+
+    Without params: there is nothing to say beyond "not you", and the host secret is the one string
+    in this system that must never appear in an error body.
+    """
+    return ApiError(FORBIDDEN, "error.host_only")
 
 
 def invalid_game_id() -> ApiError:
