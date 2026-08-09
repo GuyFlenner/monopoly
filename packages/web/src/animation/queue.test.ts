@@ -74,6 +74,7 @@ function card(
     player: 1,
     deck: "chance",
     cardId,
+    squareKey: null,
     delta: extras.delta ?? null,
     balance: extras.delta === undefined || extras.delta === null ? null : 1500 + extras.delta,
     durationMs: extras.durationMs ?? DEFAULT_DURATIONS.cardMs,

@@ -75,6 +75,16 @@ export interface CardRevealProps {
   readonly card: RevealedCard;
   /** The drawing seat's name, out of `state.players`. A lookup, handed in. */
   readonly playerName: string;
+  /**
+   * The translated name of the square this card names, or `null` when it names none (MON-752).
+   *
+   * Resolved by the screen from `card.squareKey`, which the *engine* stamped against the board in
+   * play — so "move ahead to …" names Illinois Avenue on the classic board and רח' ביאליק on the
+   * Israeli one, and this component still has no idea either board exists.
+   */
+  readonly squareName: string | null;
+  /** The translated name of the board's GO square, for the `{{go}}` half of the same sentences. */
+  readonly goName: string;
   /** `presentationFor(state.ruleset).kids` — larger type and the simpler wording (MON-604). */
   readonly kids: boolean;
   /** Put the card down. `GameScreen` wires this to the queue's own `skip`. */
@@ -92,6 +102,8 @@ export interface CardRevealProps {
 export function CardReveal({
   card,
   playerName,
+  squareName,
+  goName,
   kids,
   onDismiss,
   returnFocusRef,
@@ -137,7 +149,16 @@ export function CardReveal({
     the gap rather than printing a raw key at a child.
   */
   const textKey = `cards:${card.cardId}`;
-  const text = i18n.exists(textKey) ? t(textKey) : copy("card_reveal.unnamed");
+  /*
+    `square` and `go` are the two names a card sentence may need (MON-752). Both arrive already
+    translated: the engine sent the *active board's* name key, the screen resolved it against that
+    board's namespace, and this component interpolates. Handing both to every card is deliberate —
+    i18next drops a parameter the sentence does not name, so there is no branch here on which card
+    needs which, and therefore no place for this file to hold an opinion about what a card does.
+  */
+  const text = i18n.exists(textKey)
+    ? t(textKey, { square: squareName ?? "", go: goName })
+    : copy("card_reveal.unnamed");
   const bodyLanguage = cardBodyLanguage(text, i18n.language);
 
   const amountKey = figureKey(card.delta);

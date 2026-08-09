@@ -417,7 +417,7 @@
     "rent_charged": "שכר דירה של {{amount, money}} על {{tile}}: {{payer}} אל {{owner}}.",
     "sent_to_jail_card": "{{name}} — עצירה בכלא, לפי קלף.",
     "sent_to_jail_three_doubles": "{{name}} — עצירה בכלא, אחרי שלוש הטלות זוגיות.",
-    "sent_to_jail_tile": "{{name}} — עצירה בכלא, מהמשבצת 'לך לכלא'.",
+    "sent_to_jail_tile": "{{name}} — עצירה בכלא, לפי המשבצת.",
     "title": "מה קרה",
     "token_moved": "{{name}} — מעבר אל {{tile}}.",
     "token_moved_back": "{{name}} — מעבר אחורה אל {{tile}}.",

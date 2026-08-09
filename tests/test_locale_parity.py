@@ -318,6 +318,68 @@ def test_every_card_that_names_a_figure_names_its_currency() -> None:
         assert not silent, f"{locale} cards state a figure without naming the currency ({symbol}): {silent}"
 
 
+BOARD_IDS = ("classic", "israel")
+"""Every board a game can be played on. A card is dealt on all of them."""
+
+
+def _fixed_square_terms() -> set[str]:
+    """The jail squares' names, which a card may state verbatim — and the only ones.
+
+    One deck serves both boards, so "the square a card names" is a *slot*, resolved against the
+    board in play (MON-752). The jail cell is the documented exception: it is a fixed term rather
+    than a destination, because neither board's go-to-jail square survives being read as one
+    ("לכלא" is a preposition and a noun, and `היישר אל לכלא` is not Hebrew). So the two jail kinds'
+    names stay spellable in a card sentence, and every other square name does not.
+    """
+    from kesef_engine.board.loader import load_board
+    from kesef_engine.board.models import TileKind
+
+    terms: set[str] = set()
+    for board_id in BOARD_IDS:
+        board = load_board(board_id)
+        fixed = {tile.name_key for tile in board.tiles if tile.kind in {TileKind.JAIL, TileKind.GO_TO_JAIL}}
+        for language in LANGUAGES:
+            catalogue = _load(f"board-{board_id}", language)
+            terms.update(catalogue[key] for key in fixed if key in catalogue)
+    return terms
+
+
+def test_no_card_names_a_square_belonging_to_a_board() -> None:
+    """MON-752 — the owner's bug, stated as a test: **a card names the square in front of you.**
+
+    The decks are shared and the boards are not. `card.chance.advance_to_illinois_avenue` moves a
+    token to tile 24 whatever board is in play, and tile 24 is Illinois Avenue on the classic board
+    and רח' ביאליק on the Israeli one — so a card that spells a square's name into its sentence is
+    wrong on the other board, **in both languages**. The engine now stamps `CardDrawn.square_key`
+    with the *active* board's name key and the sentence interpolates it.
+
+    A spelling check is the wrong shape here: a card is prose, and the next person to write one will
+    reach for the name they can see on their own board. So the forbidden set is built from the board
+    catalogues themselves — every tile name, both boards, both languages — and no card sentence in
+    either language may contain any of them verbatim. It goes red against a hardcoded name whichever
+    board it was copied from, which is the property that makes it worth keeping.
+    """
+    forbidden: dict[str, str] = {}
+    for board_id in BOARD_IDS:
+        for language in LANGUAGES:
+            for key, value in _load(f"board-{board_id}", language).items():
+                if key.startswith("tile."):
+                    forbidden.setdefault(value, f"board-{board_id}.{language} {key}")
+    for term in _fixed_square_terms():
+        forbidden.pop(term, None)
+
+    offenders: dict[str, list[str]] = {}
+    for language in LANGUAGES:
+        for card_id, text in _load("cards", language).items():
+            named = sorted(f"{value!r} ({forbidden[value]})" for value in forbidden if value in text)
+            if named:
+                offenders[f"{card_id} [{language}]"] = named
+    assert not offenders, (
+        "a card spells a board's square name into its sentence — interpolate the engine's "
+        f"`square_key`/`{{{{go}}}}` instead, so the card names the board in play (MON-752): {offenders}"
+    )
+
+
 def test_the_card_catalogue_covers_every_card_id() -> None:
     """Every id `decks.py` can deal needs a catalogue entry, or a card lands face blank.
 

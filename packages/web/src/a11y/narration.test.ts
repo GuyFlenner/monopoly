@@ -17,7 +17,7 @@ const context: NarrationContext = {
   // Both are lookups the caller owns, so the double is a lookup too: it echoes the key it was given
   // rather than a fixed string, which is what lets the card test below prove the *event's* card_id
   // reached the sentence instead of some other card's.
-  cardText: (cardId) => `text-${cardId}`,
+  cardText: (cardId, squareKey) => `text-${cardId}@${squareKey ?? "nowhere"}`,
   deckName: (deck) => `deck-${deck}`,
 };
 
@@ -148,6 +148,7 @@ describe("narrate", () => {
       player: 0,
       deck: "chance",
       card_id: "card.chance.advance_to_go",
+      square_key: "tile.israel.t00",
     });
 
     // The instruction on the card is the half of the draw a screen-reader user would otherwise
@@ -159,7 +160,9 @@ describe("narrate", () => {
         params: {
           name: "Ruti",
           deck: "deck-chance",
-          card: "text-card.chance.advance_to_go",
+          // MON-752: the *board's* square key reaches the sentence with the card's id. The double
+          // echoes both, so a table that dropped `square_key` would leave "@nowhere" here.
+          card: "text-card.chance.advance_to_go@tile.israel.t00",
         },
       },
     ]);
@@ -175,6 +178,8 @@ describe("narrate", () => {
 
     expect(drafts[0]?.politeness).toBe("polite");
     expect(drafts[0]?.params).toMatchObject({ deck: "deck-community_chest" });
+    // A card that names no square says so, rather than borrowing one.
+    expect(drafts[0]?.params).toMatchObject({ card: "text-card.chest.bank_error@nowhere" });
   });
 
   it.each(["auction", "debt_settlement", "trade_review"] satisfies Phase[])(
