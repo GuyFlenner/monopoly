@@ -40,7 +40,13 @@
 import { useCallback, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { isApiError, type ApiError, type GameView, type PlayerView, type SeatClaimView } from "@/api";
+import {
+  isApiError,
+  type ApiError,
+  type GameView,
+  type PlayerView,
+  type SeatClaimView,
+} from "@/api";
 import { Token } from "@/board";
 import { seatOf } from "@/board";
 import { ErrorState } from "@/panels/States";

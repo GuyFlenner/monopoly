@@ -61,7 +61,12 @@ describe("the seat picker", () => {
   });
 
   it("does not offer a seat somebody has already taken", () => {
-    renderPicker({ claims: [{ player: 0, claimed: true }, { player: 1, claimed: false }] });
+    renderPicker({
+      claims: [
+        { player: 0, claimed: true },
+        { player: 1, claimed: false },
+      ],
+    });
 
     expect(screen.queryByRole("button", { name: /Ruti/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Dan/ })).toBeInTheDocument();
@@ -76,7 +81,12 @@ describe("the seat picker", () => {
   });
 
   it("renders nothing when every seat is taken, rather than an empty picker", () => {
-    renderPicker({ claims: [{ player: 0, claimed: true }, { player: 1, claimed: true }] });
+    renderPicker({
+      claims: [
+        { player: 0, claimed: true },
+        { player: 1, claimed: true },
+      ],
+    });
 
     expect(screen.queryByTestId("seat-claim")).not.toBeInTheDocument();
   });
@@ -97,9 +107,7 @@ describe("the seat picker", () => {
     // `error.seat_taken` is the answer to two people pressing the same chair at once, and it is the
     // sentence that turns a dead button into an instruction. No retry control: the retry is the row
     // of other seats, which is still on screen.
-    const onClaim = vi
-      .fn()
-      .mockRejectedValue(new ApiError(409, "error.seat_taken", { player: 1 }));
+    const onClaim = vi.fn().mockRejectedValue(new ApiError(409, "error.seat_taken", { player: 1 }));
     renderPicker({ onClaim });
 
     await userEvent.click(screen.getByTestId("claim-seat-1"));

@@ -125,8 +125,19 @@ const NO_PLAYERS: readonly PlayerView[] = [];
 export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const money = useMoney();
-  const { state, board, legalCommands, send, validate, events, status, refetch, claims, seated, claimSeat } =
-    useGame();
+  const {
+    state,
+    board,
+    legalCommands,
+    send,
+    validate,
+    events,
+    status,
+    refetch,
+    claims,
+    seated,
+    claimSeat,
+  } = useGame();
   // The wire from the event stream to the one `<Announcer>`. Called here because this is the
   // component that renders a live game, and calling it twice would say every roll twice.
   useEventNarration();

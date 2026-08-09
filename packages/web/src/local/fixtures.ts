@@ -114,7 +114,8 @@ export function createFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
       record("validateCommand", [gameId, requestJson, secret], () =>
         envelope(200, { legal: true, params: {} }),
       ),
-    deleteGame: (gameId, secret) => record("deleteGame", [gameId, secret], () => envelope(204, null)),
+    deleteGame: (gameId, secret) =>
+      record("deleteGame", [gameId, secret], () => envelope(204, null)),
     /* The seat routes (ADR-012). `claim` answers a `SeatClaimed`; `release` is a bare 204. */
     claimSeat: (gameId, player) =>
       record("claimSeat", [gameId, player], () =>

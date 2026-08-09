@@ -104,7 +104,10 @@ test.describe("two clients, one game", () => {
     }
   });
 
-  test("a guest cannot move the host's piece (two contexts, one link)", async ({ page, browser }) => {
+  test("a guest cannot move the host's piece (two contexts, one link)", async ({
+    page,
+    browser,
+  }) => {
     /*
       The audit's headline repro, as a requirement (ADR-012, MON-906).
 

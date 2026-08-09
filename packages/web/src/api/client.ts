@@ -275,12 +275,25 @@ export class ApiClient {
    */
   async loadGame(save: unknown, ifExists?: IfExists, signal?: AbortSignal): Promise<GameView> {
     const query = ifExists === undefined ? "" : `?if_exists=${encodeURIComponent(ifExists)}`;
+    /*
+      The credential for the game this save is *about* (ADR-012).
+
+      `if_exists=replace` ends whatever session currently holds that id, so the server asks for that
+      session's host secret — and `/games/load` carries no id in its path for `gameOf` to find one
+      by. The id is inside the body, which this client already reads for one other purpose
+      (`SaveGameButton` names the file from it), so it is read here too and used to look the secret
+      up. A `refuse` or a `copy` needs nothing, but sending it costs nothing either: the header is
+      only consulted on the branch that ends a game.
+    */
+    const replacing = gameIdInSave(save);
+    const held = replacing === undefined ? undefined : this.secrets.get(replacing);
     // A `GameCreated`, exactly as `createGame` gets: a restored game is a *new* session with a new
     // authority, so its loader is the one who has to be handed the host secret (ADR-012). Without
     // this, loading a save would lock the loader out of the game they had just restored.
     const restored = await this.request<GameCreated>("POST", `/games/load${query}`, {
       body: save,
       signal,
+      secret: held,
     });
     this.secrets.set(restored.view.state.game_id, restored.host_secret);
     return restored.view;
@@ -379,6 +392,26 @@ export class ApiClient {
       throw new ApiError(response.status, TRANSPORT_ERROR_KEY);
     }
   }
+}
+
+/**
+ * The `game_id` inside a save file, or `undefined` when the payload is not one (ADR-012).
+ *
+ * Both shapes ADR-011 accepts: the `SaveFile` envelope, and the bare `GameState` that every file
+ * written before it is. Structural rather than typed, because the parameter is a *file the player
+ * chose* and nothing has established what it is — the same reasoning `loadGame` gives for taking
+ * `unknown`, and the same read `local/mode.ts` makes for the reload slot.
+ *
+ * This is the one field of a save this package reads, and it reads it to look up a credential
+ * rather than to learn anything about the game.
+ */
+function gameIdInSave(save: unknown): string | undefined {
+  if (typeof save !== "object" || save === null) {
+    return undefined;
+  }
+  const envelope = save as { game_id?: unknown; state?: { game_id?: unknown } };
+  const id = envelope.state?.game_id ?? envelope.game_id;
+  return typeof id === "string" && id !== "" ? id : undefined;
 }
 
 /**

@@ -441,7 +441,47 @@ describe("ApiClient — seat authority", () => {
     expect(String(fetchImpl.mock.calls[0]?.[0])).not.toContain("host-abc");
   });
 
-  it("forgets a game's secret on request, so a left game leaves nothing behind", async () => {
+  it("presents the host secret of the game a load is replacing", async () => {
+    // `if_exists=replace` ends a live session, so the server asks for *that* session's credential —
+    // and `/games/load` has no id in its path to find one by. Without this, a player who saved a
+    // game, left it and loaded the file back is refused by their own game: the e2e persistence spec
+    // is what caught it.
+    const secrets = memorySecretStore();
+    secrets.set("kitchen-table", "host-abc");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created()));
+
+    await clientWith(fetchImpl, secrets).loadGame(
+      { state: { game_id: "kitchen-table" } },
+      "replace",
+    );
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer host-abc");
+  });
+
+  it("finds the id in a bare GameState too, because that is every pre-ADR-011 save", async () => {
+    const secrets = memorySecretStore();
+    secrets.set("kitchen-table", "host-abc");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created()));
+
+    await clientWith(fetchImpl, secrets).loadGame({ game_id: "kitchen-table" }, "replace");
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer host-abc");
+  });
+
+  it("sends no credential for a save about a game this browser has never held", async () => {
+    // Somebody else's file. The load is still allowed — `refuse` and `copy` are open to anybody —
+    // and a header this client cannot honestly produce is not invented.
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(201, created()));
+
+    await clientWith(fetchImpl).loadGame({ state: { game_id: "somebody-elses" } });
+
+    const init = fetchImpl.mock.calls[0]?.[1] as RequestInit;
+    expect(new Headers(init.headers ?? {}).has("authorization")).toBe(false);
+  });
+
+  it("forgets a game's secret on request, so a left game leaves nothing behind", () => {
     const secrets = memorySecretStore();
     secrets.set("g1", "host-abc");
     const client = clientWith(vi.fn(), secrets);
