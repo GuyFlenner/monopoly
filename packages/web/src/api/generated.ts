@@ -638,6 +638,8 @@ export interface components {
             deck: components["schemas"]["Deck"];
             /** Card Id */
             card_id: string;
+            /** Square Key */
+            square_key?: string | null;
         };
         /**
          * CardFrame

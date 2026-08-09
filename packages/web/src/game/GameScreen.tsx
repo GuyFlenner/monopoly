@@ -82,6 +82,7 @@ import type { GroupNameScope } from "@/i18n/groupNames";
 import { ActionBar, ACTIONS_REGION_ID } from "@/panels/ActionBar";
 import { AuctionPanel } from "@/panels/AuctionPanel";
 import { CardReveal } from "@/panels/CardReveal";
+import { goNameKey } from "@/panels/cardSurface";
 import { CompareTray, PinToggle } from "@/panels/CompareTray";
 import { EventLog } from "@/panels/EventLog";
 import { HintPanel } from "@/panels/HintPanel";
@@ -320,10 +321,17 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
     [board?.id, translate, i18n],
   );
 
-  const tileName = useCallback(
-    (index: number) => {
-      const nameKey = board?.tiles[index]?.name_key;
-      if (nameKey === undefined || board === undefined) {
+  /**
+   * A square's translated name, given the key the *engine* named it by.
+   *
+   * Split out of `tileName` for MON-752: a card carries `square_key` rather than an index, because
+   * the engine already resolved the index against the board in play. Both callers want the same two
+   * things — the board's namespace, and the `exists` guard — so they share them here rather than
+   * growing a second, subtly different lookup.
+   */
+  const squareName = useCallback(
+    (nameKey: string | null | undefined) => {
+      if (nameKey === undefined || nameKey === null || board === undefined) {
         return t("label.unknown_square");
       }
       // Square names live in a namespace per board, and `missingKeyHandler` throws under dev and
@@ -332,6 +340,11 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
       return i18n.exists(scoped) ? t(scoped) : t("label.unknown_square");
     },
     [board, t, i18n],
+  );
+
+  const tileName = useCallback(
+    (index: number) => squareName(board?.tiles[index]?.name_key),
+    [board, squareName],
   );
 
   /**
@@ -568,6 +581,16 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
               <CardReveal
                 card={motion.card}
                 playerName={playerName(motion.card.player)}
+                /*
+                  The two names a card sentence may need (MON-752). `squareKey` is the engine's,
+                  already resolved against the board in play; `goName` is this board's GO square,
+                  found by kind rather than by index. `null` stays `null` so a card that names no
+                  square interpolates nothing rather than "unknown square".
+                */
+                squareName={
+                  motion.card.squareKey === null ? null : squareName(motion.card.squareKey)
+                }
+                goName={squareName(goNameKey(board.tiles))}
                 kids={presentation.kids}
                 onDismiss={motion.skip}
                 returnFocusRef={skipButtonRef}

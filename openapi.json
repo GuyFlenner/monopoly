@@ -1574,6 +1574,17 @@
             "type": "string",
             "minLength": 1,
             "title": "Card Id"
+          },
+          "square_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Square Key"
           }
         },
         "type": "object",

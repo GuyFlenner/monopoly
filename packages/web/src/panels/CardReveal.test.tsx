@@ -38,9 +38,13 @@ const CARD: RevealedCard = {
   player: 0,
   deck: "chance",
   cardId: "card.chance.advance_to_go",
+  squareKey: null,
   delta: null,
   balance: null,
 };
+
+/** The classic board's GO, as the screen would have resolved it. */
+const GO = "GO";
 
 function mount(
   card: Partial<RevealedCard> = {},
@@ -48,12 +52,16 @@ function mount(
     readonly kids?: boolean;
     readonly onDismiss?: () => void;
     readonly returnFocusRef?: React.RefObject<HTMLElement | null>;
+    readonly squareName?: string | null;
+    readonly goName?: string;
   } = {},
 ): void {
   render(
     <CardReveal
       card={{ ...CARD, ...card }}
       playerName="Ruti"
+      squareName={extras.squareName ?? null}
+      goName={extras.goName ?? GO}
       kids={extras.kids ?? false}
       onDismiss={extras.onDismiss ?? ((): void => undefined)}
       {...(extras.returnFocusRef === undefined ? {} : { returnFocusRef: extras.returnFocusRef })}
@@ -78,8 +86,11 @@ afterEach(async () => {
 describe("what the card says", () => {
   it("shows the engine's own card text, looked up by the key the event carried", () => {
     mount();
-    // `cards.en.json` owns the sentence; the key is `CardDrawn.card_id` verbatim (ADR-003).
-    expect(body().textContent).toBe(i18n.t("cards:card.chance.advance_to_go"));
+    // `cards.en.json` owns the sentence; the key is `CardDrawn.card_id` verbatim (ADR-003). The two
+    // square names are the screen's (MON-752), and this card names only GO.
+    expect(body().textContent).toBe(
+      i18n.t("cards:card.chance.advance_to_go", { square: "", go: GO }),
+    );
   });
 
   it("names the gap rather than printing a raw key for a card the catalogue has not got", () => {
@@ -237,6 +248,8 @@ describe("putting the card down", () => {
       <CardReveal
         card={CARD}
         playerName="Ruti"
+        squareName={null}
+        goName={GO}
         kids={false}
         onDismiss={(): void => undefined}
         returnFocusRef={returnFocusRef}
@@ -263,6 +276,8 @@ describe("putting the card down", () => {
       <CardReveal
         card={CARD}
         playerName="Ruti"
+        squareName={null}
+        goName={GO}
         kids={false}
         onDismiss={(): void => undefined}
         returnFocusRef={returnFocusRef}
@@ -290,10 +305,39 @@ describe("a Hebrew game", () => {
     await inHebrew();
     mount();
 
-    expect(body().textContent).toBe(i18n.getResource("he", "cards", KEY));
+    expect(body().textContent).toBe(i18n.t(`cards:${KEY}`, { square: "", go: GO }));
     // Not the English one. Until MON-506 both languages resolved to the same resource, so an
     // assertion that only checked "some text is rendered" passed throughout the gap.
-    expect(body().textContent).not.toBe(i18n.getResource("en", "cards", KEY));
+    expect(body().textContent).not.toBe(i18n.t(`cards:${KEY}`, { lng: "en", square: "", go: GO }));
+  });
+
+  it("names the square the Israeli board actually has, not the classic one (MON-752)", async () => {
+    /*
+      The owner's bug, in the language it was reported in. `advance_to_illinois_avenue` moves a token
+      to tile 24 on whatever board is in play, and on the Israeli board tile 24 is a Tel Aviv street —
+      so a Hebrew game used to read "advance to Illinois Avenue", naming a square that board has not
+      got. Both names below come out of `board-israel.he.json`: the engine sent the *keys*
+      (`square_key`, and the GO square found by kind), the screen resolved them in that board's
+      namespace, and this asserts the sentence is built from those and not from anything written into
+      the card.
+    */
+    await inHebrew();
+    const street = i18n.t("tile.israel.t24", { ns: "board-israel" });
+    const go = i18n.t("tile.israel.t00", { ns: "board-israel" });
+    expect(go).toBe("דרך צלחה"); // the value the shapes in the review were chosen around
+    mount(
+      { cardId: "card.chance.advance_to_illinois_avenue", squareKey: "tile.israel.t24" },
+      { squareName: street, goName: go },
+    );
+
+    expect(body().textContent).toContain(street);
+    expect(body().textContent).toContain(go);
+    // And not a trace of the other board, which is the half that was broken.
+    expect(body().textContent).not.toContain(
+      i18n.t("tile.classic.illinois_avenue", { ns: "board-classic" }),
+    );
+    expect(body().textContent).not.toContain(i18n.t("tile.classic.go", { ns: "board-classic" }));
+    expect(body().textContent).not.toContain("{{");
   });
 
   it("declares no language of its own, because the body is now the page's language", async () => {
@@ -340,7 +384,11 @@ describe("a Hebrew game", () => {
     try {
       mount();
 
-      expect(body().textContent).toBe(i18n.getResource("en", "cards", KEY));
+      // Stripped of the bidi isolates the formatter wraps an LTR value in when the page is RTL —
+      // which is the situation this test is about, and not the thing it is asserting.
+      expect(stripIsolates(body().textContent)).toBe(
+        i18n.t(`cards:${KEY}`, { lng: "en", square: "", go: GO }),
+      );
       expect(body()).toHaveAttribute("lang", "en");
       expect(body()).toHaveAttribute("dir", "ltr");
     } finally {

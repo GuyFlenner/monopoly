@@ -91,8 +91,9 @@ def draw_and_resolve(state: GameState, player_id: PlayerId, deck: Deck) -> tuple
     # The resume is recorded by ``push_interrupt`` from the phase it suspends, so the
     # phase is set to where the turn will rest *before* the card goes on the stack.
     state = state._replace(phase=frame.resume).push_interrupt(frame)
+    drawn = CardDrawn(player=player_id, deck=deck, card_id=card_id, square_key=_square_key(state, card_id))
     state, produced = _run_remaining(state, player_id)
-    return state, (CardDrawn(player=player_id, deck=deck, card_id=card_id), *produced)
+    return state, (drawn, *produced)
 
 
 def resume(state: GameState) -> tuple[GameState, tuple[Event, ...]]:
@@ -154,6 +155,24 @@ def _at_step(state: GameState, step: int) -> GameState:
 
 def _is_keepable(card_id: str) -> bool:
     return card_id in GET_OUT_OF_JAIL_IDS.values()
+
+
+def _square_key(state: GameState, card_id: str) -> str | None:
+    """The active board's name key for the square this card names, or ``None`` (MON-752).
+
+    The decks are shared and the boards are not: a card carries a tile *index*, and index 24 is
+    Illinois Avenue on one board and a Tel Aviv street on the other. Resolving it here is what lets
+    the card's sentence name the square in front of the player instead of the classic board's — and
+    it stays a key, so the engine has still written no prose (ADR-003).
+
+    Only a **leading** :class:`~kesef_engine.decks.AdvanceTo` counts. That is the card whose sentence
+    is *about* a destination ("advance to …", "take a trip to …"); a card that happens to move a token
+    as a later step is not naming a square, and stamping one would put a square into a sentence that
+    never asked for it. "Nearest railroad" and "back three spaces" name no square by construction —
+    they say where to go without saying where that is.
+    """
+    first = CARD_EFFECTS[card_id][0]
+    return state.board.tile(first.tile).name_key if isinstance(first, AdvanceTo) else None
 
 
 # --- Enacting one step ------------------------------------------------------

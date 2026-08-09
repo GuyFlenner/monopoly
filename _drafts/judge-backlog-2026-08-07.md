@@ -243,6 +243,39 @@ is authoritative. Adding is better — belt-and-braces was the stated intent.
 
 ---
 
+## J-new — From the 2026-08-09 Hebrew review
+
+Both items come out of `_drafts/hebrew-review-2026-08-09.md` §"Owner decisions still needed".
+Neither is a defect the review was willing to fix unilaterally: each is a *convention* the repo
+already applies consistently, and changing one is a product call rather than a translation one.
+MON-752 and MON-753 shipped everything from that review that did not need the owner.
+
+### MON-754 — Deck labels vs the Israeli board's square names · **S · Fable** · Hebrew review §Owner decisions 2
+`card_reveal.label` says `קלף הזדמנות` while the Israeli board's own squares say `הפתעה` and
+`תיבת המזל` — so the card a player is handed is named one thing by the reveal and another by the
+square they landed on. The board catalogue is verified ground truth (MON-503) and is not the side
+to change, which leaves two options and an owner decision between them: **board-scoped deck naming**
+(`deck.chance` resolved per board, the shape `groupNames.ts` already uses for colour groups), or
+**square-based naming** (the reveal names the square it came from, which MON-752 has now made
+available as `CardDrawn.square_key`). Fable because it is a wire/naming-scope decision, not a
+string swap.
+- **Verify**: on the Israeli board the reveal, the log line and the square agree on what the deck
+  is called; on the classic board nothing changes.
+
+### MON-755 — `action.*` masculine imperatives vs the gender doc · **M · Sonnet, after the decision** · Hebrew review §Owner decisions 1
+~25 `action.*` button labels are masculine-singular imperatives (`בנה בית`, `קנה את המשבצת`, and the
+unambiguously gendered `אני נפרש`). Too systematic to be an accident, so the review did not treat it
+as a defect — but it contradicts `docs/MON-501_HEBREW_GENDER.md` as written, and the repo already
+demonstrates the gender-free alternative in `kids.action.*` (infinitives: `לקנות`,
+`לשלם {{amount}} ולצאת`). The owner decides which is true: **write the convention into the gender
+doc** (imperatives are the register for buttons, and the doc's technique governs sentences), or
+**move `action.*` to infinitives** to match `kids.action.*` and the doc. Mechanical either way once
+decided, hence Sonnet — but blocked until it is.
+- **Verify**: whichever way it goes, `docs/MON-501_HEBREW_GENDER.md` and `common.he.json` agree, and
+  a reader of one can predict the other.
+
+---
+
 ## Delegation plan (per the CLAUDE.md tiering: Fable plans/reviews, Opus implements, Sonnet fills)
 
 | Tier | Items | Character |

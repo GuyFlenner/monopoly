@@ -171,6 +171,15 @@ export interface CardRevealStep {
   readonly deck: Deck;
   /** The catalogue key for the card's text, straight off `CardDrawn.card_id`. */
   readonly cardId: string;
+  /**
+   * The name key of the square the card sends its holder to, off `CardDrawn.square_key` (MON-752).
+   *
+   * The engine resolved it against the board **in play**, which is the whole point: the decks are
+   * shared and the boards are not, so tile 24 is Illinois Avenue on one and a Tel Aviv street on the
+   * other. Still a key, so the sentence stays the catalogue's. `null` for a card that names no
+   * square.
+   */
+  readonly squareKey: string | null;
   /** What the draw moved, off the following `cash_changed.delta`. `null` when it moved nothing. */
   readonly delta: number | null;
   /** The seat's balance afterwards, off the same event. Read, never accumulated. */
@@ -351,6 +360,7 @@ export function stepFor(
         player: event.player,
         deck: event.deck,
         cardId: event.card_id,
+        squareKey: event.square_key ?? null,
         delta: money?.delta ?? null,
         balance: money?.balance ?? null,
         durationMs: durations.cardMs,

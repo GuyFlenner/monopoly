@@ -14,12 +14,13 @@
  *    covers and where the rest is covered.
  */
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { Announcer, AnnouncerProvider } from "@/a11y";
 import { ApiError, NO_RESPONSE } from "@/api";
+import { i18n } from "@/i18n";
 import { expectAxeClean } from "@/test/axe";
 
 import { EmptyState, ErrorState, LoadingState } from "./States";
@@ -132,6 +133,50 @@ describe("ErrorState", () => {
     expect(
       screen.getByText("The table is full — 4 games are already running."),
     ).toBeInTheDocument();
+  });
+
+  it("counts the seconds in a rate-limit refusal, so the sentence agrees with the number", () => {
+    /*
+      MON-753. `error.too_many_requests` is the one refusal whose sentence counts something, and the
+      two values a rate limiter produces most often were the two it got wrong: "try again in 1
+      seconds" in English, and in Hebrew a plural where the language wants a singular at one and a
+      *dual* at two. i18next selects a form from `count` and from nothing else, so the fix is half
+      catalogue and half this wiring — drop the `count` and the singular forms below never resolve.
+    */
+    const { unmount } = render(
+      <ErrorState error={new ApiError(429, "error.too_many_requests", { retry_after: 1 })} />,
+    );
+    expect(screen.getByText(/try again in a second\./i)).toBeInTheDocument();
+    unmount();
+
+    render(
+      <ErrorState error={new ApiError(429, "error.too_many_requests", { retry_after: 30 })} />,
+    );
+    expect(screen.getByText(/try again in 30 seconds\./i)).toBeInTheDocument();
+  });
+
+  it("uses Hebrew's dual for two seconds, which is the form CLDR keeps for it", async () => {
+    // The half an English-reading reviewer cannot see: Hebrew needs three forms here, and `_two` is
+    // the one no English catalogue would ever have taught the code to ask for.
+    await act(async () => {
+      await i18n.changeLanguage("he");
+    });
+    try {
+      const { unmount } = render(
+        <ErrorState error={new ApiError(429, "error.too_many_requests", { retry_after: 2 })} />,
+      );
+      expect(screen.getByText(/שתי שניות/)).toBeInTheDocument();
+      unmount();
+
+      render(
+        <ErrorState error={new ApiError(429, "error.too_many_requests", { retry_after: 1 })} />,
+      );
+      expect(screen.getByText(/בעוד שנייה/)).toBeInTheDocument();
+    } finally {
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+    }
   });
 
   it("falls back by HTTP class rather than throwing on a key the catalogue has not got", () => {

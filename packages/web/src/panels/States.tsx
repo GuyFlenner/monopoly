@@ -41,7 +41,7 @@ import { useOptionalAnnounce } from "@/a11y";
 import type { ApiError } from "@/api";
 import type { Copy } from "@/i18n/copy";
 import type { GroupNameScope } from "@/i18n/groupNames";
-import { resolveNoteParams } from "@/panels/EventLogLines";
+import { type LineParams, resolveNoteParams } from "@/panels/EventLogLines";
 
 /** Interpolation params for a state's sentence. The same shape the Announcer carries. */
 export type StateParams = Readonly<Record<string, string | number>>;
@@ -86,6 +86,25 @@ export type StateCopy = Copy;
  * still resolves, from `common`; it just cannot be renamed by the board being played, which is why
  * an in-game caller should pass one.
  */
+/**
+ * The seconds in a `429` are a *quantity*, and i18next selects a plural form from `count` alone.
+ *
+ * `error.too_many_requests` is the one refusal whose sentence counts something: Hebrew needs
+ * `בעוד שנייה` at one and a **dual** at two, and English needs "in a second" at one — the previous
+ * single form read "בעוד 1 שניות" and "in 1 seconds" at the two values a rate limiter produces most
+ * often (MON-753). The server sends `retry_after`, the catalogue interpolates `retry_after`, and
+ * this is the one line that also lets i18next *count* it.
+ *
+ * Copied rather than renamed, so the `{{retry_after}}` the `_other` form interpolates is still
+ * there; and applied to every error rather than to that key by name, so a future counted refusal
+ * gets the same treatment without another special case here.
+ */
+function withPluralCount(params: LineParams): LineParams {
+  return typeof params["retry_after"] === "number"
+    ? { ...params, count: params["retry_after"] }
+    : params;
+}
+
 export function useReasonText(boardId?: string): (error: ApiError) => string {
   const { t, i18n } = useTranslation();
   const scope = useMemo<GroupNameScope>(
@@ -98,8 +117,11 @@ export function useReasonText(boardId?: string): (error: ApiError) => string {
   );
   return useCallback(
     (error: ApiError) => {
-      const params = resolveNoteParams(error.params, scope);
-      if (i18n.exists(error.reasonKey)) {
+      const params = withPluralCount(resolveNoteParams(error.params, scope));
+      // The params go into `exists` as well as into `t`, because a pluralized key exists only under
+      // its suffixes: `error.too_many_requests` is stored as `_one`/`_two`/`_other`, and asking
+      // without the `count` that selects one of them answers "no" for a key that renders perfectly.
+      if (i18n.exists(error.reasonKey, params)) {
         return t(error.reasonKey, params);
       }
       const fallback =

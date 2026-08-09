@@ -16,13 +16,42 @@
 
 import { describe, expect, it } from "vitest";
 
-import { cardBodyLanguage, DECK_ICON, figureKey } from "./cardSurface";
+import type { TileView } from "@/api";
+
+import { cardBodyLanguage, DECK_ICON, figureKey, goNameKey } from "./cardSurface";
+
+function tile(index: number, kind: TileView["kind"], nameKey: string): TileView {
+  return { index, kind, name_key: nameKey, rent: [], is_ownable: false };
+}
 
 describe("the deck's glyph", () => {
   it("names an outline per deck, and no colour", () => {
     // Colour is deliberately absent: the two decks are told apart by outline here, by border style
     // in the component, and by their names in words (spec §5.4).
     expect(DECK_ICON).toEqual({ chance: "spark", community_chest: "chest" });
+  });
+});
+
+describe("the board's GO square (MON-752)", () => {
+  it("finds GO by kind, so a board that names it anything is still answered", () => {
+    // The Israeli board calls its GO דרך צלחה, which is the whole reason the cards interpolate a
+    // name instead of writing one down. A key, never a word: the catalogue still owns the prose.
+    expect(
+      goNameKey([tile(0, "go", "tile.israel.t00"), tile(1, "property", "tile.israel.t01")]),
+    ).toBe("tile.israel.t00");
+  });
+
+  it("does not assume GO sits at index 0", () => {
+    // Index 0 is where GO is on both shipped boards, which is exactly why reading it off the index
+    // would look correct forever and be a copy of a board fact rather than a question asked of one.
+    expect(
+      goNameKey([tile(0, "property", "tile.made_up.first"), tile(1, "go", "tile.made_up.go")]),
+    ).toBe("tile.made_up.go");
+  });
+
+  it("returns null for a board with no GO, rather than whatever is standing there", () => {
+    expect(goNameKey([tile(0, "property", "tile.made_up.first")])).toBeNull();
+    expect(goNameKey([])).toBeNull();
   });
 });
 

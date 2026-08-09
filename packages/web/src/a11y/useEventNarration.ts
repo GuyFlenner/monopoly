@@ -15,6 +15,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useEventFeed, useGame } from "@/game";
+import { goNameKey } from "@/panels/cardSurface";
 import { DECK_KEYS } from "@/panels/EventLogLines";
 
 import type { AnnouncementDraft } from "./announcements";
@@ -54,12 +55,30 @@ export function useEventNarration(): void {
    * (G-F17) — so a deck that has grown a card the catalogue has not must not take the narration down
    * with it. The fallback names the gap instead of speaking a raw key.
    */
-  const cardText = useCallback(
-    (cardId: string) => {
-      const key = `cards:${cardId}`;
-      return i18n.exists(key) ? t(key) : t("card_reveal.unnamed");
+  /**
+   * The square names a card sentence may interpolate (MON-752).
+   *
+   * `squareKey` is the engine's, resolved against the board *in play*; `go` comes from the same
+   * board's tiles through the helper the reveal uses, so the card a listener hears and the card they
+   * can see name the same squares. Both are resolved in the board's own namespace, which is what
+   * makes an Israeli game say רח' ביאליק where a classic one says Illinois Avenue.
+   */
+  const squareNames = useCallback(
+    (squareKey: string | null) => {
+      const namespace = board === undefined ? undefined : `board-${board.id}`;
+      const resolve = (key: string | null): string =>
+        key === null || namespace === undefined ? "" : t(key, { ns: namespace });
+      return { square: resolve(squareKey), go: resolve(goNameKey(board?.tiles ?? [])) };
     },
-    [t, i18n],
+    [board, t],
+  );
+
+  const cardText = useCallback(
+    (cardId: string, squareKey: string | null) => {
+      const key = `cards:${cardId}`;
+      return i18n.exists(key) ? t(key, squareNames(squareKey)) : t("card_reveal.unnamed");
+    },
+    [t, i18n, squareNames],
   );
 
   // The `deck.*` lookup lives here rather than in `narrate`, so the pure table keeps its property of

@@ -28,8 +28,13 @@ export interface NarrationContext {
    * A lookup like the two above — `CardDrawn.card_id` *is* `card.chance.advance_to_go`, so there is
    * nothing to derive. It is handed in rather than resolved here for the reason the whole file
    * exists: this table stays free of i18next, and the caller is where the `exists` guard belongs.
+   *
+   * `squareKey` is the event's own `square_key` (MON-752): the *active board's* name key for the
+   * square the card names, or `null`. Passed straight through, because which board is in play is
+   * not a fact this table has or wants — a listener on the Israeli board must hear the Israeli
+   * street, and the only thing that makes that happen is refusing to resolve the name here.
    */
-  readonly cardText: (cardId: string) => string;
+  readonly cardText: (cardId: string, squareKey: string | null) => string;
   /** A deck's translated name. The caller owns the `deck.*` lookup; this table owns no enum labels. */
   readonly deckName: (deck: EventOfType<"card_drawn">["deck"]) => string;
 }
@@ -119,7 +124,7 @@ export function narrate(event: GameEvent, context: NarrationContext): readonly A
         polite("a11y.card_drawn", {
           name: context.playerName(event.player),
           deck: context.deckName(event.deck),
-          card: context.cardText(event.card_id),
+          card: context.cardText(event.card_id, event.square_key ?? null),
         }),
       ];
 
