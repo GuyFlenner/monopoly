@@ -56,6 +56,30 @@ def _catalogue(name: str, language: str = "en") -> dict[str, str]:
     return _flatten(json.loads((LOCALES_DIR / f"{name}.{language}.json").read_text(encoding="utf-8")))
 
 
+CLDR_PLURAL_CATEGORIES = frozenset({"zero", "one", "two", "few", "many", "other"})
+"""The six categories CLDR defines. Which of them a language uses is `plurals.test.ts`'s question."""
+
+
+def _resolvable(catalogue: dict[str, str]) -> frozenset[str]:
+    """Every key the catalogue answers, with a plural family counted as its base.
+
+    The engine emits ``error.too_many_requests``; the catalogue may hold
+    ``error.too_many_requests_one`` / ``_two`` / ``_other`` and nothing under the bare name, because
+    i18next resolves the suffix from ``count`` at render time. Comparing raw key sets would call a
+    *correctly* pluralized sentence a missing one — the same trap ``_plural_base`` exists for in
+    ``test_locale_parity.py`` — so the base is what is compared here too.
+
+    Only a suffix that is an actual CLDR category is stripped, and the suffixed keys stay in the set
+    as well, so nothing that used to resolve stops resolving.
+    """
+    keys = set(catalogue)
+    for key in catalogue:
+        base, separator, suffix = key.rpartition("_")
+        if separator and suffix in CLDR_PLURAL_CATEGORIES:
+            keys.add(base)
+    return frozenset(keys)
+
+
 def _python_sources() -> list[Path]:
     """Every shipped module of the engine and the server, developer surfaces excluded."""
     return [
@@ -132,7 +156,7 @@ def test_every_rejection_reason_resolves() -> None:
     ``verdict.reason_key`` / ``error.reasonKey`` straight from the wire; the former has no
     ``exists`` guard, so a missing key is a blank panel rather than a bad sentence.
     """
-    catalogue = _catalogue("common")
+    catalogue = _resolvable(_catalogue("common"))
     missing = sorted(key for key in _emitted_literals("error") if key not in catalogue)
     assert not missing, f"the engine can reject with these, and no catalogue defines them: {missing}"
 
