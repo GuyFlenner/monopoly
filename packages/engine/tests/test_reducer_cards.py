@@ -189,6 +189,51 @@ def test_the_go_cards_name_the_boards_own_go_square() -> None:
     assert _square_key(events) == "tile.israel.t00"
 
 
+# --- The square a card is drawn *from* (MON-754) ----------------------------
+
+
+def _drawn_from_key(events: tuple[Event, ...]) -> str:
+    return next(event.drawn_from_key for event in events if isinstance(event, CardDrawn))
+
+
+@pytest.mark.parametrize(
+    ("tile", "board_id", "expected"),
+    (
+        # The classic board calls both card slots after the deck, so classic is unchanged — the
+        # point of the fix is the Israeli board, where the square is הפתעה / תיבת המזל, not the
+        # deck's generic name the reveal used to announce over it.
+        (CHANCE, "classic", "tile.classic.chance_2"),
+        (CHEST, "classic", "tile.classic.community_chest_2"),
+        (CHANCE, "israel", "tile.israel.t22"),
+        (CHEST, "israel", "tile.israel.t17"),
+    ),
+)
+def test_a_card_names_the_square_it_was_drawn_from_on_the_board_in_play(
+    tile: int, board_id: str, expected: str
+) -> None:
+    """The owner's bug (MON-754): the reveal labels a card with the deck's board-global name.
+
+    A card is dealt on a card tile, and that slot is "Chance" / "Community Chest" on the classic
+    board but ``הפתעה`` / ``תיבת המזל`` on the Israeli one. The deck is shared, so its name cannot
+    follow the board — the *square* the holder is standing on can, and ``drawn_from_key`` carries
+    the active board's name key for it. Still a key, never prose (ADR-003).
+    """
+    card_id = "card.chance.speeding_fine" if tile in CHANCE_TILES else "card.community_chest.doctor_fee"
+    _, events = _play(card_id, tile=tile, board_id=board_id)
+    assert _drawn_from_key(events) == expected
+
+
+def test_the_source_square_is_the_tile_drawn_on_not_the_one_the_card_moves_to() -> None:
+    """The source is read *before* the card runs, so a card that walks the token elsewhere still
+    names where it was drawn — ``drawn_from_key`` is the Chance square, ``square_key`` the
+    destination. The two point opposite ways, and conflating them would relabel the deck with
+    wherever the card happened to send the player.
+    """
+    _, events = _play("card.chance.advance_to_illinois_avenue", tile=CHANCE, board_id="israel")
+    assert _drawn_from_key(events) == "tile.israel.t22"  # the הפתעה square it was drawn on
+    assert _square_key(events) == "tile.israel.t24"  # where the card sent the token
+
+
 def test_a_drawn_card_goes_to_the_bottom_of_its_own_deck() -> None:
     filler = _filler("card.chance.speeding_fine")
     new_state, events = _play("card.chance.speeding_fine", deck=("card.chance.speeding_fine", filler))

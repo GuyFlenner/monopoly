@@ -52,7 +52,6 @@ import { useCopy } from "@/i18n/copy";
 import { Icon } from "@/theme";
 
 import { cardBodyLanguage, DECK_ICON, figureKey } from "./cardSurface";
-import { DECK_KEYS } from "./EventLogLines";
 
 import "@/animation/animation.css";
 
@@ -85,6 +84,16 @@ export interface CardRevealProps {
   readonly squareName: string | null;
   /** The translated name of the board's GO square, for the `{{go}}` half of the same sentences. */
   readonly goName: string;
+  /**
+   * The deck's label, following the square this card was *drawn from* (MON-754).
+   *
+   * Resolved by the screen from `card.drawnFromKey` — the *engine's* name key for the Chance /
+   * Community Chest square on the board in play. The classic board calls that slot after the deck,
+   * so this is "Chance" / "Community Chest" and nothing changes; the Israeli board prints `הפתעה` /
+   * `תיבת המזל` on the square, and the reveal now says *that* instead of the deck's board-global
+   * name. Only the word follows the board — the glyph and edge below still key off `card.deck`.
+   */
+  readonly deckName: string;
   /** `presentationFor(state.ruleset).kids` — larger type and the simpler wording (MON-604). */
   readonly kids: boolean;
   /** Put the card down. `GameScreen` wires this to the queue's own `skip`. */
@@ -104,6 +113,7 @@ export function CardReveal({
   playerName,
   squareName,
   goName,
+  deckName,
   kids,
   onDismiss,
   returnFocusRef,
@@ -137,8 +147,6 @@ export function CardReveal({
     holdsFocus.current = false;
     onDismiss();
   }, [onDismiss, returnFocusRef]);
-
-  const deckName = t(DECK_KEYS[card.deck]);
 
   /*
     The card's own sentence, from the `cards` namespace.

@@ -409,6 +409,52 @@ def test_no_card_names_a_square_belonging_to_a_board() -> None:
     )
 
 
+DECK_LABEL_KEYS = ("card_reveal.label", "a11y.card_drawn", "log.card_drawn")
+"""Every common-namespace sentence that labels a drawn card with its deck.
+
+``card_reveal.label`` is the card held up on the board; ``a11y.card_drawn`` and ``log.card_drawn`` are
+the same draw as a screen-reader announcement and a log line. All three name the deck through
+``{{deck}}`` — which is what lets MON-754 feed that slot the square the board in play actually prints
+(``הפתעה`` rather than the deck's board-global name) without any of them spelling a board's word."""
+
+
+def test_a_deck_label_interpolates_its_deck_rather_than_spelling_a_board_word() -> None:
+    """MON-754 — the deck label follows the board, so it must never hardcode a board's square name.
+
+    The card reveal used to announce the deck's board-global name (``קלף הזדמנות``) over a square the
+    Israeli board calls ``הפתעה``. The fix feeds ``{{deck}}`` the *source* square's name, resolved
+    against the board in play — so these templates must keep the placeholder and must not grow a
+    spelled-out square name, the same defect class MON-752 fixed for the card *sentence*.
+
+    The forbidden set is the board catalogues themselves, so it goes red against a square name copied
+    from either board in either language rather than against one hand-picked word. It is green today —
+    the templates already interpolate — and its job is to keep the next edit from quietly replacing
+    ``{{deck}}`` with a word off one board, which is exactly the bug that started here.
+    """
+    forbidden: dict[str, str] = {}
+    for board_id in BOARD_IDS:
+        for language in LANGUAGES:
+            for key, value in _load(f"board-{board_id}", language).items():
+                if key.startswith("tile."):
+                    forbidden.setdefault(value, f"board-{board_id}.{language} {key}")
+
+    offenders: dict[str, list[str]] = {}
+    for language in LANGUAGES:
+        catalogue = _load("common", language)
+        for label_key in DECK_LABEL_KEYS:
+            text = catalogue[label_key]
+            assert "{{deck}}" in text, (
+                f"{label_key} [{language}] must interpolate the deck label, not fix a word for it: {text!r}"
+            )
+            named = sorted(f"{value!r} ({forbidden[value]})" for value in forbidden if value in text)
+            if named:
+                offenders[f"{label_key} [{language}]"] = named
+    assert not offenders, (
+        "a deck label spells a board's square name — feed `{{deck}}` the engine's `drawn_from_key` "
+        f"instead, so the label names the board in play (MON-754): {offenders}"
+    )
+
+
 def test_the_card_catalogue_covers_every_card_id() -> None:
     """Every id `decks.py` can deal needs a catalogue entry, or a card lands face blank.
 

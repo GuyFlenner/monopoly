@@ -91,7 +91,13 @@ def draw_and_resolve(state: GameState, player_id: PlayerId, deck: Deck) -> tuple
     # The resume is recorded by ``push_interrupt`` from the phase it suspends, so the
     # phase is set to where the turn will rest *before* the card goes on the stack.
     state = state._replace(phase=frame.resume).push_interrupt(frame)
-    drawn = CardDrawn(player=player_id, deck=deck, card_id=card_id, square_key=_square_key(state, card_id))
+    drawn = CardDrawn(
+        player=player_id,
+        deck=deck,
+        card_id=card_id,
+        square_key=_square_key(state, card_id),
+        drawn_from_key=_drawn_from_key(state, player_id),
+    )
     state, produced = _run_remaining(state, player_id)
     return state, (drawn, *produced)
 
@@ -173,6 +179,18 @@ def _square_key(state: GameState, card_id: str) -> str | None:
     """
     first = CARD_EFFECTS[card_id][0]
     return state.board.tile(first.tile).name_key if isinstance(first, AdvanceTo) else None
+
+
+def _drawn_from_key(state: GameState, player_id: PlayerId) -> str:
+    """The active board's name key for the square this card is being drawn *from* (MON-754).
+
+    A card is only ever dealt on a card tile, so "where it was drawn from" is simply the square the
+    holder is standing on — read here, before any step of the card can move the token. The decks are
+    shared and the boards are not: the same slot is "Chance" on the classic board and ``הפתעה`` on the
+    Israeli one, so the reveal must name the square in front of the player rather than the deck's
+    generic name. It stays a key, so the engine has still written no prose (ADR-003).
+    """
+    return state.board.tile(state.player(player_id).position).name_key
 
 
 # --- Enacting one step ------------------------------------------------------

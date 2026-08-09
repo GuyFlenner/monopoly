@@ -591,6 +591,13 @@ export function GameScreen({ onLeave }: GameScreenProps): React.JSX.Element {
                   motion.card.squareKey === null ? null : squareName(motion.card.squareKey)
                 }
                 goName={squareName(goNameKey(board.tiles))}
+                /*
+                  The deck's label follows the square the card was drawn from (MON-754). `drawnFromKey`
+                  is the engine's, resolved against the board in play — so the Israeli board's `הפתעה` /
+                  `תיבת המזל` labels the reveal instead of the deck's board-global name, and the classic
+                  board (whose square is named after the deck) is unchanged.
+                */
+                deckName={squareName(motion.card.drawnFromKey)}
                 kids={presentation.kids}
                 onDismiss={motion.skip}
                 returnFocusRef={skipButtonRef}

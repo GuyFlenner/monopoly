@@ -103,7 +103,13 @@ function drew(
   cardId = "card.chance.advance_to_go",
   deck: "chance" | "community_chest" = "chance",
 ): LoggedEvent {
-  return frame({ type: "card_drawn", player, deck, card_id: cardId });
+  return frame({
+    type: "card_drawn",
+    player,
+    deck,
+    card_id: cardId,
+    drawn_from_key: "tile.classic.chance_1",
+  });
 }
 
 /** A cash change with a stated reason, which is what tells a card's own money from money it led to. */
@@ -341,7 +347,13 @@ describe("a drawn card", () => {
   it("never reaches across a later draw or a new turn for a figure", () => {
     const later = [
       drew(1),
-      frame({ type: "card_drawn", player: 1, deck: "community_chest", card_id: "card.chest.gift" }),
+      frame({
+        type: "card_drawn",
+        player: 1,
+        deck: "community_chest",
+        card_id: "card.chest.gift",
+        drawn_from_key: "tile.classic.community_chest_1",
+      }),
       paid(1, 25, "card"),
     ];
     // Planned with room, because the claim is about *which payment a card claims* and a compressed
@@ -351,7 +363,16 @@ describe("a drawn card", () => {
     expect(cards(plan(later, { budgetMs: 60_000 }))[0]?.delta).toBeNull();
 
     const nextTurn: readonly LoggedEvent[] = [
-      { seq: 90, event: { type: "card_drawn", player: 1, deck: "chance", card_id: "card.x" } },
+      {
+        seq: 90,
+        event: {
+          type: "card_drawn",
+          player: 1,
+          deck: "chance",
+          card_id: "card.x",
+          drawn_from_key: "tile.classic.chance_1",
+        },
+      },
       { seq: 91, event: { type: "turn_started", player: 2, turn_number: 9 } },
       {
         seq: 92,
