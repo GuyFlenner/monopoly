@@ -52,10 +52,10 @@ jobs:
     name: Build + smoke-test the Pages artifact
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -73,7 +73,7 @@ jobs:
           ls -1 *.whl | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))' > manifest.json
           cat manifest.json
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -100,7 +100,7 @@ jobs:
           VITE_BASE: ${{ env.SITE_BASE }}
         run: npm run test:e2e:pages
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: pages-smoke-report
